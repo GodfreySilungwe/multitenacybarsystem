@@ -1,0 +1,328 @@
+const express = require('express');
+const router = express.Router();
+const bcrypt = require('bcryptjs');
+const Customer = require('../models/Customer');
+const Order = require('../models/Order');
+const Product = require('../models/Product');
+const User = require('../models/User');
+const CustomerOrderRequest = require('../models/CustomerOrderRequest');
+const CustomerPaymentRequest = require('../models/CustomerPaymentRequest');
+
+const toNumber = (value, fallback = 0) => {
+  const numericValue = Number(value);
+  return Number.isFinite(numericValue) ? numericValue : fallback;
+};
+
+const getOrderOutstandingBalance = (order) => {
+  const totalAmount = toNumber(order?.totalAmount, 0);
+  const amountPaid = toNumber(order?.amountPaid, 0);
+  const recordedBalance = toNumber(order?.balanceDue, totalAmount - amountPaid);
+  return Math.max(0, recordedBalance);
+};
+
+const buildCustomerCreditSummary = async (customerId) => {
+  try {
+    const orders = await Order.find({
+      customer: customerId,
+      reversed: { $ne: true },
+      paymentMethod: 'credit',
+      balanceDue: { $gt: 0 }
+    })
+      .populate('items.product', 'name')
+      .sort({ createdAt: 1 });
+
+    const summary = await Promise.all(
+      (orders || [])
+        .filter((order) => order?.paymentMethod === 'credit')
+        .map(async (order) => {
+          const balanceDue = getOrderOutstandingBalance(order);
+          if (balanceDue <= 0) {
+            return null;
+          }
+
+          const products = await Promise.all((order.items || []).map(async (item) => {
+            const productId = item?.product?._id || item?.product || item?.productId;
+            const product = productId ? await Product.findById(productId) : null;
+            return {
+              name: product?.name || item.product?.name || 'Unknown product',
+              quantity: Number(item.quantity || 0),
+              price: Number(item.priceAtSale || 0),
+              subtotal: Number(item.subtotal || 0)
+            };
+          }));
+
+          return {
+            _id: order._id,
+            orderNumber: order.orderNumber,
+            createdAt: order.createdAt,
+            date: order.createdAt ? new Date(order.createdAt).toLocaleDateString() : '',
+            totalAmount: Number(order.totalAmount || 0),
+            amountPaid: Number(order.amountPaid || 0),
+            balanceDue,
+            paymentStatus: order.paymentStatus || 'partial',
+            products
+          };
+        })
+    );
+
+    return summary.filter(Boolean);
+  } catch (error) {
+    console.error('Error building customer credit summary:', error);
+    return [];
+  }
+};
+
+const deleteCustomerRelatedData = async (customerId) => {
+  if (!customerId) {
+    return;
+  }
+
+  const [requests, payments, orders] = await Promise.all([
+    CustomerOrderRequest.find({ customerId }),
+    CustomerPaymentRequest.find({ customerId }),
+    Order.find({ customer: customerId })
+  ]);
+
+  await Promise.all([
+    ...requests.map((request) => request.delete()),
+    ...payments.map((payment) => payment.delete()),
+    ...orders.map((order) => order.delete())
+  ]);
+};
+
+const enrichCustomer = async (customer) => {
+  if (!customer) return customer;
+
+  const creditSummary = await buildCustomerCreditSummary(customer._id || customer.id);
+  const outstandingBalance = creditSummary.reduce((sum, item) => sum + Number(item.balanceDue || 0), 0);
+
+  return {
+    ...customer,
+    // always derive creditBalance from outstanding credit orders to avoid drift
+    creditBalance: outstandingBalance,
+    creditSummary,
+    accountUsername: customer.accountUsername || customer.username || '',
+    accountPassword: customer.accountPassword || customer.password || ''
+  };
+};
+
+// Get all customers
+router.get('/', async (req, res) => {
+  try {
+    const customers = await Customer.find().sort({ name: 1 });
+    const enrichedCustomers = await Promise.all(customers.map(enrichCustomer));
+    res.json(enrichedCustomers);
+  } catch (error) {
+    res.status(500).json({ message: error.message });
+  }
+});
+
+// Get single customer
+router.get('/:id', async (req, res) => {
+  try {
+    const customer = await Customer.findById(req.params.id);
+    if (!customer) {
+      return res.status(404).json({ message: 'Customer not found' });
+    }
+    const enrichedCustomer = await enrichCustomer(customer);
+    res.json(enrichedCustomer);
+  } catch (error) {
+    res.status(500).json({ message: error.message });
+  }
+});
+
+// Create customer
+router.post('/', async (req, res) => {
+  try {
+    const { name, phone, gender, creditBalance = 0, username, password } = req.body;
+
+    const normalizedUsername = (username || phone || `${name}`.toLowerCase().replace(/\s+/g, '')).trim();
+    const normalizedPassword = password || `${phone || 'customer'}123`;
+
+    const existingCustomer = await Customer.findOne({ phone });
+    if (existingCustomer) {
+      return res.status(400).json({ message: 'Phone number already exists' });
+    }
+
+    const existingUser = await User.findOne({ $or: [{ username: normalizedUsername }, { email: phone }] });
+    if (existingUser) {
+      return res.status(400).json({ message: 'Username already exists' });
+    }
+
+    const customer = new Customer({
+      name,
+      phone,
+      gender,
+      creditBalance: toNumber(creditBalance, 0),
+      totalSpent: 0,
+      loyaltyPoints: 0
+    });
+    await customer.save();
+
+    const salt = await bcrypt.genSalt(10);
+    const hashedPassword = await bcrypt.hash(normalizedPassword, salt);
+    const accountUser = new User({
+      username: normalizedUsername,
+      email: phone,
+      password: hashedPassword,
+      fullName: name,
+      phone,
+      role: 'customer',
+      isActive: true
+    });
+    await accountUser.save();
+
+    const updatedCustomer = await Customer.findById(customer._id);
+    updatedCustomer.accountUserId = accountUser._id;
+    updatedCustomer.accountUsername = normalizedUsername;
+    updatedCustomer.accountPassword = normalizedPassword;
+    await updatedCustomer.save();
+
+    res.status(201).json({
+      customer: updatedCustomer,
+      credentials: {
+        username: normalizedUsername,
+        password: normalizedPassword
+      }
+    });
+  } catch (error) {
+    res.status(400).json({ message: error.message });
+  }
+});
+
+// Update customer
+router.put('/:id', async (req, res) => {
+  try {
+    const updates = {
+      ...req.body,
+      creditBalance: toNumber(req.body.creditBalance, 0)
+    };
+
+    const customer = await Customer.findByIdAndUpdate(
+      req.params.id,
+      updates,
+      { new: true, runValidators: true }
+    );
+    if (!customer) {
+      return res.status(404).json({ message: 'Customer not found' });
+    }
+    res.json(customer);
+  } catch (error) {
+    res.status(400).json({ message: error.message });
+  }
+});
+
+// Pay part or all of a customer credit balance
+router.post('/:id/pay', async (req, res) => {
+  try {
+    const customer = await Customer.findById(req.params.id);
+    if (!customer) {
+      return res.status(404).json({ message: 'Customer not found' });
+    }
+
+    const requestedAmount = toNumber(req.body.amount, 0);
+    const paymentMethod = ['cash', 'airtel_money', 'mpamba', 'bank_account'].includes(req.body.paymentMethod)
+      ? req.body.paymentMethod
+      : 'cash';
+    const paymentReference = String(req.body.paymentReference || '').trim();
+
+    if (!Number.isFinite(requestedAmount) || requestedAmount <= 0) {
+      return res.status(400).json({ message: 'Payment amount must be greater than zero' });
+    }
+
+    if (paymentMethod !== 'cash' && !paymentReference) {
+      return res.status(400).json({ message: 'Please provide a transaction reference or payer name for this payment method.' });
+    }
+
+    const unpaidOrders = await Order.find({
+      customer: req.params.id,
+      reversed: { $ne: true },
+      paymentMethod: 'credit',
+      balanceDue: { $gt: 0 }
+    })
+      .populate('items.product', 'name')
+      .sort({ createdAt: 1 });
+
+    const outstandingBalance = (unpaidOrders || [])
+      .reduce((sum, order) => sum + Number(order.balanceDue || 0), 0);
+
+    const paymentAmount = Math.min(requestedAmount, outstandingBalance);
+    let remainingPayment = paymentAmount;
+
+    const updatedRequests = [];
+
+    for (const order of unpaidOrders || []) {
+      if (order.paymentMethod !== 'credit' || Number(order.balanceDue || 0) <= 0 || remainingPayment <= 0) {
+        continue;
+      }
+
+      const currentBalance = toNumber(order.balanceDue, 0);
+      const appliedAmount = Math.min(remainingPayment, currentBalance);
+      remainingPayment -= appliedAmount;
+
+      order.balanceDue = Math.max(0, currentBalance - appliedAmount);
+      order.amountPaid = toNumber(order.amountPaid, 0) + appliedAmount;
+      order.paymentStatus = order.balanceDue > 0 ? 'partial' : 'paid';
+      order.paymentMethod = order.paymentMethod || 'credit';
+      await order.save();
+
+      const linkedRequests = await CustomerOrderRequest.find({
+        $or: [
+          { linkedOrderId: order._id },
+          { _id: order.sourceRequestId }
+        ]
+      });
+
+      for (const requestDoc of linkedRequests || []) {
+        requestDoc.paymentMethod = paymentMethod;
+        requestDoc.paymentReference = paymentReference;
+        requestDoc.amountPaid = toNumber(requestDoc.amountPaid, 0) + appliedAmount;
+        requestDoc.paymentStatus = order.balanceDue > 0 ? 'partial' : 'paid';
+        requestDoc.paidAt = new Date().toISOString();
+        await requestDoc.save();
+        updatedRequests.push(requestDoc);
+      }
+    }
+
+    const updatedCustomer = await Customer.findById(req.params.id);
+    if (updatedCustomer) {
+      const creditSummary = await buildCustomerCreditSummary(req.params.id);
+      const updatedOutstandingBalance = creditSummary.reduce((sum, item) => sum + Number(item.balanceDue || 0), 0);
+      updatedCustomer.creditBalance = updatedOutstandingBalance;
+      updatedCustomer.lastCreditPayment = paymentAmount;
+      await updatedCustomer.save();
+      const enrichedCustomer = await enrichCustomer(updatedCustomer);
+      return res.json(enrichedCustomer);
+    }
+
+    res.json(customer);
+  } catch (error) {
+    res.status(400).json({ message: error.message });
+  }
+});
+
+// Delete customer
+router.delete('/:id', async (req, res) => {
+  try {
+    const customer = await Customer.findById(req.params.id);
+    if (!customer) {
+      return res.status(404).json({ message: 'Customer not found' });
+    }
+
+    await deleteCustomerRelatedData(customer._id || customer.id);
+
+    if (customer.accountUserId) {
+      const linkedUser = await User.findById(customer.accountUserId);
+      if (linkedUser) {
+        await linkedUser.delete();
+      }
+    }
+
+    await customer.delete();
+    res.json({ message: 'Customer deleted successfully' });
+  } catch (error) {
+    res.status(500).json({ message: error.message });
+  }
+});
+
+module.exports = router;
