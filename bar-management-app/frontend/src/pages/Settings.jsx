@@ -264,11 +264,16 @@ const Settings = () => {
     }
 
     try {
+      await api.patch('/auth/change-password', {
+        currentPassword: passwordData.currentPassword,
+        newPassword: passwordData.newPassword
+      });
       setMessage('✅ Password changed successfully!');
       setPasswordData({ currentPassword: '', newPassword: '', confirmPassword: '' });
       setTimeout(() => setMessage(''), 3000);
     } catch (err) {
-      setError('❌ Failed to change password');
+      console.error('Password change failed:', err);
+      setError(err.response?.data?.message || '❌ Failed to change password');
       setTimeout(() => setError(''), 3000);
     } finally {
       setLoading(false);

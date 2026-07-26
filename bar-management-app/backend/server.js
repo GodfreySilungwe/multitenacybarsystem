@@ -10,6 +10,7 @@ const { ensureTableExists } = require('./lib/dynamodb');
 const { tenantContextMiddleware } = require('./lib/tenantContext');
 const { optionalAuth } = require('./middleware/auth');
 const barRoutes = require('./routes/bars');
+const barApplicationRoutes = require('./routes/bar-applications');
 
 dotenv.config();
 
@@ -90,6 +91,7 @@ const userRoutes = require('./routes/users');
 
 // Use routes
 app.use(['/api/auth', '/auth'], authRoutes);
+app.use(['/api/bar-applications', '/bar-applications'], barApplicationRoutes);
 app.use(['/api/bars', '/bars'], barRoutes);
 app.use(['/api/categories', '/categories'], categoryRoutes);
 app.use(['/api/products', '/products'], productRoutes);

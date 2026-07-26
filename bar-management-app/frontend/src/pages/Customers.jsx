@@ -308,7 +308,7 @@ const Customers = () => {
                       style={styles.paymentReferenceInput}
                       value={settleReferences[customer._id] || ''}
                       onChange={(e) => setSettleReferences(prev => ({ ...prev, [customer._id]: e.target.value }))}
-                      placeholder="Transaction reference or payer name"
+                      placeholder="customer name or ref"
                     />
                   )}
                   <input

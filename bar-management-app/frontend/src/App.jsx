@@ -16,6 +16,8 @@ import Suppliers from './pages/Suppliers';
 import PurchaseOrders from './pages/PurchaseOrders';
 import Settings from './pages/Settings';
 import Bars from './pages/Bars';
+import BarApply from './pages/BarApply';
+import BarApplications from './pages/BarApplications';
 
 const HomeRoute = () => {
   const { user, isAuthenticated, loading } = useAuth();
@@ -129,6 +131,14 @@ function App() {
             <ProtectedRoute ownerOnly>
               <Layout>
                 <Settings />
+              </Layout>
+            </ProtectedRoute>
+          } />
+          <Route path="/apply" element={<BarApply />} />
+          <Route path="/bar-applications" element={
+            <ProtectedRoute globalOwnerOnly>
+              <Layout>
+                <BarApplications />
               </Layout>
             </ProtectedRoute>
           } />

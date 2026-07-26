@@ -133,6 +133,10 @@ const Login = () => {
           </button>
         </form>
 
+        <div style={styles.applySection}>
+          <p style={styles.applyText}>New bar owner? <a href="/apply" style={styles.applyLink}>Apply here</a> and wait for approval from the global owner.</p>
+        </div>
+
         <div style={styles.branding}>
           <div style={styles.brandRow}>
             <span style={styles.brandLabel}>Designed by</span>
@@ -289,6 +293,19 @@ const styles = {
     alignItems: 'center',
     flexWrap: 'wrap',
     justifyContent: 'center'
+  },
+  applySection: {
+    marginTop: '20px',
+    textAlign: 'center'
+  },
+  applyText: {
+    color: '#475569',
+    fontSize: '14px'
+  },
+  applyLink: {
+    color: '#e94560',
+    textDecoration: 'none',
+    fontWeight: '700'
   },
   brandLabel: {
     fontSize: '11px',

@@ -41,7 +41,8 @@ const Sidebar = ({ isMobileOpen = false, onClose = () => {} }) => {
     { path: '/suppliers', label: 'Suppliers', icon: faTruck },
     { path: '/purchase-orders', label: 'Purchase Orders', icon: faShoppingCart },
     { path: '/settings', label: 'Settings', icon: faCog },
-    { path: '/bars', label: 'Bars', icon: faBuilding, globalOnly: true }
+    { path: '/bars', label: 'Bars', icon: faBuilding, globalOnly: true },
+    { path: '/bar-applications', label: 'Applications', icon: faClipboardList, globalOnly: true }
   ];
 
   const role = user?.role;
@@ -50,7 +51,7 @@ const Sidebar = ({ isMobileOpen = false, onClose = () => {} }) => {
   const showGlobalOwner = role === 'owner' && !user?.barId;
 
   const allowedNavByRole = {
-    globalOwner: ['/', '/products', '/categories', '/customers', '/reports', '/inventory', '/suppliers', '/purchase-orders', '/settings', '/bars'],
+    globalOwner: ['/', '/products', '/categories', '/customers', '/reports', '/inventory', '/suppliers', '/purchase-orders', '/settings', '/bars', '/bar-applications'],
     owner: ['/', '/products', '/categories', '/customers', '/reports', '/inventory', '/suppliers', '/purchase-orders', '/settings'],
     sales: ['/', '/pos', '/customers', '/orders'],
     customer: ['/customer-portal']
