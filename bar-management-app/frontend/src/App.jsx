@@ -18,6 +18,7 @@ import Settings from './pages/Settings';
 import Bars from './pages/Bars';
 import BarApply from './pages/BarApply';
 import BarApplications from './pages/BarApplications';
+import ApplicationSubmitted from './pages/ApplicationSubmitted';
 
 const HomeRoute = () => {
   const { user, isAuthenticated, loading } = useAuth();
@@ -70,7 +71,7 @@ function App() {
             </ProtectedRoute>
           } />
           <Route path="/customers" element={
-            <ProtectedRoute>
+            <ProtectedRoute barOwnerOnly>
               <Layout>
                 <Customers />
               </Layout>
@@ -86,55 +87,56 @@ function App() {
 
           {/* Owner Only Routes */}
           <Route path="/products" element={
-            <ProtectedRoute ownerOnly>
+            <ProtectedRoute barOwnerOnly>
               <Layout>
                 <Products />
               </Layout>
             </ProtectedRoute>
           } />
           <Route path="/categories" element={
-            <ProtectedRoute ownerOnly>
+            <ProtectedRoute barOwnerOnly>
               <Layout>
                 <Categories />
               </Layout>
             </ProtectedRoute>
           } />
           <Route path="/reports" element={
-            <ProtectedRoute ownerOnly>
+            <ProtectedRoute barOwnerOnly>
               <Layout>
                 <Reports />
               </Layout>
             </ProtectedRoute>
           } />
           <Route path="/inventory" element={
-            <ProtectedRoute ownerOnly>
+            <ProtectedRoute barOwnerOnly>
               <Layout>
                 <Inventory />
               </Layout>
             </ProtectedRoute>
           } />
           <Route path="/suppliers" element={
-            <ProtectedRoute ownerOnly>
+            <ProtectedRoute barOwnerOnly>
               <Layout>
                 <Suppliers />
               </Layout>
             </ProtectedRoute>
           } />
           <Route path="/purchase-orders" element={
-            <ProtectedRoute ownerOnly>
+            <ProtectedRoute barOwnerOnly>
               <Layout>
                 <PurchaseOrders />
               </Layout>
             </ProtectedRoute>
           } />
           <Route path="/settings" element={
-            <ProtectedRoute ownerOnly>
+            <ProtectedRoute barOwnerOnly>
               <Layout>
                 <Settings />
               </Layout>
             </ProtectedRoute>
           } />
           <Route path="/apply" element={<BarApply />} />
+          <Route path="/application-submitted" element={<ApplicationSubmitted />} />
           <Route path="/bar-applications" element={
             <ProtectedRoute globalOwnerOnly>
               <Layout>

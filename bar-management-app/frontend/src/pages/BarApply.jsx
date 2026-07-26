@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import api from '../api/api';
 import PageContainer from './PageContainer';
 import UnifiedCard from '../components/common/UnifiedCard';
@@ -15,6 +16,7 @@ const BarApply = () => {
     ownerUsername: '',
     ownerPassword: ''
   });
+  const navigate = useNavigate();
   const [loading, setLoading] = useState(false);
   const [message, setMessage] = useState('');
   const [error, setError] = useState('');
@@ -41,18 +43,8 @@ const BarApply = () => {
         ownerPassword: form.ownerPassword
       };
 
-      const res = await api.post('/bar-applications', payload);
-      setMessage(res.data?.message || 'Your application was submitted successfully.');
-      setForm({
-        barName: '',
-        barCode: '',
-        description: '',
-        ownerFullName: '',
-        ownerEmail: '',
-        ownerPhone: '',
-        ownerUsername: '',
-        ownerPassword: ''
-      });
+      await api.post('/bar-applications', payload);
+      navigate('/application-submitted');
     } catch (err) {
       console.error('Application submission failed:', err);
       setError(err.response?.data?.message || 'Failed to submit application.');

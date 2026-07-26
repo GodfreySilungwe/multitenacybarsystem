@@ -89,6 +89,7 @@ export const AuthProvider = ({ children }) => {
       logout,
       isAuthenticated: Boolean(token),
       isOwner: user?.role === 'owner',
+      isBarOwner: user?.role === 'owner' && !!user?.barId,
       isGlobalOwner: user?.role === 'owner' && !user?.barId,
       isSales: user?.role === 'sales'
     }}>

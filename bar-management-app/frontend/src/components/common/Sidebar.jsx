@@ -1,3 +1,4 @@
+import { useEffect, useState } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 import { 
@@ -17,30 +18,47 @@ import {
   faSignOutAlt
 } from '@fortawesome/free-solid-svg-icons';
 import { useAuth } from '../../context/AuthContext';
+import api from '../../api/api';
 
 const Sidebar = ({ isMobileOpen = false, onClose = () => {} }) => {
   const location = useLocation();
   const navigate = useNavigate();
   const { logout, user } = useAuth();
+  const [pendingApplications, setPendingApplications] = useState(0);
 
   const handleLogout = () => {
     logout();
     onClose();
     navigate('/login');
   };
+
+  useEffect(() => {
+    const loadPendingCount = async () => {
+      try {
+        const res = await api.get('/bar-applications');
+        const apps = res.data || [];
+        const pending = apps.filter((application) => application.status === 'pending').length;
+        setPendingApplications(pending);
+      } catch (err) {
+        console.error('Could not load pending application count:', err);
+      }
+    };
+
+    loadPendingCount();
+  }, []);
   
   const navItems = [
-    { path: '/', label: 'Dashboard', icon: faChartBar },
-    { path: '/pos', label: 'POS', icon: faCashRegister },
-    { path: '/products', label: 'SMART BAR', icon: faTools },
-    { path: '/categories', label: 'Categories', icon: faTags },
-    { path: '/customers', label: 'Customers', icon: faUsers },
-    { path: '/orders', label: 'Orders', icon: faClipboardList },
-    { path: '/reports', label: 'Reports', icon: faChartPie },
-    { path: '/inventory', label: 'Inventory', icon: faClipboardCheck },
-    { path: '/suppliers', label: 'Suppliers', icon: faTruck },
-    { path: '/purchase-orders', label: 'Purchase Orders', icon: faShoppingCart },
-    { path: '/settings', label: 'Settings', icon: faCog },
+    { path: '/', label: 'Dashboard', icon: faChartBar, authOnly: true },
+    { path: '/pos', label: 'POS', icon: faCashRegister, salesOnly: true },
+    { path: '/products', label: 'SMART BAR', icon: faTools, barOwnerOnly: true },
+    { path: '/categories', label: 'Categories', icon: faTags, barOwnerOnly: true },
+    { path: '/customers', label: 'Customers', icon: faUsers, barOwnerOnly: true },
+    { path: '/orders', label: 'Orders', icon: faClipboardList, salesOnly: true },
+    { path: '/reports', label: 'Reports', icon: faChartPie, barOwnerOnly: true },
+    { path: '/inventory', label: 'Inventory', icon: faClipboardCheck, barOwnerOnly: true },
+    { path: '/suppliers', label: 'Suppliers', icon: faTruck, barOwnerOnly: true },
+    { path: '/purchase-orders', label: 'Purchase Orders', icon: faShoppingCart, barOwnerOnly: true },
+    { path: '/settings', label: 'Settings', icon: faCog, ownerOnly: true },
     { path: '/bars', label: 'Bars', icon: faBuilding, globalOnly: true },
     { path: '/bar-applications', label: 'Applications', icon: faClipboardList, globalOnly: true }
   ];
@@ -50,30 +68,24 @@ const Sidebar = ({ isMobileOpen = false, onClose = () => {} }) => {
   const showMyAccount = role === 'customer';
   const showGlobalOwner = role === 'owner' && !user?.barId;
 
-  const allowedNavByRole = {
-    globalOwner: ['/', '/products', '/categories', '/customers', '/reports', '/inventory', '/suppliers', '/purchase-orders', '/settings', '/bars', '/bar-applications'],
-    owner: ['/', '/products', '/categories', '/customers', '/reports', '/inventory', '/suppliers', '/purchase-orders', '/settings'],
-    sales: ['/', '/pos', '/customers', '/orders'],
-    customer: ['/customer-portal']
-  };
-
   const filteredNavItems = navItems.filter((item) => {
-    if (item.globalOnly && !showGlobalOwner) {
-      return false;
-    }
     if (showMyAccount) {
-      return allowedNavByRole.customer.includes(item.path);
+      return item.customerOnly === true || item.path === '/customer-portal';
     }
+
     if (role === 'sales') {
-      return allowedNavByRole.sales.includes(item.path);
+      return item.salesOnly === true || item.path === '/';
     }
+
     if (showGlobalOwner) {
-      return allowedNavByRole.globalOwner.includes(item.path);
+      return item.globalOnly === true || item.path === '/' || item.ownerOnly === true;
     }
+
     if (isBarOwner) {
-      return allowedNavByRole.owner.includes(item.path);
+      return item.barOwnerOnly === true || item.path === '/' || item.ownerOnly === true;
     }
-    return true;
+
+    return false;
   });
 
   if (showMyAccount) {
@@ -116,6 +128,9 @@ const Sidebar = ({ isMobileOpen = false, onClose = () => {} }) => {
           >
             <FontAwesomeIcon icon={item.icon} style={styles.navIcon} />
             <span>{item.label}</span>
+            {item.path === '/bar-applications' && pendingApplications > 0 && (
+              <span style={styles.badge}>{pendingApplications}</span>
+            )}
           </Link>
         ))}
       </nav>
@@ -212,6 +227,17 @@ const styles = {
   navIcon: {
     fontSize: '18px',
     width: '24px'
+  },
+  badge: {
+    marginLeft: 'auto',
+    minWidth: '24px',
+    padding: '4px 8px',
+    borderRadius: '100px',
+    backgroundColor: '#e94560',
+    color: 'white',
+    fontSize: '12px',
+    fontWeight: '700',
+    textAlign: 'center'
   },
   footer: {
     padding: '15px 20px 10px 20px',
