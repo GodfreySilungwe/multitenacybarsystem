@@ -128,18 +128,40 @@ router.patch('/:id/status', async (req, res) => {
     }
 
     if (status === 'deleted') {
-      await Promise.all([
-        User.deleteMany({ barId: bar._id }),
-        Category.deleteMany({ barId: bar._id }),
-        Product.deleteMany({ barId: bar._id }),
-        Customer.deleteMany({ barId: bar._id }),
-        Order.deleteMany({ barId: bar._id }),
-        CustomerOrderRequest.deleteMany({ barId: bar._id }),
-        CustomerPaymentRequest.deleteMany({ barId: bar._id }),
-        InventoryAdjustment.deleteMany({ barId: bar._id }),
-        PurchaseOrder.deleteMany({ barId: bar._id }),
-        Supplier.deleteMany({ barId: bar._id })
-      ]);
+      // Models don't support deleteMany; fetch and delete each record instead.
+      const tasks = [];
+
+      const users = await User.find({ barId: bar._id });
+      tasks.push(...users.map((u) => u.delete()));
+
+      const categories = await Category.find({ barId: bar._id });
+      tasks.push(...categories.map((c) => c.delete()));
+
+      const products = await Product.find({ barId: bar._id });
+      tasks.push(...products.map((p) => p.delete()));
+
+      const customers = await Customer.find({ barId: bar._id });
+      tasks.push(...customers.map((c) => c.delete()));
+
+      const orders = await Order.find({ barId: bar._id });
+      tasks.push(...orders.map((o) => o.delete()));
+
+      const requests = await CustomerOrderRequest.find({ barId: bar._id });
+      tasks.push(...requests.map((r) => r.delete()));
+
+      const payments = await CustomerPaymentRequest.find({ barId: bar._id });
+      tasks.push(...payments.map((p) => p.delete()));
+
+      const adjustments = await InventoryAdjustment.find({ barId: bar._id });
+      tasks.push(...adjustments.map((a) => a.delete()));
+
+      const pos = await PurchaseOrder.find({ barId: bar._id });
+      tasks.push(...pos.map((p) => p.delete()));
+
+      const suppliers = await Supplier.find({ barId: bar._id });
+      tasks.push(...suppliers.map((s) => s.delete()));
+
+      await Promise.all(tasks);
 
       await Bar.findByIdAndDelete(bar._id);
       return res.json({ message: 'Bar and related metadata deleted successfully.' });

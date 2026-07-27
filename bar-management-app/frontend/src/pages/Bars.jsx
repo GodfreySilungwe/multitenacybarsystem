@@ -207,6 +207,7 @@ const Bars = () => {
               <thead>
                 <tr>
                   <th>Name</th>
+                  <th>Registered</th>
                   <th>Code</th>
                   <th>Description</th>
                   <th>Status</th>
@@ -217,6 +218,7 @@ const Bars = () => {
                 {bars.map((bar) => (
                   <tr key={bar._id || bar.id}>
                     <td>{bar.name}</td>
+                    <td>{bar.createdAt ? new Date(bar.createdAt).toLocaleDateString() : '-'}</td>
                     <td>{bar.code || '-'}</td>
                     <td>{bar.description || '-'}</td>
                     <td>

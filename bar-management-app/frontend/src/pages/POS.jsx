@@ -27,6 +27,7 @@ const POS = () => {
   const [notification, setNotification] = useState('');
   const [notificationHistory, setNotificationHistory] = useState([]);
   const [showNotifications, setShowNotifications] = useState(false);
+  const [refreshing, setRefreshing] = useState(false);
 
   useEffect(() => {
     loadData();
@@ -98,6 +99,23 @@ const POS = () => {
       window.removeEventListener('storage', handleStorageEvent);
     };
   }, []);
+
+  const handleRefresh = async () => {
+    try {
+      setRefreshing(true);
+      await loadData();
+      const nextNotification = { id: Date.now(), message: 'POS refreshed.', createdAt: new Date().toLocaleTimeString() };
+      setNotificationHistory((prev) => [nextNotification, ...prev].slice(0, 8));
+      setNotification(nextNotification.message);
+      setTimeout(() => setNotification(''), 2500);
+    } catch (err) {
+      console.error('Failed to refresh:', err);
+      setError('Could not refresh POS data.');
+      setTimeout(() => setError(''), 3000);
+    } finally {
+      setRefreshing(false);
+    }
+  };
 
   const emitCustomerPortalEvent = (type, detail = null) => {
     const eventDetail = { type, detail, timestamp: Date.now() };
@@ -356,6 +374,16 @@ const POS = () => {
           <span>{notification}</span>
         </div>
       )}
+
+      <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: '12px' }}>
+        <button
+          style={{ ...styles.refreshBtn, ...(refreshing ? styles.refreshBtnLoading : {}) }}
+          onClick={handleRefresh}
+          disabled={refreshing}
+        >
+          {refreshing ? 'Refreshing…' : '🔁 Refresh'}
+        </button>
+      </div>
 
       <div style={styles.notificationPanel}>
         <button style={styles.notificationToggle} onClick={() => setShowNotifications((prev) => !prev)}>
@@ -1122,6 +1150,18 @@ productUnit: {
     fontSize: '13px',
     textAlign: 'center',
     padding: '16px 0'
+  },
+  refreshBtn: {
+    padding: '8px 12px',
+    borderRadius: '8px',
+    border: '1px solid #e5e7eb',
+    backgroundColor: 'white',
+    cursor: 'pointer',
+    fontSize: '14px'
+  },
+  refreshBtnLoading: {
+    opacity: 0.7,
+    cursor: 'wait'
   },
   requestList: {
     display: 'grid',
