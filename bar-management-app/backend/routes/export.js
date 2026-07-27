@@ -1,10 +1,13 @@
 const express = require('express');
 const router = express.Router();
+const { protect, isBarOwnerOrSales } = require('../middleware/auth');
 const ExcelJS = require('exceljs');
 const PDFDocument = require('pdfkit');
 const Order = require('../models/Order');
 const Product = require('../models/Product');
 const Customer = require('../models/Customer');
+
+router.use(protect, isBarOwnerOrSales);
 
 // Helper function to format date
 const formatDate = (date) => {
@@ -25,7 +28,7 @@ router.get('/test', (req, res) => {
 // Export Sales Report as Excel
 router.get('/sales/excel', async (req, res) => {
   try {
-    const orders = await Order.find()
+    const orders = await Order.find({ barId: req.user.barId })
       .populate('customer', 'name phone')
       .populate('items.product', 'name')
       .sort({ createdAt: -1 });
@@ -101,7 +104,7 @@ router.get('/sales/excel', async (req, res) => {
 // Export Inventory Report as Excel
 router.get('/inventory/excel', async (req, res) => {
   try {
-    const products = await Product.find().populate('category', 'name');
+    const products = await Product.find({ barId: req.user.barId }).populate('category', 'name');
 
     const workbook = new ExcelJS.Workbook();
     const worksheet = workbook.addWorksheet('Inventory Report');
@@ -153,7 +156,7 @@ router.get('/inventory/excel', async (req, res) => {
 // Export Customers Report as Excel
 router.get('/customers/excel', async (req, res) => {
   try {
-    const customers = await Customer.find().sort({ totalSpent: -1 });
+    const customers = await Customer.find({ barId: req.user.barId }).sort({ totalSpent: -1 });
 
     const workbook = new ExcelJS.Workbook();
     const worksheet = workbook.addWorksheet('Customers Report');
@@ -202,7 +205,7 @@ router.get('/customers/excel', async (req, res) => {
 // Export Sales Report as PDF
 router.get('/sales/pdf', async (req, res) => {
   try {
-    const orders = await Order.find()
+    const orders = await Order.find({ barId: req.user.barId })
       .populate('customer', 'name phone')
       .populate('items.product', 'name')
       .sort({ createdAt: -1 });

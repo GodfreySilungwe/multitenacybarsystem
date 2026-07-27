@@ -1,13 +1,16 @@
 const express = require('express');
 const router = express.Router();
+const { protect, isBarOwnerOrSales } = require('../middleware/auth');
 const Supplier = require('../models/Supplier');
 const PurchaseOrder = require('../models/PurchaseOrder');
+
+router.use(protect, isBarOwnerOrSales);
 const Product = require('../models/Product');
 
 // Get all suppliers
 router.get('/', async (req, res) => {
   try {
-    const suppliers = await Supplier.find().sort({ name: 1 });
+    const suppliers = await Supplier.find({ barId: req.user.barId }).sort({ name: 1 });
     res.json(suppliers);
   } catch (error) {
     console.error('Error fetching suppliers:', error);
@@ -18,7 +21,7 @@ router.get('/', async (req, res) => {
 // Get single supplier
 router.get('/:id', async (req, res) => {
   try {
-    const supplier = await Supplier.findById(req.params.id).populate('products', 'name');
+    const supplier = await Supplier.findOne({ _id: req.params.id, barId: req.user.barId }).populate('products', 'name');
     if (!supplier) {
       return res.status(404).json({ message: 'Supplier not found' });
     }
@@ -44,14 +47,12 @@ router.post('/', async (req, res) => {
 // Update supplier
 router.put('/:id', async (req, res) => {
   try {
-    const supplier = await Supplier.findByIdAndUpdate(
-      req.params.id,
-      req.body,
-      { new: true, runValidators: true }
-    );
+    const supplier = await Supplier.findOne({ _id: req.params.id, barId: req.user.barId });
     if (!supplier) {
       return res.status(404).json({ message: 'Supplier not found' });
     }
+    Object.assign(supplier, req.body);
+    await supplier.save();
     res.json(supplier);
   } catch (error) {
     console.error('Error updating supplier:', error);
@@ -62,10 +63,11 @@ router.put('/:id', async (req, res) => {
 // Delete supplier
 router.delete('/:id', async (req, res) => {
   try {
-    const supplier = await Supplier.findByIdAndDelete(req.params.id);
+    const supplier = await Supplier.findOne({ _id: req.params.id, barId: req.user.barId });
     if (!supplier) {
       return res.status(404).json({ message: 'Supplier not found' });
     }
+    await supplier.delete();
     res.json({ message: 'Supplier deleted successfully' });
   } catch (error) {
     console.error('Error deleting supplier:', error);
@@ -76,7 +78,7 @@ router.delete('/:id', async (req, res) => {
 // Get supplier purchase orders
 router.get('/:id/orders', async (req, res) => {
   try {
-    const orders = await PurchaseOrder.find({ supplier: req.params.id })
+    const orders = await PurchaseOrder.find({ supplier: req.params.id, barId: req.user.barId })
       .populate('items.product', 'name')
       .sort({ createdAt: -1 });
     res.json(orders);

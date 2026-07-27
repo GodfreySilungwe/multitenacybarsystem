@@ -71,7 +71,7 @@ router.post('/', async (req, res) => {
       return res.status(400).json({ message: 'Bar admin username or email already exists.' });
     }
 
-    const bar = new Bar({ name, code, description, createdAt: new Date().toISOString() });
+    const bar = new Bar({ name, code, description, status: 'active', createdAt: new Date().toISOString() });
     await bar.save();
 
     const salt = await bcrypt.genSalt(10);
@@ -101,6 +101,28 @@ router.post('/', async (req, res) => {
     });
   } catch (error) {
     console.error('Error creating bar:', error);
+    res.status(400).json({ message: error.message });
+  }
+});
+
+router.patch('/:id/status', async (req, res) => {
+  try {
+    const { status } = req.body;
+    const allowedStatuses = ['active', 'suspended', 'deleted'];
+    if (!allowedStatuses.includes(status)) {
+      return res.status(400).json({ message: `Status must be one of: ${allowedStatuses.join(', ')}` });
+    }
+
+    const bar = await Bar.findById(req.params.id);
+    if (!bar) {
+      return res.status(404).json({ message: 'Bar not found' });
+    }
+
+    bar.status = status;
+    await bar.save();
+    res.json(bar);
+  } catch (error) {
+    console.error('Error updating bar status:', error);
     res.status(400).json({ message: error.message });
   }
 });

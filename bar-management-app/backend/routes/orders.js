@@ -1,10 +1,13 @@
 const express = require('express');
 const router = express.Router();
+const { protect, isBarOwnerOrSales } = require('../middleware/auth');
 const Order = require('../models/Order');
 const Product = require('../models/Product');
 const Customer = require('../models/Customer');
 const CustomerOrderRequest = require('../models/CustomerOrderRequest');
 const { recomputeCustomerCreditBalance } = require('../lib/credit');
+
+router.use(protect, isBarOwnerOrSales);
 
 const toNumber = (value, fallback = 0) => {
   const numericValue = Number(value);
@@ -14,7 +17,7 @@ const toNumber = (value, fallback = 0) => {
 // Get all orders
 router.get('/', async (req, res) => {
   try {
-    const orders = await Order.find()
+    const orders = await Order.find({ barId: req.user.barId })
       .populate('customer', 'name phone')
       .populate('items.product', 'name')
       .sort({ createdAt: -1 });
@@ -32,6 +35,7 @@ router.get('/today', async (req, res) => {
     startOfDay.setHours(0, 0, 0, 0);
     
     const todayOrders = await Order.find({
+      barId: req.user.barId,
       createdAt: { $gte: startOfDay }
     });
 
@@ -69,7 +73,7 @@ router.post('/', async (req, res) => {
 
     // Process each item
     for (const item of items) {
-      const product = await Product.findById(item.product);
+      const product = await Product.findOne({ _id: item.product, barId: req.user.barId });
       
       if (!product) {
         return res.status(404).json({ message: `Product not found: ${item.product}` });
@@ -110,7 +114,7 @@ router.post('/', async (req, res) => {
     let paymentStatus = 'paid';
 
     if (paymentMethod === 'credit' && customer) {
-      customerDoc = await Customer.findById(customer);
+      customerDoc = await Customer.findOne({ _id: customer, barId: req.user.barId });
       if (!customerDoc) {
         return res.status(404).json({ message: 'Customer not found' });
       }
@@ -134,7 +138,7 @@ router.post('/', async (req, res) => {
       // persist other customer fields now; creditBalance will be recomputed from orders after save
       await customerDoc.save();
     } else if (customer) {
-      customerDoc = await Customer.findById(customer);
+      customerDoc = await Customer.findOne({ _id: customer, barId: req.user.barId });
       if (customerDoc) {
         customerDoc.totalSpent = toNumber(customerDoc.totalSpent, 0) + totalAmount;
         customerDoc.loyaltyPoints = toNumber(customerDoc.loyaltyPoints, 0) + Math.floor(totalAmount / 100);
@@ -176,7 +180,7 @@ router.post('/', async (req, res) => {
 // Get order by ID
 router.post('/:id/reverse', async (req, res) => {
   try {
-    const order = await Order.findById(req.params.id);
+    const order = await Order.findOne({ _id: req.params.id, barId: req.user.barId });
 
     if (!order) {
       return res.status(404).json({ message: 'Order not found' });
@@ -187,7 +191,7 @@ router.post('/:id/reverse', async (req, res) => {
     }
 
     for (const item of order.items || []) {
-      const product = await Product.findById(item.product);
+      const product = await Product.findOne({ _id: item.product, barId: req.user.barId });
       if (product) {
         product.currentStock = toNumber(product.currentStock, 0) + toNumber(item.quantity, 0);
         await product.save();
@@ -196,7 +200,7 @@ router.post('/:id/reverse', async (req, res) => {
 
     let customerDoc = null;
     if (order.customer) {
-      customerDoc = await Customer.findById(order.customer);
+      const customerDoc = await Customer.findOne({ _id: order.customer, barId: req.user.barId });
       if (customerDoc) {
         customerDoc.totalSpent = Math.max(0, toNumber(customerDoc.totalSpent, 0) - toNumber(order.totalAmount, 0));
         customerDoc.loyaltyPoints = Math.max(0, toNumber(customerDoc.loyaltyPoints, 0) - Math.floor(toNumber(order.totalAmount, 0) / 100));
@@ -231,7 +235,7 @@ router.post('/:id/reverse', async (req, res) => {
 router.post('/:id/pay', async (req, res) => {
   try {
     const { amount } = req.body;
-    const order = await Order.findById(req.params.id);
+    const order = await Order.findOne({ _id: req.params.id, barId: req.user.barId });
 
     if (!order) {
       return res.status(404).json({ message: 'Order not found' });
@@ -252,7 +256,7 @@ router.post('/:id/pay', async (req, res) => {
     order.paymentMethod = order.paymentMethod || 'credit';
 
     if (order.customer) {
-      const customerDoc = await Customer.findById(order.customer);
+      const customerDoc = await Customer.findOne({ _id: order.customer, barId: req.user.barId });
       if (customerDoc) {
         await recomputeCustomerCreditBalance(customerDoc._id);
       }
@@ -268,7 +272,7 @@ router.post('/:id/pay', async (req, res) => {
 
 router.get('/:id', async (req, res) => {
   try {
-    const order = await Order.findById(req.params.id)
+    const order = await Order.findOne({ _id: req.params.id, barId: req.user.barId })
       .populate('customer', 'name phone')
       .populate('items.product', 'name');
     

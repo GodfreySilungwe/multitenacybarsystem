@@ -129,7 +129,7 @@ function App() {
             </ProtectedRoute>
           } />
           <Route path="/settings" element={
-            <ProtectedRoute barOwnerOnly>
+            <ProtectedRoute ownerOnly>
               <Layout>
                 <Settings />
               </Layout>

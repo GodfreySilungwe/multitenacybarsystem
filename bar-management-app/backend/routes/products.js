@@ -1,11 +1,14 @@
 const express = require('express');
 const router = express.Router();
+const { protect, isBarOwnerOrSales } = require('../middleware/auth');
 const Product = require('../models/Product');
+
+router.use(protect, isBarOwnerOrSales);
 
 // Get all products
 router.get('/', async (req, res) => {
   try {
-    const products = await Product.find().populate('category', 'name');
+    const products = await Product.find({ barId: req.user.barId }).populate('category', 'name');
     res.json(products);
   } catch (error) {
     console.error('Error fetching products:', error);
@@ -17,6 +20,7 @@ router.get('/', async (req, res) => {
 router.get('/low-stock', async (req, res) => {
   try {
     const products = await Product.find({
+      barId: req.user.barId,
       $expr: {
         $lte: ['$currentStock', '$lowStockThreshold']
       }
@@ -31,7 +35,7 @@ router.get('/low-stock', async (req, res) => {
 // Get single product
 router.get('/:id', async (req, res) => {
   try {
-    const product = await Product.findById(req.params.id).populate('category', 'name');
+    const product = await Product.findOne({ _id: req.params.id, barId: req.user.barId }).populate('category', 'name');
     if (!product) {
       return res.status(404).json({ message: 'Product not found' });
     }
@@ -60,7 +64,7 @@ router.put('/:id', async (req, res) => {
     console.log('Updating product:', req.params.id);
     console.log('Update data:', req.body);
     
-    const product = await Product.findById(req.params.id);
+    const product = await Product.findOne({ _id: req.params.id, barId: req.user.barId });
     if (!product) {
       return res.status(404).json({ message: 'Product not found' });
     }
@@ -87,10 +91,11 @@ router.put('/:id', async (req, res) => {
 // Delete product
 router.delete('/:id', async (req, res) => {
   try {
-    const product = await Product.findByIdAndDelete(req.params.id);
+    const product = await Product.findOne({ _id: req.params.id, barId: req.user.barId });
     if (!product) {
       return res.status(404).json({ message: 'Product not found' });
     }
+    await product.delete();
     res.json({ message: 'Product deleted successfully' });
   } catch (error) {
     console.error('Error deleting product:', error);

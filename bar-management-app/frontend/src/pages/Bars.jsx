@@ -1,5 +1,4 @@
 import { useEffect, useState } from 'react';
-import { Link } from 'react-router-dom';
 import api from '../api/api';
 import PageContainer from './PageContainer';
 import UnifiedCard from '../components/common/UnifiedCard';
@@ -34,6 +33,30 @@ const Bars = () => {
     } catch (err) {
       console.error('Error loading bars:', err);
       setError(err.response?.data?.message || 'Failed to load bars');
+    }
+  };
+
+  const updateBarStatus = async (barId, status) => {
+    try {
+      const confirmMessage =
+        status === 'suspended'
+          ? 'Suspend this bar? It will no longer be active.'
+          : status === 'deleted'
+            ? 'Delete this bar? This will mark it as deleted and remove access.'
+            : 'Restore this bar? It will become active again.';
+
+      if (!window.confirm(confirmMessage)) {
+        return;
+      }
+
+      await api.patch(`/bars/${barId}/status`, { status });
+      await loadBars();
+      setMessage(`Bar status updated to ${status}.`);
+      setTimeout(() => setMessage(''), 6000);
+    } catch (err) {
+      console.error('Error updating bar status:', err);
+      setError(err.response?.data?.message || 'Failed to update bar status');
+      setTimeout(() => setError(''), 6000);
     }
   };
 
@@ -186,6 +209,8 @@ const Bars = () => {
                   <th>Name</th>
                   <th>Code</th>
                   <th>Description</th>
+                  <th>Status</th>
+                  <th>Actions</th>
                 </tr>
               </thead>
               <tbody>
@@ -194,6 +219,44 @@ const Bars = () => {
                     <td>{bar.name}</td>
                     <td>{bar.code || '-'}</td>
                     <td>{bar.description || '-'}</td>
+                    <td>
+                      <span style={{
+                        ...styles.statusBadge,
+                        ...(bar.status === 'active' ? styles.statusActive : bar.status === 'suspended' ? styles.statusSuspended : styles.statusDeleted)
+                      }}>
+                        {bar.status || 'active'}
+                      </span>
+                    </td>
+                    <td>
+                      {bar.status !== 'deleted' && (
+                        <>
+                          <button
+                            type="button"
+                            style={styles.suspendButton}
+                            disabled={bar.status === 'suspended'}
+                            onClick={() => updateBarStatus(bar._id, 'suspended')}
+                          >
+                            Suspend
+                          </button>
+                          <button
+                            type="button"
+                            style={styles.deleteButton}
+                            onClick={() => updateBarStatus(bar._id, 'deleted')}
+                          >
+                            Delete
+                          </button>
+                        </>
+                      )}
+                      {bar.status !== 'active' && (
+                        <button
+                          type="button"
+                          style={styles.restoreButton}
+                          onClick={() => updateBarStatus(bar._id, 'active')}
+                        >
+                          Restore
+                        </button>
+                      )}
+                    </td>
                   </tr>
                 ))}
               </tbody>
@@ -239,6 +302,55 @@ const styles = {
   empty: {
     padding: '20px',
     color: '#666'
+  },
+  statusBadge: {
+    display: 'inline-flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    minWidth: '84px',
+    padding: '5px 10px',
+    borderRadius: '999px',
+    fontWeight: '700',
+    textTransform: 'capitalize',
+    fontSize: '12px'
+  },
+  statusActive: {
+    backgroundColor: '#e8f8ef',
+    color: '#1d7a4a'
+  },
+  statusSuspended: {
+    backgroundColor: '#fff4e5',
+    color: '#b45c00'
+  },
+  statusDeleted: {
+    backgroundColor: '#fde2e2',
+    color: '#991b1b'
+  },
+  actionButton: {
+    minWidth: '96px',
+    marginRight: '8px',
+    borderRadius: '8px',
+    border: '1px solid transparent',
+    padding: '8px 12px',
+    fontSize: '13px',
+    fontWeight: '700',
+    cursor: 'pointer',
+    transition: 'all 0.2s ease'
+  },
+  suspendButton: {
+    backgroundColor: '#fef3c7',
+    color: '#b45309',
+    borderColor: '#fbbf24'
+  },
+  deleteButton: {
+    backgroundColor: '#fee2e2',
+    color: '#991b1b',
+    borderColor: '#f87171'
+  },
+  restoreButton: {
+    backgroundColor: '#d1fae5',
+    color: '#166534',
+    borderColor: '#34d399'
   },
   success: {
     backgroundColor: '#e8f8ef',

@@ -76,6 +76,24 @@ const isOwner = (req, res, next) => {
   }
 };
 
+// Check if user is bar-level owner
+const isBarOwner = (req, res, next) => {
+  if (req.user && req.user.role === 'owner' && req.user.barId) {
+    next();
+  } else {
+    res.status(403).json({ message: 'Bar owner access required' });
+  }
+};
+
+// Check if user is a bar-level owner or sales user
+const isBarOwnerOrSales = (req, res, next) => {
+  if (req.user && ((req.user.role === 'owner' && req.user.barId) || req.user.role === 'sales')) {
+    next();
+  } else {
+    res.status(403).json({ message: 'Bar user access required' });
+  }
+};
+
 // Check if user is global owner (not a bar-level owner)
 const isGlobalOwner = (req, res, next) => {
   if (req.user && req.user.role === 'owner' && !req.user.barId) {
@@ -94,4 +112,4 @@ const isSalesOrOwner = (req, res, next) => {
   }
 };
 
-module.exports = { optionalAuth, protect, isOwner, isGlobalOwner, isSalesOrOwner };
+module.exports = { optionalAuth, protect, isOwner, isBarOwner, isBarOwnerOrSales, isGlobalOwner, isSalesOrOwner };

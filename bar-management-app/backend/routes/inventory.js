@@ -1,12 +1,15 @@
 const express = require('express');
 const router = express.Router();
+const { protect, isBarOwnerOrSales } = require('../middleware/auth');
 const InventoryAdjustment = require('../models/InventoryAdjustment');
 const Product = require('../models/Product');
+
+router.use(protect, isBarOwnerOrSales);
 
 // Get all adjustments
 router.get('/', async (req, res) => {
   try {
-    const adjustments = await InventoryAdjustment.find()
+    const adjustments = await InventoryAdjustment.find({ barId: req.user.barId })
       .populate('product', 'name')
       .sort({ createdAt: -1 });
     res.json(adjustments);
@@ -22,7 +25,7 @@ router.post('/', async (req, res) => {
     const { product, type, quantity, reason } = req.body;
 
     // Get current product stock
-    const productData = await Product.findById(product);
+    const productData = await Product.findOne({ _id: product, barId: req.user.barId });
     if (!productData) {
       return res.status(404).json({ message: 'Product not found' });
     }
@@ -73,6 +76,7 @@ router.post('/', async (req, res) => {
 router.get('/product/:productId', async (req, res) => {
   try {
     const adjustments = await InventoryAdjustment.find({
+      barId: req.user.barId,
       product: req.params.productId
     }).sort({ createdAt: -1 });
     res.json(adjustments);

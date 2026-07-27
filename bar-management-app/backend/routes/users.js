@@ -6,7 +6,7 @@ const Customer = require('../models/Customer');
 const Order = require('../models/Order');
 const CustomerOrderRequest = require('../models/CustomerOrderRequest');
 const CustomerPaymentRequest = require('../models/CustomerPaymentRequest');
-const { protect, isOwner } = require('../middleware/auth');
+const { protect, isBarOwner } = require('../middleware/auth');
 
 const toSafeUser = (user) => {
   const safe = { ...user };
@@ -39,9 +39,9 @@ const deleteCustomerRelatedData = async (customerId) => {
   }
 
   const [requests, payments, orders] = await Promise.all([
-    CustomerOrderRequest.find({ customerId }),
-    CustomerPaymentRequest.find({ customerId }),
-    Order.find({ customer: customerId })
+    CustomerOrderRequest.find({ barId: req.user.barId, customerId }),
+    CustomerPaymentRequest.find({ barId: req.user.barId, customerId }),
+    Order.find({ barId: req.user.barId, customer: customerId })
   ]);
 
   await Promise.all([
@@ -51,11 +51,11 @@ const deleteCustomerRelatedData = async (customerId) => {
   ]);
 };
 
-router.use(protect, isOwner);
+router.use(protect, isBarOwner);
 
 router.get('/', async (req, res) => {
   try {
-    const users = await User.find().sort({ username: 1 });
+    const users = await User.find({ barId: req.user.barId }).sort({ username: 1 });
     const safeUsers = users.map((user) => toSafeUser(user));
     res.json(safeUsers);
   } catch (error) {
@@ -114,13 +114,13 @@ router.post('/', async (req, res) => {
 
 router.delete('/:id', async (req, res) => {
   try {
-    const user = await User.findById(req.params.id);
+    const user = await User.findOne({ _id: req.params.id, barId: req.user.barId });
     if (!user) {
       return res.status(404).json({ message: 'User not found.' });
     }
 
     if (user.role === 'customer') {
-      const customer = await Customer.findOne({ accountUserId: user._id });
+      const customer = await Customer.findOne({ accountUserId: user._id, barId: req.user.barId });
       if (customer) {
         await deleteCustomerRelatedData(customer._id);
         await customer.delete();

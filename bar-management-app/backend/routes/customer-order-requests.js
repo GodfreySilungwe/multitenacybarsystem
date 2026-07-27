@@ -1,11 +1,14 @@
 const express = require('express');
 const router = express.Router();
+const { protect, isBarOwnerOrSales } = require('../middleware/auth');
 const CustomerOrderRequest = require('../models/CustomerOrderRequest');
 const CustomerPaymentRequest = require('../models/CustomerPaymentRequest');
 const Product = require('../models/Product');
 const Customer = require('../models/Customer');
 const Order = require('../models/Order');
 const { recomputeCustomerCreditBalance } = require('../lib/credit');
+
+router.use(protect, isBarOwnerOrSales);
 
 const toNumber = (value, fallback = 0) => {
   const numericValue = Number(value);
@@ -22,7 +25,7 @@ const normalizeRequestItems = async (items = []) => {
       continue;
     }
 
-    const product = await Product.findById(productId);
+    const product = await Product.findOne({ _id: productId, barId: req.user.barId });
     if (!product) {
       continue;
     }
@@ -58,7 +61,7 @@ const enrichRequest = async (request) => {
       subtotal: toNumber(item.subtotal, 0)
     }));
   } else if (request.productId) {
-    const product = await Product.findById(request.productId);
+    const product = await Product.findOne({ _id: request.productId, barId: req.user.barId });
     items = [{
       productId: request.productId,
       productName: product?.name || request.productName || 'Product',
@@ -95,7 +98,7 @@ const enrichRequest = async (request) => {
 
 router.get('/', async (req, res) => {
   try {
-    const requests = await CustomerOrderRequest.find().sort({ createdAt: -1 });
+    const requests = await CustomerOrderRequest.find({ barId: req.user.barId }).sort({ createdAt: -1 });
     const enriched = await Promise.all((requests || []).map((request) => enrichRequest(request)));
     res.json(enriched);
   } catch (error) {
@@ -139,7 +142,7 @@ router.post('/', async (req, res) => {
 
 router.patch('/:id/confirm', async (req, res) => {
   try {
-    const request = await CustomerOrderRequest.findById(req.params.id);
+    const request = await CustomerOrderRequest.findOne({ _id: req.params.id, barId: req.user.barId });
     if (!request) {
       return res.status(404).json({ message: 'Request not found.' });
     }
@@ -154,7 +157,7 @@ router.patch('/:id/confirm', async (req, res) => {
       let totalCost = 0;
 
       for (const item of request.items || []) {
-        const product = await Product.findById(item.productId || item.product || item._id);
+const product = await Product.findOne({ _id: item.productId || item.product || item._id, barId: req.user.barId });
         if (!product) {
           continue;
         }
@@ -182,7 +185,7 @@ router.patch('/:id/confirm', async (req, res) => {
       // Ensure inventory is reserved when customer order is confirmed
       const inventoryIssues = [];
       for (const item of request.items || []) {
-        const product = await Product.findById(item.productId || item.product || item._id);
+        const product = await Product.findOne({ _id: item.productId || item.product || item._id, barId: req.user.barId });
         const quantity = Math.max(1, Math.floor(toNumber(item.quantity, 1)));
         if (!product) {
           inventoryIssues.push(`Product not found for ${item.productName || 'item'}`);
@@ -198,7 +201,7 @@ router.patch('/:id/confirm', async (req, res) => {
       }
 
       for (const item of request.items || []) {
-        const product = await Product.findById(item.productId || item.product || item._id);
+        const product = await Product.findOne({ _id: item.productId || item.product || item._id, barId: req.user.barId });
         const quantity = Math.max(1, Math.floor(toNumber(item.quantity, 1)));
         product.currentStock = Math.max(0, toNumber(product.currentStock, 0) - quantity);
         await product.save();
@@ -241,7 +244,7 @@ router.patch('/:id/confirm', async (req, res) => {
 
 router.patch('/:id/reject', async (req, res) => {
   try {
-    const request = await CustomerOrderRequest.findById(req.params.id);
+    const request = await CustomerOrderRequest.findOne({ _id: req.params.id, barId: req.user.barId });
     if (!request) {
       return res.status(404).json({ message: 'Request not found.' });
     }
@@ -281,7 +284,7 @@ router.post('/pay-bill', async (req, res) => {
       return res.status(400).json({ message: 'Please provide a transaction reference or payer name for this payment method.' });
     }
 
-    const customer = await Customer.findById(customerId);
+    const customer = await Customer.findOne({ _id: customerId, barId: req.user.barId });
     if (!customer) {
       return res.status(404).json({ message: 'Customer not found.' });
     }
@@ -308,7 +311,10 @@ router.post('/pay-bill', async (req, res) => {
 router.get('/payments', async (req, res) => {
   try {
     const { customerId } = req.query;
-    const query = customerId ? { customerId } : {};
+    const query = { barId: req.user.barId };
+    if (customerId) {
+      query.customerId = customerId;
+    }
     const payments = await CustomerPaymentRequest.find(query).sort({ createdAt: -1 });
     res.json(payments);
   } catch (error) {
@@ -318,7 +324,7 @@ router.get('/payments', async (req, res) => {
 
 router.patch('/payments/:id/confirm', async (req, res) => {
   try {
-    const paymentRequest = await CustomerPaymentRequest.findById(req.params.id);
+    const paymentRequest = await CustomerPaymentRequest.findOne({ _id: req.params.id, barId: req.user.barId });
     if (!paymentRequest) {
       return res.status(404).json({ message: 'Payment request not found.' });
     }
@@ -329,6 +335,7 @@ router.patch('/payments/:id/confirm', async (req, res) => {
 
     const customerId = paymentRequest.customerId;
     const creditOrders = await Order.find({
+      barId: req.user.barId,
       customer: customerId,
       reversed: { $ne: true },
       paymentMethod: 'credit',
@@ -366,6 +373,7 @@ router.patch('/payments/:id/confirm', async (req, res) => {
       appliedAmount += paymentApplied;
 
       const linkedRequests = await CustomerOrderRequest.find({
+        barId: req.user.barId,
         $or: [
           { linkedOrderId: order._id },
           { _id: order.sourceRequestId }
@@ -404,7 +412,7 @@ router.patch('/payments/:id/confirm', async (req, res) => {
 
 router.patch('/payments/:id/reject', async (req, res) => {
   try {
-    const paymentRequest = await CustomerPaymentRequest.findById(req.params.id);
+    const paymentRequest = await CustomerPaymentRequest.findOne({ _id: req.params.id, barId: req.user.barId });
     if (!paymentRequest) {
       return res.status(404).json({ message: 'Payment request not found.' });
     }

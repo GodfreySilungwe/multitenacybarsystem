@@ -2,8 +2,10 @@ const express = require('express');
 const path = require('path');
 const multer = require('multer');
 const { S3Client, PutObjectCommand } = require('@aws-sdk/client-s3');
+const { protect, isBarOwnerOrSales } = require('../middleware/auth');
 
 const router = express.Router();
+router.use(protect, isBarOwnerOrSales);
 
 const upload = multer({
   storage: multer.memoryStorage(),

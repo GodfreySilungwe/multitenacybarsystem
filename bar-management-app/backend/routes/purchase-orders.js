@@ -1,13 +1,16 @@
 const express = require('express');
 const router = express.Router();
+const { protect, isBarOwnerOrSales } = require('../middleware/auth');
 const PurchaseOrder = require('../models/PurchaseOrder');
 const Supplier = require('../models/Supplier');
 const Product = require('../models/Product');
 
+router.use(protect, isBarOwnerOrSales);
+
 // Get all purchase orders
 router.get('/', async (req, res) => {
   try {
-    const orders = await PurchaseOrder.find()
+    const orders = await PurchaseOrder.find({ barId: req.user.barId })
       .populate('supplier', 'name')
       .populate('items.product', 'name')
       .sort({ createdAt: -1 });
@@ -21,7 +24,7 @@ router.get('/', async (req, res) => {
 // Get single purchase order
 router.get('/:id', async (req, res) => {
   try {
-    const order = await PurchaseOrder.findById(req.params.id)
+    const order = await PurchaseOrder.findOne({ _id: req.params.id, barId: req.user.barId })
       .populate('supplier', 'name phone email')
       .populate('items.product', 'name');
     if (!order) {
@@ -40,7 +43,7 @@ router.post('/', async (req, res) => {
     const { supplier, items, expectedDelivery, notes } = req.body;
 
     // Check supplier exists
-    const supplierExists = await Supplier.findById(supplier);
+    const supplierExists = await Supplier.findOne({ _id: supplier, barId: req.user.barId });
     if (!supplierExists) {
       return res.status(404).json({ message: 'Supplier not found' });
     }
@@ -50,7 +53,7 @@ router.post('/', async (req, res) => {
 
     // Process each item
     for (const item of items) {
-      const product = await Product.findById(item.product);
+      const product = await Product.findOne({ _id: item.product, barId: req.user.barId });
       if (!product) {
         return res.status(404).json({ message: `Product not found: ${item.product}` });
       }
@@ -120,7 +123,7 @@ router.put('/:id/status', async (req, res) => {
 // Delete purchase order
 router.delete('/:id', async (req, res) => {
   try {
-    const order = await PurchaseOrder.findByIdAndDelete(req.params.id);
+    const order = await PurchaseOrder.findOne({ _id: req.params.id, barId: req.user.barId });
     if (!order) {
       return res.status(404).json({ message: 'Purchase order not found' });
     }
