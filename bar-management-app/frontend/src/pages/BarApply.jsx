@@ -124,24 +124,26 @@ const BarApply = () => {
               required
             />
 
-            <label style={styles.label}>Owner Username</label>
+            <label style={styles.label}>Owner Username *</label>
             <input
               type="text"
               name="ownerUsername"
               value={form.ownerUsername}
               onChange={handleChange}
               style={styles.input}
-              placeholder="Optional username hint"
+              placeholder="Choose a username"
+              required
             />
 
-            <label style={styles.label}>Owner Password</label>
+            <label style={styles.label}>Owner Password *</label>
             <input
               type="password"
               name="ownerPassword"
               value={form.ownerPassword}
               onChange={handleChange}
               style={styles.input}
-              placeholder="Leave empty to generate automatically"
+              placeholder="Create a password (min 6 chars)"
+              required
             />
           </div>
 

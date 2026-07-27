@@ -18,7 +18,7 @@ const Products = () => {
     sellingPrice: '',
     currentStock: '',
     lowStockThreshold: '5',
-    unit: 'glass'
+    unit: 'piece'
   });
 
   useEffect(() => {
@@ -104,13 +104,15 @@ const Products = () => {
 
   const getUnitIcon = (unit) => {
     const icons = {
+      piece: '🧊',
       shot: '🥃',
       glass: '🍷',
       bottle: '🍾',
       can: '🥫',
       mug: '🍺',
       pitcher: '🍻',
-      case: '📦'
+      case: '📦',
+      packet: '📦'
     };
     return icons[unit] || '📦';
   };
@@ -213,6 +215,7 @@ const Products = () => {
                   value={formData.unit}
                   onChange={(e) => setFormData({...formData, unit: e.target.value})}
                 >
+                  <option value="piece">🧊 Piece</option>
                   <option value="shot">🥃 Shot</option>
                   <option value="glass">🍷 Glass</option>
                   <option value="bottle">🍾 Bottle</option>
@@ -220,6 +223,7 @@ const Products = () => {
                   <option value="mug">🍺 Mug</option>
                   <option value="pitcher">🍻 Pitcher</option>
                   <option value="case">📦 Case</option>
+                  <option value="packet">📦 Packet</option>
                 </select>
               </div>
             </div>

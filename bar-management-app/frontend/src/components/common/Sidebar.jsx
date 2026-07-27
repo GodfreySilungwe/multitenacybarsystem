@@ -52,7 +52,7 @@ const Sidebar = ({ isMobileOpen = false, onClose = () => {} }) => {
     { path: '/pos', label: 'POS', icon: faCashRegister, salesOnly: true },
     { path: '/products', label: 'SMART BAR', icon: faTools, barOwnerOnly: true },
     { path: '/categories', label: 'Categories', icon: faTags, barOwnerOnly: true },
-    { path: '/customers', label: 'Customers', icon: faUsers, barOwnerOnly: true },
+    { path: '/customers', label: 'Customers', icon: faUsers, salesAndOwnerOnly: true },
     { path: '/orders', label: 'Orders', icon: faClipboardList, salesOnly: true },
     { path: '/reports', label: 'Reports', icon: faChartPie, barOwnerOnly: true },
     { path: '/inventory', label: 'Inventory', icon: faClipboardCheck, barOwnerOnly: true },
@@ -74,7 +74,7 @@ const Sidebar = ({ isMobileOpen = false, onClose = () => {} }) => {
     }
 
     if (role === 'sales') {
-      return item.salesOnly === true || item.path === '/';
+      return item.salesOnly === true || item.salesAndOwnerOnly === true || item.path === '/';
     }
 
     if (showGlobalOwner) {

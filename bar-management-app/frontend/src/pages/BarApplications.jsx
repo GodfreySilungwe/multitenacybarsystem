@@ -7,7 +7,7 @@ import Button from '../components/common/Button';
 const BarApplications = () => {
   const [applications, setApplications] = useState([]);
   const [loading, setLoading] = useState(true);
-  const [actionLoading, setActionLoading] = useState(null);
+  const [actionLoading, setActionLoading] = useState({ id: null, action: null });
   const [message, setMessage] = useState('');
   const [error, setError] = useState('');
 
@@ -30,7 +30,7 @@ const BarApplications = () => {
 
   const updateApplicationStatus = async (id, action) => {
     try {
-      setActionLoading(id);
+      setActionLoading({ id, action });
       setMessage('');
       setError('');
       const res = await api.patch(`/bar-applications/${id}/${action}`);
@@ -40,7 +40,7 @@ const BarApplications = () => {
       console.error(`Error ${action}ing application:`, err);
       setError(err.response?.data?.message || `Unable to ${action} application.`);
     } finally {
-      setActionLoading(null);
+      setActionLoading({ id: null, action: null });
     }
   };
 
@@ -83,18 +83,18 @@ const BarApplications = () => {
                           <Button
                             variant="secondary"
                             onClick={() => updateApplicationStatus(application._id, 'approve')}
-                            disabled={actionLoading === application._id}
+                            disabled={actionLoading.id === application._id && actionLoading.action === 'approve'}
                             style={styles.actionButton}
                           >
-                            {actionLoading === application._id ? 'Processing…' : 'Approve'}
+                            {actionLoading.id === application._id && actionLoading.action === 'approve' ? 'Processing…' : 'Approve'}
                           </Button>
                           <Button
                             variant="danger"
                             onClick={() => updateApplicationStatus(application._id, 'reject')}
-                            disabled={actionLoading === application._id}
+                            disabled={actionLoading.id === application._id && actionLoading.action === 'reject'}
                             style={styles.actionButton}
                           >
-                            {actionLoading === application._id ? 'Processing…' : 'Reject'}
+                            {actionLoading.id === application._id && actionLoading.action === 'reject' ? 'Processing…' : 'Reject'}
                           </Button>
                         </>
                       ) : (

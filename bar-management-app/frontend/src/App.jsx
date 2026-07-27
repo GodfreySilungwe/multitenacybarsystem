@@ -35,6 +35,14 @@ const HomeRoute = () => {
     return <Navigate to="/customer-portal" replace />;
   }
 
+  if (user?.role === 'sales') {
+    return (
+      <Layout>
+        <POS />
+      </Layout>
+    );
+  }
+
   return (
     <Layout>
       <Dashboard />

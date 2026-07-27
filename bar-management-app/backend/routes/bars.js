@@ -3,6 +3,15 @@ const bcrypt = require('bcryptjs');
 const router = express.Router();
 const Bar = require('../models/Bar');
 const User = require('../models/User');
+const Category = require('../models/Category');
+const Product = require('../models/Product');
+const Customer = require('../models/Customer');
+const Order = require('../models/Order');
+const CustomerOrderRequest = require('../models/CustomerOrderRequest');
+const CustomerPaymentRequest = require('../models/CustomerPaymentRequest');
+const InventoryAdjustment = require('../models/InventoryAdjustment');
+const PurchaseOrder = require('../models/PurchaseOrder');
+const Supplier = require('../models/Supplier');
 const { protect, isGlobalOwner } = require('../middleware/auth');
 
 const normalizeUsername = (value, fallback = 'admin') => {
@@ -116,6 +125,24 @@ router.patch('/:id/status', async (req, res) => {
     const bar = await Bar.findById(req.params.id);
     if (!bar) {
       return res.status(404).json({ message: 'Bar not found' });
+    }
+
+    if (status === 'deleted') {
+      await Promise.all([
+        User.deleteMany({ barId: bar._id }),
+        Category.deleteMany({ barId: bar._id }),
+        Product.deleteMany({ barId: bar._id }),
+        Customer.deleteMany({ barId: bar._id }),
+        Order.deleteMany({ barId: bar._id }),
+        CustomerOrderRequest.deleteMany({ barId: bar._id }),
+        CustomerPaymentRequest.deleteMany({ barId: bar._id }),
+        InventoryAdjustment.deleteMany({ barId: bar._id }),
+        PurchaseOrder.deleteMany({ barId: bar._id }),
+        Supplier.deleteMany({ barId: bar._id })
+      ]);
+
+      await Bar.findByIdAndDelete(bar._id);
+      return res.json({ message: 'Bar and related metadata deleted successfully.' });
     }
 
     bar.status = status;

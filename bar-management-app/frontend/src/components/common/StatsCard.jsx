@@ -1,7 +1,7 @@
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 import { formatPriceMK } from '../../utils/formatPrice';
 
-const StatsCard = ({ title, value, icon, color = '#e94560', isCurrency = true }) => {
+const StatsCard = ({ title, value, icon, color = '#e94560', isCurrency = false }) => {
   const displayValue = isCurrency ? formatPriceMK(value) : value;
   
   return (

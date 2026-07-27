@@ -105,10 +105,23 @@ const Reports = () => {
         count: dailySalesMap[date].count
       })).sort((a, b) => new Date(a.date) - new Date(b.date));
 
+      const productCatalog = (productsRes.data || []).reduce((catalog, product) => {
+        const productId = product._id || product.id;
+        if (productId) {
+          catalog[productId] = {
+            name: product.name || 'Unknown',
+            categoryName: product.category?.name || product.categoryName || 'Uncategorized'
+          };
+        }
+        return catalog;
+      }, {});
+
       const productSalesMap = {};
       filteredOrders.forEach(order => {
         order.items.forEach(item => {
-          const productName = item.product?.name || 'Unknown';
+          const productId = item.product?._id || item.product;
+          const catalogEntry = productId ? productCatalog[productId] : null;
+          const productName = item.productName || catalogEntry?.name || item.product?.name || 'Unknown';
           if (!productSalesMap[productName]) {
             productSalesMap[productName] = { quantity: 0, revenue: 0 };
           }
@@ -129,7 +142,9 @@ const Reports = () => {
       const categorySalesMap = {};
       filteredOrders.forEach(order => {
         order.items.forEach(item => {
-          const categoryName = item.product?.category?.name || 'Uncategorized';
+          const productId = item.product?._id || item.product;
+          const catalogEntry = productId ? productCatalog[productId] : null;
+          const categoryName = item.categoryName || catalogEntry?.categoryName || item.product?.category?.name || 'Uncategorized';
           if (!categorySalesMap[categoryName]) {
             categorySalesMap[categoryName] = 0;
           }
@@ -144,9 +159,15 @@ const Reports = () => {
         }))
         .sort((a, b) => b.revenue - a.revenue);
 
+      const formatPaymentMethodLabel = (method) => {
+        const normalized = String(method || 'cash').replace(/_/g, ' ').trim();
+        if (!normalized) return 'Cash';
+        return normalized.replace(/\b\w/g, (char) => char.toUpperCase());
+      };
+
       const paymentMethodsMap = {};
       filteredOrders.forEach(order => {
-        const method = order.paymentMethod || 'unknown';
+        const method = order.paymentMethod || 'cash';
         if (!paymentMethodsMap[method]) {
           paymentMethodsMap[method] = { count: 0, amount: 0 };
         }
@@ -155,7 +176,7 @@ const Reports = () => {
       });
 
       const paymentMethods = Object.keys(paymentMethodsMap).map(method => ({
-        method: method.replace('_', ' '),
+        method: formatPaymentMethodLabel(method),
         count: paymentMethodsMap[method].count,
         amount: paymentMethodsMap[method].amount
       }));
@@ -493,6 +514,11 @@ const Reports = () => {
                     legend: {
                       position: 'right',
                       labels: { font: { size: 11 } }
+                    },
+                    tooltip: {
+                      callbacks: {
+                        label: (context) => context.label
+                      }
                     }
                   }
                 }} />

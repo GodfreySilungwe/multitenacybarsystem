@@ -19,9 +19,31 @@ router.get('/', async (req, res) => {
   try {
     const orders = await Order.find({ barId: req.user.barId })
       .populate('customer', 'name phone')
-      .populate('items.product', 'name')
       .sort({ createdAt: -1 });
-    res.json(orders);
+
+    const products = await Product.find({ barId: req.user.barId });
+    const productMap = new Map((products || []).map((product) => [product._id || product.id, product]));
+
+    const enrichedOrders = (orders || []).map((order) => ({
+      ...order,
+      items: (order.items || []).map((item) => {
+        const itemProductId = item.product?._id || item.product;
+        const catalogProduct = itemProductId ? productMap.get(itemProductId) : null;
+        const productName = item.productName || catalogProduct?.name || item.product?.name || 'Product';
+        const productCategory = catalogProduct?.category?.name || catalogProduct?.categoryName || item.product?.category?.name || 'Uncategorized';
+
+        return {
+          ...item,
+          productName,
+          product: catalogProduct
+            ? { _id: catalogProduct._id || catalogProduct.id, name: catalogProduct.name, category: catalogProduct.category }
+            : item.product || null,
+          categoryName: productCategory
+        };
+      })
+    }));
+
+    res.json(enrichedOrders);
   } catch (error) {
     console.error('Error fetching orders:', error);
     res.status(500).json({ message: error.message });

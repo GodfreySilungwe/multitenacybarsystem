@@ -8,7 +8,7 @@ import { useAuth } from '../context/AuthContext';
 
 const Settings = () => {
   const { user } = useAuth();
-  const isOwner = user?.role === 'owner';
+  const isBarOwner = user?.role === 'owner' && !!user?.barId;
   const [activeTab, setActiveTab] = useState('profile');
   const [loading, setLoading] = useState(false);
   const [message, setMessage] = useState('');
@@ -60,12 +60,12 @@ const Settings = () => {
       return;
     }
 
-    if (user.role === 'owner') {
+    if (isBarOwner) {
       loadTeamUsers();
     } else {
       setTeamUsers([]);
     }
-  }, [user?.role]);
+  }, [isBarOwner]);
 
   const loadProfile = async () => {
     try {
@@ -147,7 +147,7 @@ const Settings = () => {
   };
 
   const loadTeamUsers = async () => {
-    if (user?.role !== 'owner') {
+    if (!isBarOwner) {
       return;
     }
 
@@ -308,9 +308,9 @@ const Settings = () => {
 
   const tabs = [
     { id: 'profile', label: '👤 Profile', delay: 1 },
-    ...(isOwner ? [{ id: 'team', label: '👥 Team', delay: 2 }] : []),
-    { id: 'password', label: '🔒 Password', delay: isOwner ? 3 : 2 },
-    { id: 'business', label: '🏢 Business', delay: isOwner ? 4 : 3 }
+    ...(isBarOwner ? [{ id: 'team', label: '👥 Team', delay: 2 }] : []),
+    { id: 'password', label: '🔒 Password', delay: isBarOwner ? 3 : 2 },
+    { id: 'business', label: '🏢 Business', delay: isBarOwner ? 4 : 3 }
   ];
 
   return (
@@ -453,7 +453,7 @@ const Settings = () => {
         </div>
       )}
 
-      {activeTab === 'team' && isOwner && (
+      {activeTab === 'team' && isBarOwner && (
         <div className="fade-in">
           <UnifiedCard title="👥 Manage Sales Accounts">
             <form onSubmit={handleCreateSalesAccount} style={styles.form}>

@@ -4,6 +4,7 @@ const bcrypt = require('bcryptjs');
 const router = express.Router();
 const User = require('../models/User');
 const Customer = require('../models/Customer');
+const { protect } = require('../middleware/auth');
 
 const DEFAULT_JWT_SECRET = 'secret_key';
 const JWT_SECRET = process.env.JWT_SECRET || process.env.JWT_SECRET_KEY || DEFAULT_JWT_SECRET;
@@ -183,6 +184,13 @@ router.post('/login', async (req, res) => {
       return res.status(401).json({ message: 'Account disabled' });
     }
 
+    if (user.barId) {
+      const bar = await require('../models/Bar').findById(user.barId);
+      if (!bar || bar.status === 'suspended' || bar.status === 'deleted') {
+        return res.status(403).json({ message: 'This bar is currently suspended and cannot operate.' });
+      }
+    }
+
     let isMatch = false;
     try {
       isMatch = await bcrypt.compare(password, user.password);
@@ -225,6 +233,49 @@ router.post('/login', async (req, res) => {
     });
   } catch (error) {
     console.error('Login error:', error);
+    res.status(500).json({ message: error.message });
+  }
+});
+
+router.patch('/change-password', protect, async (req, res) => {
+  try {
+    const { currentPassword, newPassword } = req.body || {};
+
+    if (!currentPassword || !newPassword) {
+      return res.status(400).json({ message: 'Current password and new password are required.' });
+    }
+
+    if (String(newPassword).length < 6) {
+      return res.status(400).json({ message: 'New password must be at least 6 characters.' });
+    }
+
+    const user = await User.findById(req.user?._id || req.user?.id);
+    if (!user) {
+      return res.status(404).json({ message: 'User not found.' });
+    }
+
+    let isCurrentPasswordValid = false;
+    try {
+      isCurrentPasswordValid = await bcrypt.compare(currentPassword, user.password);
+    } catch (compareError) {
+      console.error('Password compare error:', compareError);
+    }
+
+    if (!isCurrentPasswordValid && user.password === currentPassword) {
+      isCurrentPasswordValid = true;
+    }
+
+    if (!isCurrentPasswordValid) {
+      return res.status(401).json({ message: 'Current password is incorrect.' });
+    }
+
+    const salt = await bcrypt.genSalt(10);
+    user.password = await bcrypt.hash(newPassword, salt);
+    await user.save();
+
+    res.json({ message: 'Password changed successfully.' });
+  } catch (error) {
+    console.error('Error changing password:', error);
     res.status(500).json({ message: error.message });
   }
 });

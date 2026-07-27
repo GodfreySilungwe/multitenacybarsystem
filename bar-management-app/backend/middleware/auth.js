@@ -1,5 +1,6 @@
 const jwt = require('jsonwebtoken');
 const User = require('../models/User');
+const Bar = require('../models/Bar');
 const { setTenantContext } = require('../lib/tenantContext');
 
 const DEFAULT_JWT_SECRET = 'secret_key';
@@ -64,6 +65,15 @@ const protect = async (req, res, next) => {
   if (!req.user) {
     return res.status(401).json({ message: 'Not authorized, no token' });
   }
+
+  if (req.user.barId) {
+    const bar = await Bar.findById(req.user.barId);
+    // Only block requests when the bar exists and is explicitly suspended or deleted.
+    if (bar && (bar.status === 'suspended' || bar.status === 'deleted')) {
+      return res.status(403).json({ message: 'This bar is currently suspended and cannot operate.' });
+    }
+  }
+
   next();
 };
 

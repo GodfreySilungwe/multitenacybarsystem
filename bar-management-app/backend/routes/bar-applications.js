@@ -41,6 +41,14 @@ router.post('/', async (req, res) => {
       return res.status(400).json({ message: 'Bar name, owner name, email and phone are required.' });
     }
 
+    if (!ownerUsername || !String(ownerUsername).trim()) {
+      return res.status(400).json({ message: 'Owner username is required.' });
+    }
+
+    if (!ownerPassword || String(ownerPassword).length < 6) {
+      return res.status(400).json({ message: 'Owner password is required and must be at least 6 characters.' });
+    }
+
     const normalizedUsername = normalizeUsername(ownerUsername || ownerFullName, barName);
     const normalizedEmail = normalizeEmail(ownerEmail, `${normalizedUsername}@bar.local`);
     const password = ownerPassword || generatePassword(normalizedUsername);

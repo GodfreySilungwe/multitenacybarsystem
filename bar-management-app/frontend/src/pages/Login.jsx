@@ -134,7 +134,7 @@ const Login = () => {
         </form>
 
         <div style={styles.applySection}>
-          <p style={styles.applyText}>New bar owner? <a href="/apply" style={styles.applyLink}>Apply here</a> and wait for approval from the global owner.</p>
+          <p style={styles.applyText}>New bar apply here <a href="/apply" style={styles.applyLink}>Apply here</a></p>
         </div>
 
         <div style={styles.branding}>
