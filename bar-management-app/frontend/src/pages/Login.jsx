@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 import { faWineBottle } from '@fortawesome/free-solid-svg-icons';
@@ -134,7 +134,13 @@ const Login = () => {
         </form>
 
         <div style={styles.applySection}>
-          <p style={styles.applyText}>New bar apply here <a href="/apply" style={styles.applyLink}>Apply here</a></p>
+          <p style={styles.applyText}>New bar apply here <Link to="/apply" style={styles.applyLink}>Apply here</Link></p>
+        </div>
+
+        <div style={styles.registerSection}>
+          <p style={styles.registerText}>
+            Don't have an account? <Link to="/register" style={styles.registerLink}>Register here</Link>
+          </p>
         </div>
 
         <div style={styles.branding}>
@@ -304,6 +310,20 @@ const styles = {
   },
   applyLink: {
     color: '#e94560',
+    textDecoration: 'none',
+    fontWeight: '700'
+  },
+  registerSection: {
+    marginTop: '14px',
+    textAlign: 'center'
+  },
+  registerText: {
+    color: '#475569',
+    fontSize: '14px',
+    margin: 0
+  },
+  registerLink: {
+    color: '#1d4ed8',
     textDecoration: 'none',
     fontWeight: '700'
   },

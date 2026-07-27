@@ -1,6 +1,6 @@
 import axios from 'axios';
 
-const DEFAULT_API_BASE_URL = 'https://01uy0put6a.execute-api.us-east-1.amazonaws.com/api';
+const DEFAULT_API_BASE_URL = 'https://d3hizi1y25kzis.cloudfront.net/api';
 
 const resolveApiBaseUrl = () => {
   const configuredUrl = import.meta.env.VITE_API_BASE_URL?.trim();

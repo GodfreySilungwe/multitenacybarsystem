@@ -33,11 +33,55 @@ app.use((req, res, next) => {
   next();
 });
 
-const allowedOrigins = (process.env.CORS_ALLOWED_ORIGINS || `${process.env.CORS_ORIGIN || 'http://localhost:5173'},http://127.0.0.1:5173,http://localhost:3000,http://multitenacys3webbucket.s3-website-us-east-1.amazonaws.com,https://multitenacys3webbucket.s3-website-us-east-1.amazonaws.com`).split(',').map(origin => origin.trim()).filter(Boolean);
+const defaultAllowedOrigins = [
+  process.env.CORS_ORIGIN || 'http://localhost:5173',
+  'http://127.0.0.1:5173',
+  'http://localhost:3000',
+  'http://multitenacys3webbucket.s3-website-us-east-1.amazonaws.com',
+  'https://multitenacys3webbucket.s3-website-us-east-1.amazonaws.com',
+  'http://www.smartbar.tech',
+  'http://smartbar.tech',
+  'https://www.smartbar.tech',
+  'https://smartbar.tech',
+  'http://www.smartbarmw.tech',
+  'https://www.smartbarmw.tech',
+  'https://smartbarmw.tech',
+  'https://d3hizi1y25kzis.cloudfront.net',
+  'https://01uy0put6a.execute-api.us-east-1.amazonaws.com'
+];
+
+const allowedOrigins = (process.env.CORS_ALLOWED_ORIGINS || defaultAllowedOrigins.join(','))
+  .split(',')
+  .map(origin => origin.trim())
+  .filter(Boolean);
+
+const isOriginAllowed = (origin) => {
+  if (!origin) {
+    return true;
+  }
+
+  if (allowedOrigins.includes(origin)) {
+    return true;
+  }
+
+  if (/\.cloudfront\.net$/i.test(origin)) {
+    return true;
+  }
+
+  if (/\.s3-website-us-east-1\.amazonaws\.com$/i.test(origin)) {
+    return true;
+  }
+
+  if (/\.execute-api\.us-east-1\.amazonaws\.com$/i.test(origin)) {
+    return true;
+  }
+
+  return /^(https?:\/\/)?(www\.)?(smartbar|smartbarmw)\.tech$/i.test(origin);
+};
 
 const corsOptions = {
   origin: (origin, callback) => {
-    if (!origin || allowedOrigins.includes(origin) || origin === 'https://01uy0put6a.execute-api.us-east-1.amazonaws.com' || origin.endsWith('.cloudfront.net') || origin.endsWith('.s3-website-us-east-1.amazonaws.com') || origin.endsWith('.execute-api.us-east-1.amazonaws.com')) {
+    if (isOriginAllowed(origin)) {
       callback(null, true);
       return;
     }
