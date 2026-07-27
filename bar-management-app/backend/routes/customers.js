@@ -320,7 +320,8 @@ router.delete('/:id', async (req, res) => {
     await deleteCustomerRelatedData(customer._id || customer.id);
 
     if (customer.accountUserId) {
-        const linkedUser = await User.findOne({ _id: customer.accountUserId, barId: req.user.barId });
+      const linkedUser = await User.findOne({ _id: customer.accountUserId, barId: req.user.barId });
+      if (linkedUser) {
         await linkedUser.delete();
       }
     }
