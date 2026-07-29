@@ -361,9 +361,9 @@ const POS = () => {
 
   const paymentMethodOptions = [
     { value: 'cash', label: '💵 Cash' },
-    { value: 'airtel_money', label: '📲 Airtel Money Code 1234' },
-    { value: 'mpamba', label: '📱 Mpamba Code 1234' },
-    { value: 'bank_account', label: '🏦 Bank Acc# 1234' },
+    { value: 'airtel_money', label: '📲 Airtel Money' },
+    { value: 'mpamba', label: '📱 Mpamba' },
+    { value: 'bank_account', label: '🏦 Bank Account' },
     { value: 'credit', label: '🧾 Credit' }
   ];
 
