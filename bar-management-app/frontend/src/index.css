@@ -253,6 +253,59 @@ body {
   background: #2d2d4a !important;
   color: white !important;
 }
+/* Global responsive helpers */
+.page-container {
+  width: 100%;
+}
+.page-title {
+  margin-bottom: 18px;
+}
+.table-responsive {
+  width: 100%;
+  overflow-x: auto;
+}
+.page-container table {
+  width: 100%;
+  border-collapse: collapse;
+}
+@media (max-width: 900px) {
+  .page-container {
+    padding: 16px 14px;
+  }
+  .page-title {
+    font-size: 24px;
+  }
+  .page-container input,
+  .page-container select,
+  .page-container textarea,
+  .page-container button {
+    width: 100% !important;
+    max-width: 100% !important;
+  }
+  .page-container .card-modern {
+    padding: 18px 16px !important;
+  }
+  .page-container .table-responsive {
+    overflow-x: auto;
+  }
+  .page-container .table-modern {
+    min-width: 100%;
+  }
+  .page-container .category-btn,
+  .page-container .payment-btn,
+  .page-container .btn-modern {
+    width: 100% !important;
+  }
+}
+@media (max-width: 600px) {
+  .page-container {
+    padding: 12px 12px;
+  }
+  .page-title {
+    font-size: 22px;
+  }
+}
+
 /* Table Styles */
 .table-modern {
   width: 100%;

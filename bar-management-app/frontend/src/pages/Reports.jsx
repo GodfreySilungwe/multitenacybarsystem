@@ -46,7 +46,10 @@ const Reports = () => {
     totalProfit: 0,
     totalOrders: 0,
     averageOrderValue: 0,
-    totalCreditOutstanding: 0
+    totalCreditOutstanding: 0,
+    totalQuantitySold: 0,
+    averageItemsPerOrder: 0,
+    grossMarginRatio: 0
   });
 
   useEffect(() => {
@@ -85,7 +88,10 @@ const Reports = () => {
       const totalSales = filteredOrders.reduce((sum, o) => sum + o.totalAmount, 0);
       const totalProfit = filteredOrders.reduce((sum, o) => sum + o.profit, 0);
       const totalOrders = filteredOrders.length;
+      const totalQuantitySold = filteredOrders.reduce((sum, order) => sum + (order.items || []).reduce((itemSum, item) => itemSum + (item.quantity || 0), 0), 0);
       const averageOrderValue = totalOrders > 0 ? totalSales / totalOrders : 0;
+      const averageItemsPerOrder = totalOrders > 0 ? totalQuantitySold / totalOrders : 0;
+      const grossMarginRatio = totalSales > 0 ? (totalProfit / totalSales) * 100 : 0;
 
       const dailySalesMap = {};
       filteredOrders.forEach(order => {
@@ -203,7 +209,10 @@ const Reports = () => {
         totalProfit,
         totalOrders,
         averageOrderValue,
-        totalCreditOutstanding
+        totalCreditOutstanding,
+        totalQuantitySold,
+        averageItemsPerOrder,
+        grossMarginRatio
       });
 
     } catch (err) {
@@ -214,6 +223,7 @@ const Reports = () => {
     }
   };
 
+  const salesTotalForPercent = reportData.totalSales || 1;
   const dailySalesChartData = {
     labels: reportData.dailySales.map(d => d.date),
     datasets: [
@@ -383,10 +393,10 @@ const Reports = () => {
         {[
           { title: 'Total Sales', value: formatPriceMK(reportData.totalSales), icon: '💰', color: '#e94560', delay: 1 },
           { title: 'Total Profit', value: formatPriceMK(reportData.totalProfit), icon: '📈', color: '#2ecc71', delay: 2 },
-          { title: 'Total Orders', value: reportData.totalOrders, icon: '🛒', color: '#3498db', delay: 3 },
-          { title: 'Average Order', value: formatPriceMK(reportData.averageOrderValue), icon: '📊', color: '#9b59b6', delay: 4 },
-          { title: 'Outstanding Credit', value: formatPriceMK(reportData.totalCreditOutstanding), icon: '🧾', color: '#f39c12', delay: 5 },
-          { title: 'Credit Customers', value: reportData.creditAccounts.length, icon: '👥', color: '#1abc9c', delay: 6 }
+          { title: 'Gross Margin', value: `${reportData.grossMarginRatio.toFixed(1)}%`, icon: '📐', color: '#1abc9c', delay: 3 },
+          { title: 'Avg Items / Order', value: reportData.averageItemsPerOrder.toFixed(1), icon: '📦', color: '#9b59b6', delay: 4 },
+          { title: 'Total Orders', value: reportData.totalOrders, icon: '🛒', color: '#3498db', delay: 5 },
+          { title: 'Credit Exposure', value: formatPriceMK(reportData.totalCreditOutstanding), icon: '🧾', color: '#f39c12', delay: 6 }
         ].map((item, index) => (
           <div 
             key={index}

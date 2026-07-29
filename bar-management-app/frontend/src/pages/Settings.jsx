@@ -5,6 +5,7 @@ import UnifiedCard from '../components/common/UnifiedCard';
 import Button from '../components/common/Button';
 import AvatarUpload from '../components/common/AvatarUpload';
 import { useAuth } from '../context/AuthContext';
+import { confirmTypedDelete } from '../utils/confirmation';
 
 const Settings = () => {
   const { user } = useAuth();
@@ -198,7 +199,7 @@ const Settings = () => {
   };
 
   const handleDeleteTeamUser = async (id) => {
-    if (!confirm('Delete this sales account?')) {
+    if (!confirmTypedDelete('delete this sales account')) {
       return;
     }
 

@@ -16,8 +16,6 @@ const ReceiptModal = ({ order, onClose }) => {
           {/* Header */}
           <div style={styles.header}>
             <h1 style={styles.barName}>🍹 SMART BAR</h1>
-            <p style={styles.address}>123 Main Street, Lilongwe</p>
-            <p style={styles.phone}>📞 +265 999 123 456</p>
             <div style={styles.divider} />
           </div>
 

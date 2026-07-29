@@ -1,7 +1,7 @@
 import { Navigate } from 'react-router-dom';
 import { useAuth } from '../../context/AuthContext';
 
-const ProtectedRoute = ({ children, ownerOnly = false, barOwnerOnly = false, globalOwnerOnly = false, customerOnly = false, salesOnly = false }) => {
+const ProtectedRoute = ({ children, ownerOnly = false, barOwnerOnly = false, globalOwnerOnly = false, customerOnly = false, salesOnly = false, barOwnerOrSales = false }) => {
   const { isAuthenticated, isOwner, isBarOwner, isGlobalOwner, isSales, user, loading } = useAuth();
 
   if (loading) {
@@ -22,6 +22,10 @@ const ProtectedRoute = ({ children, ownerOnly = false, barOwnerOnly = false, glo
   }
 
   if (salesOnly && !isSales) {
+    return <Navigate to="/" replace />;
+  }
+
+  if (barOwnerOrSales && !(isSales || isBarOwner)) {
     return <Navigate to="/" replace />;
   }
 

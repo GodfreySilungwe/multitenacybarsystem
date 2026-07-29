@@ -39,7 +39,7 @@ const HomeRoute = () => {
   if (user?.role === 'sales') {
     return (
       <Layout>
-        <POS />
+        <Dashboard />
       </Layout>
     );
   }
@@ -74,14 +74,14 @@ function App() {
             </ProtectedRoute>
           } />
           <Route path="/orders" element={
-            <ProtectedRoute salesOnly>
+            <ProtectedRoute barOwnerOnly>
               <Layout>
                 <Orders />
               </Layout>
             </ProtectedRoute>
           } />
           <Route path="/customers" element={
-            <ProtectedRoute barOwnerOnly>
+            <ProtectedRoute barOwnerOrSales>
               <Layout>
                 <Customers />
               </Layout>

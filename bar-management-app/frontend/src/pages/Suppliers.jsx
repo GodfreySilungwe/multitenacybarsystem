@@ -3,6 +3,7 @@ import api from '../api/api';
 import PageContainer from './PageContainer';
 import UnifiedCard from '../components/common/UnifiedCard';
 import Button from '../components/common/Button';
+import { confirmTypedDelete } from '../utils/confirmation';
 
 const Suppliers = () => {
   const [suppliers, setSuppliers] = useState([]);
@@ -52,7 +53,7 @@ const Suppliers = () => {
   };
 
   const handleDelete = async (id) => {
-    if (!confirm('Are you sure you want to delete this supplier?')) return;
+    if (!confirmTypedDelete('delete this supplier')) return;
     try {
       await api.delete(`/suppliers/${id}`);
       await loadSuppliers();

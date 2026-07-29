@@ -9,6 +9,7 @@ const PurchaseOrders = () => {
   const [orders, setOrders] = useState([]);
   const [suppliers, setSuppliers] = useState([]);
   const [products, setProducts] = useState([]);
+  const [productSearch, setProductSearch] = useState('');
   const [loading, setLoading] = useState(true);
   const [showForm, setShowForm] = useState(false);
   const [error, setError] = useState('');
@@ -179,6 +180,13 @@ const PurchaseOrders = () => {
 
               <div style={styles.itemsSection}>
                 <label style={styles.label}>Items *</label>
+                <input
+                  type="search"
+                  placeholder="Search products for this order"
+                  value={productSearch}
+                  onChange={(e) => setProductSearch(e.target.value)}
+                  style={styles.searchInput}
+                />
                 {formData.items.map((item, index) => (
                   <div key={index} style={styles.itemRow}>
                     <select
@@ -188,9 +196,18 @@ const PurchaseOrders = () => {
                       onChange={(e) => handleItemChange(index, 'product', e.target.value)}
                     >
                       <option value="">Select Product</option>
-                      {products.map(p => (
-                        <option key={p._id} value={p._id}>{p.name}</option>
-                      ))}
+                      {products
+                        .filter((product) => {
+                          const search = productSearch.trim().toLowerCase();
+                          if (!search) return true;
+                          return (
+                            product.name?.toLowerCase().includes(search) ||
+                            product.category?.name?.toLowerCase().includes(search)
+                          );
+                        })
+                        .map(p => (
+                          <option key={p._id} value={p._id}>{p.name}</option>
+                        ))}
                     </select>
                     <input
                       type="number"
@@ -516,6 +533,14 @@ const styles = {
     fontSize: '14px',
     transition: 'border 0.3s ease',
     fontFamily: 'inherit'
+  },
+  searchInput: {
+    width: '100%',
+    padding: '10px 12px',
+    borderRadius: '8px',
+    border: '1px solid #ddd',
+    fontSize: '14px',
+    marginBottom: '10px'
   },
   label: {
     fontSize: '14px',

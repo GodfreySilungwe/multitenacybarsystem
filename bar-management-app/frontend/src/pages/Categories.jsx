@@ -3,6 +3,7 @@ import api from '../api/api';
 import PageContainer from './PageContainer';
 import Button from '../components/common/Button';
 import UnifiedCard from '../components/common/UnifiedCard';
+import { confirmTypedDelete } from '../utils/confirmation';
 
 const Categories = () => {
   const [categories, setCategories] = useState([]);
@@ -45,7 +46,7 @@ const Categories = () => {
   };
 
   const handleDelete = async (id) => {
-    if (!confirm('Are you sure you want to delete this category?')) return;
+    if (!confirmTypedDelete('delete this category')) return;
     try {
       await api.delete(`/categories/${id}`);
       await loadCategories();

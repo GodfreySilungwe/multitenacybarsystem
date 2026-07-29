@@ -34,7 +34,9 @@ const Dashboard = () => {
     activeBars: 0,
     suspendedBars: 0,
     deletedBars: 0,
-    pendingApplications: 0
+    pendingApplications: 0,
+    activeRatio: 0,
+    pendingApplicationRatio: 0
   });
   const [globalBars, setGlobalBars] = useState([]);
   const [recentOrders, setRecentOrders] = useState([]);
@@ -64,13 +66,19 @@ const Dashboard = () => {
         const suspendedBars = bars.filter((bar) => bar.status === 'suspended').length;
         const deletedBars = bars.filter((bar) => bar.status === 'deleted').length;
 
+        const pendingApplicationsCount = applications.filter((app) => app.status === 'pending').length;
+        const activeRatio = bars.length > 0 ? Math.round((activeBars / bars.length) * 100) : 0;
+        const pendingApplicationRatio = bars.length > 0 ? Math.round((pendingApplicationsCount / bars.length) * 100) : 0;
+
         setStats((prev) => ({
           ...prev,
           totalBars: bars.length,
           activeBars,
           suspendedBars,
           deletedBars,
-          pendingApplications: applications.filter((app) => app.status === 'pending').length
+          pendingApplications: pendingApplicationsCount,
+          activeRatio,
+          pendingApplicationRatio
         }));
         setGlobalBars(bars.slice(0, 5));
         setRecentOrders([]);
@@ -174,7 +182,13 @@ const Dashboard = () => {
               <StatsCard title="Deleted Bars" value={stats.deletedBars} icon={faBox} color="#e74c3c" />
             </div>
             <div className="fade-in delay-5" style={styles.statItem}>
+              <StatsCard title="Active Ratio" value={`${stats.activeRatio}%`} icon={faChartLine} color="#1abc9c" />
+            </div>
+            <div className="fade-in delay-6" style={styles.statItem}>
               <StatsCard title="Pending Applications" value={stats.pendingApplications} icon={faClipboardCheck} color="#9b59b6" />
+            </div>
+            <div className="fade-in delay-7" style={styles.statItem}>
+              <StatsCard title="Pending Ratio" value={`${stats.pendingApplicationRatio}%`} icon={faExclamationTriangle} color="#f39c12" />
             </div>
           </div>
 

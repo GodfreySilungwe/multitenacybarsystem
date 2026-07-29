@@ -10,6 +10,7 @@ const POS = () => {
   const [categories, setCategories] = useState([]);
   const [cart, setCart] = useState([]);
   const [selectedCategory, setSelectedCategory] = useState('all');
+  const [productSearch, setProductSearch] = useState('');
   const [customers, setCustomers] = useState([]);
   const [selectedCustomer, setSelectedCustomer] = useState('');
   const [paymentMethod, setPaymentMethod] = useState('cash');
@@ -346,9 +347,17 @@ const POS = () => {
     }
   };
 
-  const filteredProducts = selectedCategory === 'all'
-    ? products
-    : products.filter(p => p.category?._id === selectedCategory || p.category === selectedCategory);
+  const normalizedSearch = productSearch.trim().toLowerCase();
+  const filteredProducts = products
+    .filter((product) => selectedCategory === 'all' || product.category?._id === selectedCategory || product.category === selectedCategory)
+    .filter((product) => {
+      if (!normalizedSearch) return true;
+      return (
+        product.name?.toLowerCase().includes(normalizedSearch) ||
+        product.unit?.toLowerCase().includes(normalizedSearch) ||
+        product.category?.name?.toLowerCase().includes(normalizedSearch)
+      );
+    });
 
   const paymentMethodOptions = [
     { value: 'cash', label: '💵 Cash' },
@@ -542,6 +551,13 @@ const POS = () => {
         <div style={styles.productSection} className="pos-mobile-product-section">
           <UnifiedCard title="SMART BAR Menu">
             <div style={styles.categoryFilter} className="pos-mobile-category-filter">
+              <input
+                type="search"
+                placeholder="Search products..."
+                value={productSearch}
+                onChange={(e) => setProductSearch(e.target.value)}
+                style={styles.searchInput}
+              />
               <button
                 className="category-btn pos-mobile-category-btn"
                 style={{

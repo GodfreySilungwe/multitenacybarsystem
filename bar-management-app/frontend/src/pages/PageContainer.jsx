@@ -1,8 +1,8 @@
 const PageContainer = ({ children, title }) => {
   return (
-    <div style={styles.container}>
-      {title && <h1 style={styles.title}>{title}</h1>}
-      <div style={styles.content}>
+    <div style={styles.container} className="page-container">
+      {title && <h1 style={styles.title} className="page-title">{title}</h1>}
+      <div style={styles.content} className="page-content">
         {children}
       </div>
     </div>

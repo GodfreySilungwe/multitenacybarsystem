@@ -3,6 +3,7 @@ import api from '../api/api';
 import PageContainer from './PageContainer';
 import UnifiedCard from '../components/common/UnifiedCard';
 import Button from '../components/common/Button';
+import { confirmTypedDelete } from '../utils/confirmation';
 
 const Bars = () => {
   const [bars, setBars] = useState([]);
@@ -45,7 +46,11 @@ const Bars = () => {
             ? 'Delete this bar? This will mark it as deleted and remove access.'
             : 'Restore this bar? It will become active again.';
 
-      if (!window.confirm(confirmMessage)) {
+      if (status === 'deleted') {
+        if (!confirmTypedDelete('delete this bar and remove access')) {
+          return;
+        }
+      } else if (!window.confirm(confirmMessage)) {
         return;
       }
 

@@ -4,6 +4,7 @@ import PageContainer from './PageContainer';
 import Button from '../components/common/Button';
 import UnifiedCard from '../components/common/UnifiedCard';
 import { formatPriceMK } from '../utils/formatPrice';
+import { confirmTypedDelete } from '../utils/confirmation';
 
 const Products = () => {
   const [products, setProducts] = useState([]);
@@ -78,7 +79,7 @@ const Products = () => {
   };
 
   const handleDelete = async (id) => {
-    if (!confirm('Are you sure you want to delete this product?')) return;
+    if (!confirmTypedDelete('delete this product')) return;
     try {
       await api.delete(`/products/${id}`);
       await loadData();
