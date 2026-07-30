@@ -20,6 +20,22 @@ body {
   min-height: 100vh;
 }
 
+button {
+  transition: transform 0.12s ease, box-shadow 0.12s ease, filter 0.12s ease, background-color 0.12s ease;
+  touch-action: manipulation;
+}
+
+button:not([disabled]):active {
+  transform: scale(0.97);
+  filter: brightness(0.92);
+  box-shadow: inset 0 2px 6px rgba(0, 0, 0, 0.14);
+}
+
+button:focus-visible {
+  outline: 2px solid #e94560;
+  outline-offset: 3px;
+}
+
 /* Modern Card Styles */
 .card-modern {
   background: white;

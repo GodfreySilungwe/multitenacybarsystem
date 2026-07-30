@@ -31,7 +31,7 @@ const styles = {
     borderRadius: '8px',
     cursor: 'pointer',
     fontWeight: '600',
-    transition: 'all 0.3s',
+    transition: 'transform 0.12s ease, box-shadow 0.12s ease, filter 0.12s ease, background-color 0.12s ease',
     display: 'inline-flex',
     alignItems: 'center',
     justifyContent: 'center',
