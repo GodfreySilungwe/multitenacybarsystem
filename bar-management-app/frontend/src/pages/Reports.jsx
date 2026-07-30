@@ -127,20 +127,27 @@ const Reports = () => {
         order.items.forEach(item => {
           const productId = item.product?._id || item.product;
           const catalogEntry = productId ? productCatalog[productId] : null;
-          const productName = item.productName || catalogEntry?.name || item.product?.name || 'Unknown';
-          if (!productSalesMap[productName]) {
-            productSalesMap[productName] = { quantity: 0, revenue: 0 };
+          const productName = item.productName || catalogEntry?.name || item.product?.name || item.name || 'Unknown';
+          const saleKey = productId || productName;
+
+          if (!productSalesMap[saleKey]) {
+            productSalesMap[saleKey] = {
+              name: productName,
+              quantity: 0,
+              revenue: 0
+            };
           }
-          productSalesMap[productName].quantity += item.quantity;
-          productSalesMap[productName].revenue += item.subtotal;
+
+          productSalesMap[saleKey].quantity += item.quantity;
+          productSalesMap[saleKey].revenue += item.subtotal;
         });
       });
 
-      const topProducts = Object.keys(productSalesMap)
-        .map(name => ({
-          name,
-          quantity: productSalesMap[name].quantity,
-          revenue: productSalesMap[name].revenue
+      const topProducts = Object.values(productSalesMap)
+        .map(entry => ({
+          name: entry.name || 'Unknown',
+          quantity: entry.quantity,
+          revenue: entry.revenue
         }))
         .sort((a, b) => b.revenue - a.revenue)
         .slice(0, 10);
@@ -316,6 +323,29 @@ const Reports = () => {
     }
   };
 
+  const topProductsChartOptions = {
+    ...chartOptions,
+    plugins: {
+      ...chartOptions.plugins,
+      legend: { display: false },
+      tooltip: {
+        callbacks: {
+          label: (context) => `${context.label}: MK ${Number(context.raw || 0).toLocaleString()}`
+        }
+      }
+    },
+    scales: {
+      ...chartOptions.scales,
+      x: {
+        ticks: {
+          autoSkip: false,
+          maxRotation: 0,
+          minRotation: 0
+        }
+      }
+    }
+  };
+
   if (loading) {
     return (
       <PageContainer title="📊 Reports">
@@ -472,13 +502,7 @@ const Reports = () => {
           <UnifiedCard title="🏆 Top Selling Products" style={styles.chartCard}>
             <div style={styles.chartContainer}>
               {reportData.topProducts.length > 0 ? (
-                <Bar data={topProductsChartData} options={{
-                  ...chartOptions,
-                  plugins: {
-                    ...chartOptions.plugins,
-                    legend: { display: false }
-                  }
-                }} />
+                <Bar data={topProductsChartData} options={topProductsChartOptions} />
               ) : (
                 <div style={styles.noData}>
                   <p style={styles.noDataIcon}>🏆</p>

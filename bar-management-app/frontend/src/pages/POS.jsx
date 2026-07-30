@@ -29,6 +29,8 @@ const POS = () => {
   const [notificationHistory, setNotificationHistory] = useState([]);
   const [showNotifications, setShowNotifications] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
+  const [feedbackMessage, setFeedbackMessage] = useState('');
+  const [activeAddedProductId, setActiveAddedProductId] = useState(null);
 
   useEffect(() => {
     loadData();
@@ -234,6 +236,32 @@ const POS = () => {
     }
   };
 
+  const playAddToCartSound = () => {
+    try {
+      const AudioContext = window.AudioContext || window.webkitAudioContext;
+      if (!AudioContext) return;
+
+      const context = new AudioContext();
+      const oscillator = context.createOscillator();
+      const gainNode = context.createGain();
+
+      oscillator.type = 'sine';
+      oscillator.frequency.setValueAtTime(880, context.currentTime);
+      oscillator.frequency.exponentialRampToValueAtTime(1320, context.currentTime + 0.12);
+      gainNode.gain.setValueAtTime(0.0001, context.currentTime);
+      gainNode.gain.exponentialRampToValueAtTime(0.09, context.currentTime + 0.01);
+      gainNode.gain.exponentialRampToValueAtTime(0.0001, context.currentTime + 0.2);
+
+      oscillator.connect(gainNode);
+      gainNode.connect(context.destination);
+      oscillator.start();
+      oscillator.stop(context.currentTime + 0.2);
+      setTimeout(() => context.close().catch(() => {}), 250);
+    } catch (err) {
+      console.warn('Unable to play add-to-cart sound:', err);
+    }
+  };
+
   const addToCart = (product) => {
     if (product.currentStock <= 0) {
       setError(`⚠️ ${product.name} is out of stock!`);
@@ -257,6 +285,15 @@ const POS = () => {
       }
       return [...prev, { ...product, quantity: 1 }];
     });
+
+    setFeedbackMessage(`${product.name} added to cart`);
+    setActiveAddedProductId(product._id);
+    playAddToCartSound();
+
+    window.setTimeout(() => {
+      setActiveAddedProductId(null);
+      setFeedbackMessage('');
+    }, 700);
   };
 
   const removeFromCart = (productId) => {
@@ -590,7 +627,8 @@ const POS = () => {
                   className={`fade-in delay-${(index % 6) + 1} pos-mobile-product-btn`}
                   style={{
                     ...styles.productBtn,
-                    ...(product.currentStock <= 0 ? styles.productOutOfStock : {})
+                    ...(product.currentStock <= 0 ? styles.productOutOfStock : {}),
+                    ...(activeAddedProductId === product._id ? styles.productAdded : {})
                   }}
                   onClick={() => addToCart(product)}
                   disabled={product.currentStock <= 0}
@@ -625,6 +663,9 @@ const POS = () => {
         {/* Right: Cart */}
         <div style={styles.cartSection} className="pos-mobile-cart-section">
           <UnifiedCard title={`🛒 Cart (${totalItems} items)`}>
+            {feedbackMessage && (
+              <div style={styles.feedbackBanner}>{feedbackMessage}</div>
+            )}
             <div style={styles.customerSection}>
               <select
                 style={styles.customerSelect}
@@ -897,6 +938,21 @@ const styles = {
   productOutOfStock: {
     opacity: 0.5,
     cursor: 'not-allowed'
+  },
+  productAdded: {
+    transform: 'scale(1.02)',
+    boxShadow: '0 0 0 2px #e94560 inset, 0 8px 20px rgba(233, 69, 96, 0.2)',
+    backgroundColor: '#fff7f8'
+  },
+  feedbackBanner: {
+    marginBottom: '10px',
+    padding: '8px 10px',
+    borderRadius: '8px',
+    backgroundColor: '#fff5f7',
+    color: '#e94560',
+    fontSize: '13px',
+    fontWeight: '600',
+    border: '1px solid #ffd6df'
   },
   productName: {
     fontSize: '14px',

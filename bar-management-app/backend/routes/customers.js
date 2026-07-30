@@ -23,10 +23,10 @@ const getOrderOutstandingBalance = (order) => {
   return Math.max(0, recordedBalance);
 };
 
-const buildCustomerCreditSummary = async (customerId) => {
+const buildCustomerCreditSummary = async (customerId, barId) => {
   try {
     const orders = await Order.find({
-      barId: req.user.barId,
+      barId,
       customer: customerId,
       reversed: { $ne: true },
       paymentMethod: 'credit',
@@ -76,15 +76,15 @@ const buildCustomerCreditSummary = async (customerId) => {
   }
 };
 
-const deleteCustomerRelatedData = async (customerId) => {
+const deleteCustomerRelatedData = async (customerId, barId) => {
   if (!customerId) {
     return;
   }
 
   const [requests, payments, orders] = await Promise.all([
-    CustomerOrderRequest.find({ barId: req.user.barId, customerId }),
-    CustomerPaymentRequest.find({ barId: req.user.barId, customerId }),
-    Order.find({ barId: req.user.barId, customer: customerId })
+    CustomerOrderRequest.find({ barId, customerId }),
+    CustomerPaymentRequest.find({ barId, customerId }),
+    Order.find({ barId, customer: customerId })
   ]);
 
   await Promise.all([
@@ -94,10 +94,10 @@ const deleteCustomerRelatedData = async (customerId) => {
   ]);
 };
 
-const enrichCustomer = async (customer) => {
+const enrichCustomer = async (customer, barId) => {
   if (!customer) return customer;
 
-  const creditSummary = await buildCustomerCreditSummary(customer._id || customer.id);
+  const creditSummary = await buildCustomerCreditSummary(customer._id || customer.id, barId);
   const outstandingBalance = creditSummary.reduce((sum, item) => sum + Number(item.balanceDue || 0), 0);
 
   return {
@@ -114,7 +114,7 @@ const enrichCustomer = async (customer) => {
 router.get('/', async (req, res) => {
   try {
     const customers = await Customer.find({ barId: req.user.barId }).sort({ name: 1 });
-    const enrichedCustomers = await Promise.all(customers.map(enrichCustomer));
+    const enrichedCustomers = await Promise.all(customers.map((customer) => enrichCustomer(customer, req.user.barId)));
     res.json(enrichedCustomers);
   } catch (error) {
     res.status(500).json({ message: error.message });
@@ -128,7 +128,7 @@ router.get('/:id', async (req, res) => {
     if (!customer) {
       return res.status(404).json({ message: 'Customer not found' });
     }
-    const enrichedCustomer = await enrichCustomer(customer);
+    const enrichedCustomer = await enrichCustomer(customer, req.user.barId);
     res.json(enrichedCustomer);
   } catch (error) {
     res.status(500).json({ message: error.message });
@@ -294,12 +294,12 @@ router.post('/:id/pay', async (req, res) => {
 
     const updatedCustomer = await Customer.findOne({ _id: req.params.id, barId: req.user.barId });
     if (updatedCustomer) {
-      const creditSummary = await buildCustomerCreditSummary(req.params.id);
+      const creditSummary = await buildCustomerCreditSummary(req.params.id, req.user.barId);
       const updatedOutstandingBalance = creditSummary.reduce((sum, item) => sum + Number(item.balanceDue || 0), 0);
       updatedCustomer.creditBalance = updatedOutstandingBalance;
       updatedCustomer.lastCreditPayment = paymentAmount;
       await updatedCustomer.save();
-      const enrichedCustomer = await enrichCustomer(updatedCustomer);
+      const enrichedCustomer = await enrichCustomer(updatedCustomer, req.user.barId);
       return res.json(enrichedCustomer);
     }
 
@@ -317,7 +317,15 @@ router.delete('/:id', async (req, res) => {
       return res.status(404).json({ message: 'Customer not found' });
     }
 
-    await deleteCustomerRelatedData(customer._id || customer.id);
+    const creditSummary = await buildCustomerCreditSummary(customer._id || customer.id, req.user.barId);
+    const outstandingBalance = creditSummary.reduce((sum, item) => sum + Number(item.balanceDue || 0), 0);
+    if (outstandingBalance > 0) {
+      return res.status(400).json({
+        message: 'Cannot delete customer with outstanding credit balance. Please clear all unpaid credit orders before deleting.'
+      });
+    }
+
+    await deleteCustomerRelatedData(customer._id || customer.id, req.user.barId);
 
     if (customer.accountUserId) {
       const linkedUser = await User.findOne({ _id: customer.accountUserId, barId: req.user.barId });
