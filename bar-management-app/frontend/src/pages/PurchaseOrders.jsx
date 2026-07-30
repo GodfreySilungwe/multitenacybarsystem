@@ -220,7 +220,7 @@ const PurchaseOrders = () => {
                     <input
                       type="number"
                       required
-                      placeholder="Cost Price"
+                      placeholder="Cost"
                       style={{...styles.input, flex: 1}}
                       value={item.costPrice}
                       onChange={(e) => handleItemChange(index, 'costPrice', e.target.value)}
@@ -524,23 +524,26 @@ const styles = {
   itemRow: {
     display: 'flex',
     gap: '10px',
-    alignItems: 'center'
+    alignItems: 'center',
+    flexWrap: 'wrap'
   },
   input: {
-    padding: '10px 12px',
+    padding: '12px 14px',
     borderRadius: '8px',
     border: '1px solid #ddd',
-    fontSize: '14px',
+    fontSize: '15px',
     transition: 'border 0.3s ease',
-    fontFamily: 'inherit'
+    fontFamily: 'inherit',
+    minHeight: '44px'
   },
   searchInput: {
     width: '100%',
-    padding: '10px 12px',
+    padding: '12px 14px',
     borderRadius: '8px',
     border: '1px solid #ddd',
-    fontSize: '14px',
-    marginBottom: '10px'
+    fontSize: '15px',
+    marginBottom: '10px',
+    minHeight: '44px'
   },
   label: {
     fontSize: '14px',
