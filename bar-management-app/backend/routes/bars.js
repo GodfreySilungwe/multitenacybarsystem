@@ -12,6 +12,7 @@ const CustomerPaymentRequest = require('../models/CustomerPaymentRequest');
 const InventoryAdjustment = require('../models/InventoryAdjustment');
 const PurchaseOrder = require('../models/PurchaseOrder');
 const Supplier = require('../models/Supplier');
+const BarApplication = require('../models/BarApplication');
 const { protect, isGlobalOwner } = require('../middleware/auth');
 
 const normalizeUsername = (value, fallback = 'admin') => {
@@ -32,10 +33,12 @@ router.get('/', async (req, res) => {
   try {
     const bars = await Bar.find().sort({ name: 1 });
     const userRecords = await User.find({ barId: { $ne: null } }).sort({ username: 1 });
+    const applications = await BarApplication.find().sort({ createdAt: -1 });
 
     const barsWithOwners = await Promise.all(bars.map(async (bar) => {
       const owner = userRecords.find((user) => String(user.barId) === String(bar._id) && user.role === 'owner') || null;
       const salesAccounts = userRecords.filter((user) => String(user.barId) === String(bar._id) && user.role === 'sales' && user.isActive !== false);
+      const application = applications.find((app) => String(app.barName || '').toLowerCase() === String(bar.name || '').toLowerCase()) || null;
 
       return {
         ...bar.toObject?.() || bar,
@@ -45,6 +48,22 @@ router.get('/', async (req, res) => {
           email: owner.email,
           fullName: owner.fullName,
           phone: owner.phone
+        } : null,
+        application: application ? {
+          id: application._id,
+          barName: application.barName,
+          barCode: application.barCode,
+          description: application.description,
+          ownerFullName: application.ownerFullName,
+          ownerEmail: application.ownerEmail,
+          ownerPhone: application.ownerPhone,
+          ownerUsername: application.ownerUsername,
+          ownerPassword: application.ownerPassword,
+          status: application.status,
+          createdAt: application.createdAt,
+          approvedAt: application.approvedAt,
+          rejectedAt: application.rejectedAt,
+          rejectionReason: application.rejectionReason
         } : null,
         activeSalesAccounts: salesAccounts.length
       };

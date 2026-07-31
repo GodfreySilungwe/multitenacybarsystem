@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import api from '../api/api';
 import PageContainer from './PageContainer';
 import UnifiedCard from '../components/common/UnifiedCard';
@@ -14,13 +14,49 @@ const Bars = () => {
     adminUsername: '',
     adminEmail: '',
     adminPassword: '',
+    confirmAdminPassword: '',
     adminFullName: '',
-    adminPhone: ''
+    adminPhone: '',
+    adminRole: 'owner'
   });
   const [loading, setLoading] = useState(false);
   const [message, setMessage] = useState('');
   const [error, setError] = useState('');
   const [pendingApplications, setPendingApplications] = useState(0);
+  const [search, setSearch] = useState('');
+
+  const filteredBars = useMemo(() => {
+    const query = search.trim().toLowerCase();
+    if (!query) {
+      return bars;
+    }
+
+    return bars.filter((bar) => {
+      const haystack = [
+        bar.name,
+        bar.code,
+        bar.description,
+        bar.owner?.fullName,
+        bar.owner?.username,
+        bar.owner?.email,
+        bar.owner?.phone
+      ]
+        .filter(Boolean)
+        .join(' ')
+        .toLowerCase();
+
+      return haystack.includes(query);
+    });
+  }, [bars, search]);
+
+  const barStats = useMemo(() => {
+    const total = bars.length;
+    const active = bars.filter((bar) => (bar.status || 'active') === 'active').length;
+    const suspended = bars.filter((bar) => bar.status === 'suspended').length;
+    const ownerContacts = bars.filter((bar) => bar.owner?.email || bar.owner?.phone).length;
+
+    return { total, active, suspended, ownerContacts };
+  }, [bars]);
 
   useEffect(() => {
     loadBars();
@@ -109,6 +145,12 @@ const Bars = () => {
     setMessage('');
 
     try {
+      if (form.adminPassword !== form.confirmAdminPassword) {
+        setError('❌ Passwords do not match');
+        setLoading(false);
+        return;
+      }
+
       const sanitized = {
         name: form.name.trim(),
         code: form.code.trim(),
@@ -116,8 +158,10 @@ const Bars = () => {
         adminUsername: form.adminUsername.trim(),
         adminEmail: form.adminEmail.trim(),
         adminPassword: form.adminPassword,
+        confirmAdminPassword: form.confirmAdminPassword,
         adminFullName: form.adminFullName.trim(),
-        adminPhone: form.adminPhone.trim()
+        adminPhone: form.adminPhone.trim(),
+        adminRole: form.adminRole || 'owner'
       };
 
       const res = await api.post('/bars', sanitized);
@@ -129,8 +173,10 @@ const Bars = () => {
         adminUsername: '',
         adminEmail: '',
         adminPassword: '',
+        confirmAdminPassword: '',
         adminFullName: '',
-        adminPhone: ''
+        adminPhone: '',
+        adminRole: 'owner'
       });
       setMessage(`Bar created successfully. Admin username: ${res.data.adminCredentials.username}`);
     } catch (err) {
@@ -180,44 +226,69 @@ const Bars = () => {
               value={form.description}
               onChange={handleChange}
             />
-            <label style={styles.label}>Admin Username</label>
+            <label style={styles.label}>Owner Full Name</label>
+            <input
+              style={styles.input}
+              name="adminFullName"
+              value={form.adminFullName}
+              onChange={handleChange}
+              placeholder="Enter owner full name"
+            />
+            <label style={styles.label}>Owner Username</label>
             <input
               style={styles.input}
               name="adminUsername"
               value={form.adminUsername}
               onChange={handleChange}
+              placeholder="Choose a username"
               required
             />
-            <label style={styles.label}>Admin Email</label>
+            <label style={styles.label}>Owner Email</label>
             <input
+              type="email"
               style={styles.input}
               name="adminEmail"
               value={form.adminEmail}
               onChange={handleChange}
+              placeholder="Enter owner email"
               required
             />
-            <label style={styles.label}>Admin Password</label>
+            <label style={styles.label}>Owner Password</label>
             <input
               type="password"
               style={styles.input}
               name="adminPassword"
               value={form.adminPassword}
               onChange={handleChange}
+              placeholder="Minimum 6 characters"
               required
             />
-            <label style={styles.label}>Admin Full Name</label>
+            <label style={styles.label}>Confirm Password</label>
             <input
+              type="password"
               style={styles.input}
-              name="adminFullName"
-              value={form.adminFullName}
+              name="confirmAdminPassword"
+              value={form.confirmAdminPassword}
               onChange={handleChange}
+              placeholder="Confirm owner password"
+              required
             />
-            <label style={styles.label}>Admin Phone</label>
+            <label style={styles.label}>Account Role</label>
+            <select
+              style={styles.input}
+              name="adminRole"
+              value={form.adminRole}
+              onChange={handleChange}
+            >
+              <option value="owner">Owner</option>
+            </select>
+            <label style={styles.label}>Owner Phone</label>
             <input
               style={styles.input}
               name="adminPhone"
               value={form.adminPhone}
               onChange={handleChange}
+              placeholder="Enter owner phone"
             />
           </div>
           <Button type="submit" disabled={loading}>
@@ -226,86 +297,189 @@ const Bars = () => {
         </form>
       </UnifiedCard>
 
-      <UnifiedCard title="Existing Bars">
-        {bars.length === 0 ? (
-          <p style={styles.empty}>No bars available yet.</p>
+      <UnifiedCard title="Bar Network Overview">
+        <div style={styles.summaryGrid}>
+          <div style={styles.summaryCard}>
+            <div style={styles.summaryLabel}>Total Bars</div>
+            <div style={styles.summaryValue}>{barStats.total}</div>
+          </div>
+          <div style={styles.summaryCard}>
+            <div style={styles.summaryLabel}>Active Bars</div>
+            <div style={styles.summaryValue}>{barStats.active}</div>
+          </div>
+          <div style={styles.summaryCard}>
+            <div style={styles.summaryLabel}>Suspended Bars</div>
+            <div style={styles.summaryValue}>{barStats.suspended}</div>
+          </div>
+          <div style={styles.summaryCard}>
+            <div style={styles.summaryLabel}>Bars with Owner Contact</div>
+            <div style={styles.summaryValue}>{barStats.ownerContacts}</div>
+          </div>
+        </div>
+
+        <div style={styles.toolbar}>
+          <input
+            style={styles.searchInput}
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            placeholder="Search bars, owners or contacts"
+          />
+          <div style={styles.toolbarHint}>
+            Showing {filteredBars.length} of {bars.length} bars
+          </div>
+        </div>
+
+        {filteredBars.length === 0 ? (
+          <p style={styles.empty}>No matching bars found.</p>
         ) : (
-          <div style={styles.tableWrapper}>
-            <table style={styles.table}>
-              <thead>
-                <tr>
-                  <th>Name</th>
-                  <th>Owner</th>
-                  <th>Owner Email</th>
-                  <th>Registered</th>
-                  <th>Code</th>
-                  <th>Sales Accounts</th>
-                  <th>Description</th>
-                  <th>Status</th>
-                  <th>Actions</th>
-                </tr>
-              </thead>
-              <tbody>
-                {bars.map((bar) => (
-                  <tr key={bar._id || bar.id}>
-                    <td>{bar.name}</td>
-                    <td>{bar.owner?.fullName || bar.owner?.username || '-'}</td>
-                    <td>{bar.owner?.email || '-'}</td>
-                    <td>{bar.createdAt ? new Date(bar.createdAt).toLocaleDateString() : '-'}</td>
-                    <td>{bar.code || '-'}</td>
-                    <td>{bar.activeSalesAccounts ?? 0}</td>
-                    <td>{bar.description || '-'}</td>
-                    <td>
-                      <span style={{
-                        ...styles.statusBadge,
-                        ...(bar.status === 'active' ? styles.statusActive : bar.status === 'suspended' ? styles.statusSuspended : styles.statusDeleted)
-                      }}>
-                        {bar.status || 'active'}
-                      </span>
-                    </td>
-                    <td>
-                      <div style={styles.actionStack}>
+          <div style={styles.cardList}>
+            {filteredBars.map((bar) => {
+              const barStatus = bar.status || 'active';
+              return (
+                <div key={bar._id || bar.id} style={styles.barCard}>
+                  <div style={styles.cardHeader}>
+                    <div style={styles.cardTitleBlock}>
+                      <div style={styles.barTitleRow}>
+                        <h3 style={styles.barName}>{bar.name}</h3>
+                        <span style={{
+                          ...styles.statusBadge,
+                          ...(barStatus === 'active' ? styles.statusActive : barStatus === 'suspended' ? styles.statusSuspended : styles.statusDeleted)
+                        }}>
+                          {barStatus}
+                        </span>
+                      </div>
+                      <div style={styles.metaRow}>
+                        <span>Code: {bar.code || '-'}</span>
+                        <span>• Registered: {bar.createdAt ? new Date(bar.createdAt).toLocaleDateString() : '-'}</span>
+                        <span>• Sales accounts: {bar.activeSalesAccounts ?? 0}</span>
+                      </div>
+                    </div>
+                    <div style={styles.headerActions}>
+                      <button
+                        type="button"
+                        style={styles.resetButton}
+                        onClick={() => handleResetOwnerPassword(bar._id)}
+                      >
+                        Reset Owner Password
+                      </button>
+                    </div>
+                  </div>
+
+                  <div style={styles.detailsGrid}>
+                    <div style={styles.detailPanel}>
+                      <h4 style={styles.panelTitle}>Bar Owner</h4>
+                      <div style={styles.detailItem}>
+                        <span style={styles.detailLabel}>Owner</span>
+                        <span style={styles.detailValue}>{bar.owner?.fullName || bar.owner?.username || 'No owner assigned'}</span>
+                      </div>
+                      <div style={styles.detailItem}>
+                        <span style={styles.detailLabel}>Username</span>
+                        <span style={styles.detailValue}>{bar.owner?.username || '-'}</span>
+                      </div>
+                      <div style={styles.detailItem}>
+                        <span style={styles.detailLabel}>Email</span>
+                        <span style={styles.detailValue}>{bar.owner?.email || 'Not provided'}</span>
+                      </div>
+                      <div style={styles.detailItem}>
+                        <span style={styles.detailLabel}>Phone</span>
+                        <span style={styles.detailValue}>{bar.owner?.phone || 'Not provided'}</span>
+                      </div>
+                    </div>
+
+                    <div style={styles.detailPanel}>
+                      <h4 style={styles.panelTitle}>Bar Details</h4>
+                      <div style={styles.detailItem}>
+                        <span style={styles.detailLabel}>Description</span>
+                        <span style={styles.detailValue}>{bar.description || 'No description provided'}</span>
+                      </div>
+                      <div style={styles.detailItem}>
+                        <span style={styles.detailLabel}>Sales Accounts</span>
+                        <span style={styles.detailValue}>{bar.activeSalesAccounts ?? 0}</span>
+                      </div>
+                      <div style={styles.detailItem}>
+                        <span style={styles.detailLabel}>Owner ID</span>
+                        <span style={styles.detailValue}>{bar.owner?.id ? String(bar.owner.id).slice(-8) : '-'}</span>
+                      </div>
+                    </div>
+                  </div>
+
+                  {bar.application && (
+                    <div style={styles.applicationPanel}>
+                      <h4 style={styles.panelTitle}>Application Details</h4>
+                      <div style={styles.detailsGrid}>
+                        <div style={styles.detailPanel}>
+                          <div style={styles.detailItem}>
+                            <span style={styles.detailLabel}>Application Name</span>
+                            <span style={styles.detailValue}>{bar.application.barName || '-'}</span>
+                          </div>
+                          <div style={styles.detailItem}>
+                            <span style={styles.detailLabel}>Application Code</span>
+                            <span style={styles.detailValue}>{bar.application.barCode || '-'}</span>
+                          </div>
+                          <div style={styles.detailItem}>
+                            <span style={styles.detailLabel}>Application Owner</span>
+                            <span style={styles.detailValue}>{bar.application.ownerFullName || '-'}</span>
+                          </div>
+                          <div style={styles.detailItem}>
+                            <span style={styles.detailLabel}>Application Email</span>
+                            <span style={styles.detailValue}>{bar.application.ownerEmail || '-'}</span>
+                          </div>
+                        </div>
+                        <div style={styles.detailPanel}>
+                          <div style={styles.detailItem}>
+                            <span style={styles.detailLabel}>Application Phone</span>
+                            <span style={styles.detailValue}>{bar.application.ownerPhone || '-'}</span>
+                          </div>
+                          <div style={styles.detailItem}>
+                            <span style={styles.detailLabel}>Application Username</span>
+                            <span style={styles.detailValue}>{bar.application.ownerUsername || '-'}</span>
+                          </div>
+                          <div style={styles.detailItem}>
+                            <span style={styles.detailLabel}>Application Status</span>
+                            <span style={styles.detailValue}>{bar.application.status || '-'}</span>
+                          </div>
+                          <div style={styles.detailItem}>
+                            <span style={styles.detailLabel}>Submitted</span>
+                            <span style={styles.detailValue}>{bar.application.createdAt ? new Date(bar.application.createdAt).toLocaleDateString() : '-'}</span>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  )}
+
+                  <div style={styles.footerActions}>
+                    {bar.status !== 'deleted' && (
+                      <>
                         <button
                           type="button"
-                          style={styles.resetButton}
-                          onClick={() => handleResetOwnerPassword(bar._id)}
+                          style={styles.suspendButton}
+                          disabled={bar.status === 'suspended'}
+                          onClick={() => updateBarStatus(bar._id, 'suspended')}
                         >
-                          Reset Owner Password
+                          Suspend
                         </button>
-                        {bar.status !== 'deleted' && (
-                          <>
-                            <button
-                              type="button"
-                              style={styles.suspendButton}
-                              disabled={bar.status === 'suspended'}
-                              onClick={() => updateBarStatus(bar._id, 'suspended')}
-                            >
-                              Suspend
-                            </button>
-                            <button
-                              type="button"
-                              style={styles.deleteButton}
-                              onClick={() => updateBarStatus(bar._id, 'deleted')}
-                            >
-                              Delete
-                            </button>
-                          </>
-                        )}
-                        {bar.status !== 'active' && (
-                          <button
-                            type="button"
-                            style={styles.restoreButton}
-                            onClick={() => updateBarStatus(bar._id, 'active')}
-                          >
-                            Restore
-                          </button>
-                        )}
-                      </div>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
+                        <button
+                          type="button"
+                          style={styles.deleteButton}
+                          onClick={() => updateBarStatus(bar._id, 'deleted')}
+                        >
+                          Delete
+                        </button>
+                      </>
+                    )}
+                    {bar.status !== 'active' && (
+                      <button
+                        type="button"
+                        style={styles.restoreButton}
+                        onClick={() => updateBarStatus(bar._id, 'active')}
+                      >
+                        Restore
+                      </button>
+                    )}
+                  </div>
+                </div>
+              );
+            })}
           </div>
         )}
       </UnifiedCard>
@@ -337,12 +511,144 @@ const styles = {
     border: '1px solid #ddd',
     fontSize: '14px'
   },
-  tableWrapper: {
-    overflowX: 'auto'
+  summaryGrid: {
+    display: 'grid',
+    gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))',
+    gap: '12px',
+    marginBottom: '18px'
   },
-  table: {
-    width: '100%',
-    borderCollapse: 'collapse'
+  summaryCard: {
+    backgroundColor: '#f8fafc',
+    border: '1px solid #e2e8f0',
+    borderRadius: '12px',
+    padding: '14px 16px'
+  },
+  summaryLabel: {
+    fontSize: '12px',
+    textTransform: 'uppercase',
+    letterSpacing: '0.05em',
+    color: '#64748b',
+    fontWeight: '700',
+    marginBottom: '6px'
+  },
+  summaryValue: {
+    fontSize: '24px',
+    fontWeight: '800',
+    color: '#0f172a'
+  },
+  toolbar: {
+    display: 'flex',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    gap: '12px',
+    marginBottom: '16px',
+    flexWrap: 'wrap'
+  },
+  searchInput: {
+    flex: '1 1 260px',
+    padding: '10px 12px',
+    borderRadius: '10px',
+    border: '1px solid #dbe2ea',
+    fontSize: '14px'
+  },
+  toolbarHint: {
+    color: '#64748b',
+    fontSize: '14px'
+  },
+  cardList: {
+    display: 'flex',
+    flexDirection: 'column',
+    gap: '14px'
+  },
+  barCard: {
+    border: '1px solid #e2e8f0',
+    borderRadius: '14px',
+    padding: '16px',
+    backgroundColor: '#ffffff',
+    boxShadow: '0 1px 3px rgba(15, 23, 42, 0.06)'
+  },
+  cardHeader: {
+    display: 'flex',
+    justifyContent: 'space-between',
+    alignItems: 'flex-start',
+    gap: '12px',
+    marginBottom: '14px',
+    flexWrap: 'wrap'
+  },
+  cardTitleBlock: {
+    flex: 1
+  },
+  barTitleRow: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: '10px',
+    flexWrap: 'wrap',
+    marginBottom: '6px'
+  },
+  barName: {
+    margin: 0,
+    fontSize: '18px',
+    color: '#0f172a'
+  },
+  metaRow: {
+    display: 'flex',
+    flexWrap: 'wrap',
+    gap: '8px',
+    color: '#64748b',
+    fontSize: '13px'
+  },
+  headerActions: {
+    display: 'flex',
+    gap: '8px',
+    flexWrap: 'wrap'
+  },
+  detailsGrid: {
+    display: 'grid',
+    gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))',
+    gap: '12px',
+    marginBottom: '14px'
+  },
+  detailPanel: {
+    backgroundColor: '#f8fafc',
+    borderRadius: '12px',
+    padding: '12px',
+    border: '1px solid #e2e8f0'
+  },
+  applicationPanel: {
+    backgroundColor: '#f8fafc',
+    borderRadius: '12px',
+    padding: '12px',
+    border: '1px solid #e2e8f0',
+    marginBottom: '12px'
+  },
+  panelTitle: {
+    margin: '0 0 10px 0',
+    fontSize: '14px',
+    color: '#334155',
+    fontWeight: '700'
+  },
+  detailItem: {
+    display: 'flex',
+    justifyContent: 'space-between',
+    gap: '10px',
+    padding: '4px 0',
+    borderBottom: '1px solid #e2e8f0'
+  },
+  detailLabel: {
+    fontWeight: '600',
+    color: '#475569',
+    fontSize: '13px'
+  },
+  detailValue: {
+    textAlign: 'right',
+    color: '#0f172a',
+    fontSize: '13px',
+    wordBreak: 'break-word'
+  },
+  footerActions: {
+    display: 'flex',
+    gap: '8px',
+    flexWrap: 'wrap'
   },
   empty: {
     padding: '20px',
@@ -371,23 +677,6 @@ const styles = {
     backgroundColor: '#fde2e2',
     color: '#991b1b'
   },
-  actionButton: {
-    minWidth: '96px',
-    marginRight: '8px',
-    borderRadius: '8px',
-    border: '1px solid transparent',
-    padding: '8px 12px',
-    fontSize: '13px',
-    fontWeight: '700',
-    cursor: 'pointer',
-    transition: 'all 0.2s ease'
-  },
-  actionStack: {
-    display: 'flex',
-    flexDirection: 'column',
-    gap: '8px',
-    alignItems: 'flex-start'
-  },
   resetButton: {
     backgroundColor: '#e0e7ff',
     color: '#3730a3',
@@ -403,17 +692,38 @@ const styles = {
   suspendButton: {
     backgroundColor: '#fef3c7',
     color: '#b45309',
-    borderColor: '#fbbf24'
+    borderColor: '#fbbf24',
+    borderRadius: '8px',
+    border: '1px solid transparent',
+    padding: '8px 12px',
+    fontSize: '13px',
+    fontWeight: '700',
+    cursor: 'pointer',
+    transition: 'all 0.2s ease'
   },
   deleteButton: {
     backgroundColor: '#fee2e2',
     color: '#991b1b',
-    borderColor: '#f87171'
+    borderColor: '#f87171',
+    borderRadius: '8px',
+    border: '1px solid transparent',
+    padding: '8px 12px',
+    fontSize: '13px',
+    fontWeight: '700',
+    cursor: 'pointer',
+    transition: 'all 0.2s ease'
   },
   restoreButton: {
     backgroundColor: '#d1fae5',
     color: '#166534',
-    borderColor: '#34d399'
+    borderColor: '#34d399',
+    borderRadius: '8px',
+    border: '1px solid transparent',
+    padding: '8px 12px',
+    fontSize: '13px',
+    fontWeight: '700',
+    cursor: 'pointer',
+    transition: 'all 0.2s ease'
   },
   success: {
     backgroundColor: '#e8f8ef',
