@@ -40,7 +40,7 @@ const ReceiptModal = ({ order, onClose }) => {
             <tbody>
               {order.items.map((item, index) => (
                 <tr key={index}>
-                  <td style={styles.tdItem}>{item.product?.name || item.productName || 'Product'}</td>
+                  <td style={styles.tdItem}>{item.productName || item.product?.name || 'Product'}</td>
                   <td style={styles.tdQty}>{item.quantity}</td>
                   <td style={styles.tdPrice}>{formatPriceMK(item.priceAtSale)}</td>
                   <td style={styles.tdSubtotal}>{formatPriceMK(item.subtotal)}</td>

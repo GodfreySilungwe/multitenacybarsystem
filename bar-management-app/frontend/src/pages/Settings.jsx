@@ -160,12 +160,38 @@ const Settings = () => {
       }
 
       const res = await api.get('/users');
-      setTeamUsers((res.data || []).filter((entry) => entry.role !== 'customer'));
+      setTeamUsers((res.data || []).filter((entry) => entry.role === 'sales' && entry._id !== user?._id));
     } catch (err) {
       console.error('Error loading team accounts:', err);
       if (err.response?.status === 401) {
         setTeamUsers([]);
       }
+    }
+  };
+
+  const handleResetTeamPassword = async (id) => {
+    const newPassword = window.prompt('Enter a new password for this manager account (minimum 6 characters):');
+
+    if (!newPassword) {
+      return;
+    }
+
+    if (newPassword.length < 6) {
+      setError('❌ Password must be at least 6 characters');
+      setTimeout(() => setError(''), 3000);
+      return;
+    }
+
+    try {
+      const response = await api.patch(`/users/${id}/reset-password`, { newPassword });
+      const resetPassword = response.data?.password || newPassword;
+      setMessage(`✅ Password reset successfully. New password: ${resetPassword}`);
+      await loadTeamUsers();
+      setTimeout(() => setMessage(''), 6000);
+    } catch (err) {
+      console.error('Error resetting team password:', err);
+      setError(err.response?.data?.message || '❌ Failed to reset password');
+      setTimeout(() => setError(''), 4000);
     }
   };
 
@@ -456,7 +482,7 @@ const Settings = () => {
 
       {activeTab === 'team' && isBarOwner && (
         <div className="fade-in">
-          <UnifiedCard title="👥 Manage Sales Accounts">
+          <UnifiedCard title="👥 Manage Managers & Sales Accounts">
             <form onSubmit={handleCreateSalesAccount} style={styles.form}>
               <div style={styles.formGrid}>
                 <div style={styles.formGroup}>
@@ -508,7 +534,7 @@ const Settings = () => {
             </form>
 
             <div style={{ marginTop: '18px' }}>
-              <div style={styles.sectionTitle}>Existing sales accounts</div>
+              <div style={styles.sectionTitle}>Existing managers</div>
               {teamUsers.length > 0 ? (
                 <div style={styles.teamList}>
                   {teamUsers.map((member) => (
@@ -518,14 +544,19 @@ const Settings = () => {
                         <div style={styles.teamMeta}>{member.email}</div>
                         <div style={styles.teamMeta}>@{member.username}</div>
                       </div>
-                      <Button variant="secondary" onClick={() => handleDeleteTeamUser(member._id)}>
-                        Delete
-                      </Button>
+                      <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+                        <Button variant="secondary" onClick={() => handleResetTeamPassword(member._id)}>
+                          Reset Password
+                        </Button>
+                        <Button variant="secondary" onClick={() => handleDeleteTeamUser(member._id)}>
+                          Delete
+                        </Button>
+                      </div>
                     </div>
                   ))}
                 </div>
               ) : (
-                <div style={styles.helperText}>No sales accounts created yet.</div>
+                <div style={styles.helperText}>No manager accounts created yet.</div>
               )}
             </div>
           </UnifiedCard>

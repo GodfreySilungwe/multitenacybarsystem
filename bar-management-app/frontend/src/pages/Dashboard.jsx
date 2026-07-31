@@ -30,6 +30,8 @@ const Dashboard = () => {
     lowStock: 0,
     totalProducts: 0,
     totalCustomers: 0,
+    activeSalesAccounts: 0,
+    allSalesAccounts: 0,
     totalBars: 0,
     activeBars: 0,
     suspendedBars: 0,
@@ -65,6 +67,7 @@ const Dashboard = () => {
         const activeBars = bars.filter((bar) => bar.status === 'active').length;
         const suspendedBars = bars.filter((bar) => bar.status === 'suspended').length;
         const deletedBars = bars.filter((bar) => bar.status === 'deleted').length;
+        const allSalesAccounts = bars.reduce((sum, bar) => sum + (bar.activeSalesAccounts || 0), 0);
 
         const pendingApplicationsCount = applications.filter((app) => app.status === 'pending').length;
         const activeRatio = bars.length > 0 ? Math.round((activeBars / bars.length) * 100) : 0;
@@ -76,6 +79,7 @@ const Dashboard = () => {
           activeBars,
           suspendedBars,
           deletedBars,
+          allSalesAccounts,
           pendingApplications: pendingApplicationsCount,
           activeRatio,
           pendingApplicationRatio
@@ -85,12 +89,13 @@ const Dashboard = () => {
         setLowStockProducts([]);
         setLastUpdated(new Date().toLocaleTimeString());
       } else {
-        const [todayRes, productsRes, customersRes, lowStockRes, ordersRes] = await Promise.all([
+        const [todayRes, productsRes, customersRes, lowStockRes, ordersRes, usersRes] = await Promise.all([
           api.get('/orders/today'),
           api.get('/products'),
           api.get('/customers'),
           api.get('/products/low-stock'),
-          api.get('/orders')
+          api.get('/orders'),
+          api.get('/users')
         ].map((promise) => promise.catch((err) => err)));
 
         const todayData = todayRes instanceof Error ? { count: 0, totalSales: 0, totalProfit: 0 } : todayRes.data;
@@ -98,6 +103,8 @@ const Dashboard = () => {
         const customers = customersRes instanceof Error ? [] : customersRes.data || [];
         const lowStock = lowStockRes instanceof Error ? [] : lowStockRes.data || [];
         const recent = ordersRes instanceof Error ? [] : (ordersRes.data || []).slice(0, 5);
+        const users = usersRes instanceof Error ? [] : usersRes.data || [];
+        const activeSalesAccounts = users.filter((user) => user.role === 'sales' && user.isActive !== false).length;
 
         setStats({
           todaySales: todayData.totalSales || 0,
@@ -107,6 +114,7 @@ const Dashboard = () => {
           lowStock: lowStock.length || 0,
           totalProducts: products.length || 0,
           totalCustomers: customers.length || 0,
+          activeSalesAccounts,
           totalBars: 0,
           activeBars: 0,
           suspendedBars: 0,
@@ -190,6 +198,9 @@ const Dashboard = () => {
             <div className="fade-in delay-7" style={styles.statItem}>
               <StatsCard title="Pending Ratio" value={`${stats.pendingApplicationRatio}%`} icon={faExclamationTriangle} color="#f39c12" />
             </div>
+            <div className="fade-in delay-8" style={styles.statItem}>
+              <StatsCard title="All Sales Accounts" value={stats.allSalesAccounts} icon={faUsers} color="#8e44ad" />
+            </div>
           </div>
 
           <UnifiedCard title="Bar Creation Summary">
@@ -241,22 +252,22 @@ const Dashboard = () => {
               <StatsCard title="Today's Sales" value={stats.todaySales} icon={faDollarSign} color="#e94560" isCurrency />
             </div>
             <div className="fade-in delay-2" style={styles.statItem}>
-              <StatsCard title="Today's Profit" value={stats.todayProfit} icon={faChartLine} color="#2ecc71" isCurrency />
-            </div>
-            <div className="fade-in delay-3" style={styles.statItem}>
               <StatsCard title="Orders Today" value={stats.totalOrders} icon={faShoppingCart} color="#3498db" />
             </div>
-            <div className="fade-in delay-4" style={styles.statItem}>
+            <div className="fade-in delay-3" style={styles.statItem}>
               <StatsCard title="Reversed Today" value={stats.reversedOrders} icon={faBox} color="#e74c3c" />
             </div>
-            <div className="fade-in delay-5" style={styles.statItem}>
+            <div className="fade-in delay-4" style={styles.statItem}>
               <StatsCard title="Low Stock" value={stats.lowStock} icon={faExclamationTriangle} color="#f39c12" />
             </div>
-            <div className="fade-in delay-6" style={styles.statItem}>
+            <div className="fade-in delay-5" style={styles.statItem}>
               <StatsCard title="Total Products" value={stats.totalProducts} icon={faTools} color="#9b59b6" />
             </div>
-            <div className="fade-in delay-7" style={styles.statItem}>
+            <div className="fade-in delay-6" style={styles.statItem}>
               <StatsCard title="Total Customers" value={stats.totalCustomers} icon={faUsers} color="#1abc9c" />
+            </div>
+            <div className="fade-in delay-7" style={styles.statItem}>
+              <StatsCard title="Active Sales Accounts" value={stats.activeSalesAccounts} icon={faUsers} color="#9b59b6" />
             </div>
           </div>
 

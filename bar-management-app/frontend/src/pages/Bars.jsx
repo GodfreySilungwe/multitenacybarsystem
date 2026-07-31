@@ -37,6 +37,29 @@ const Bars = () => {
     }
   };
 
+  const handleResetOwnerPassword = async (barId) => {
+    const newPassword = window.prompt('Enter a new password for this bar owner account (minimum 6 characters):');
+    if (!newPassword) {
+      return;
+    }
+
+    if (newPassword.length < 6) {
+      setError('❌ Password must be at least 6 characters');
+      setTimeout(() => setError(''), 3000);
+      return;
+    }
+
+    try {
+      const response = await api.patch(`/bars/${barId}/reset-owner-password`, { newPassword });
+      setMessage(`✅ Bar owner password reset successfully. New password: ${response.data?.password || newPassword}`);
+      setTimeout(() => setMessage(''), 6000);
+    } catch (err) {
+      console.error('Error resetting bar owner password:', err);
+      setError(err.response?.data?.message || '❌ Failed to reset bar owner password');
+      setTimeout(() => setError(''), 4000);
+    }
+  };
+
   const updateBarStatus = async (barId, status) => {
     try {
       const confirmMessage =
@@ -212,8 +235,11 @@ const Bars = () => {
               <thead>
                 <tr>
                   <th>Name</th>
+                  <th>Owner</th>
+                  <th>Owner Email</th>
                   <th>Registered</th>
                   <th>Code</th>
+                  <th>Sales Accounts</th>
                   <th>Description</th>
                   <th>Status</th>
                   <th>Actions</th>
@@ -223,8 +249,11 @@ const Bars = () => {
                 {bars.map((bar) => (
                   <tr key={bar._id || bar.id}>
                     <td>{bar.name}</td>
+                    <td>{bar.owner?.fullName || bar.owner?.username || '-'}</td>
+                    <td>{bar.owner?.email || '-'}</td>
                     <td>{bar.createdAt ? new Date(bar.createdAt).toLocaleDateString() : '-'}</td>
                     <td>{bar.code || '-'}</td>
+                    <td>{bar.activeSalesAccounts ?? 0}</td>
                     <td>{bar.description || '-'}</td>
                     <td>
                       <span style={{
@@ -235,34 +264,43 @@ const Bars = () => {
                       </span>
                     </td>
                     <td>
-                      {bar.status !== 'deleted' && (
-                        <>
-                          <button
-                            type="button"
-                            style={styles.suspendButton}
-                            disabled={bar.status === 'suspended'}
-                            onClick={() => updateBarStatus(bar._id, 'suspended')}
-                          >
-                            Suspend
-                          </button>
-                          <button
-                            type="button"
-                            style={styles.deleteButton}
-                            onClick={() => updateBarStatus(bar._id, 'deleted')}
-                          >
-                            Delete
-                          </button>
-                        </>
-                      )}
-                      {bar.status !== 'active' && (
+                      <div style={styles.actionStack}>
                         <button
                           type="button"
-                          style={styles.restoreButton}
-                          onClick={() => updateBarStatus(bar._id, 'active')}
+                          style={styles.resetButton}
+                          onClick={() => handleResetOwnerPassword(bar._id)}
                         >
-                          Restore
+                          Reset Owner Password
                         </button>
-                      )}
+                        {bar.status !== 'deleted' && (
+                          <>
+                            <button
+                              type="button"
+                              style={styles.suspendButton}
+                              disabled={bar.status === 'suspended'}
+                              onClick={() => updateBarStatus(bar._id, 'suspended')}
+                            >
+                              Suspend
+                            </button>
+                            <button
+                              type="button"
+                              style={styles.deleteButton}
+                              onClick={() => updateBarStatus(bar._id, 'deleted')}
+                            >
+                              Delete
+                            </button>
+                          </>
+                        )}
+                        {bar.status !== 'active' && (
+                          <button
+                            type="button"
+                            style={styles.restoreButton}
+                            onClick={() => updateBarStatus(bar._id, 'active')}
+                          >
+                            Restore
+                          </button>
+                        )}
+                      </div>
                     </td>
                   </tr>
                 ))}
@@ -336,6 +374,24 @@ const styles = {
   actionButton: {
     minWidth: '96px',
     marginRight: '8px',
+    borderRadius: '8px',
+    border: '1px solid transparent',
+    padding: '8px 12px',
+    fontSize: '13px',
+    fontWeight: '700',
+    cursor: 'pointer',
+    transition: 'all 0.2s ease'
+  },
+  actionStack: {
+    display: 'flex',
+    flexDirection: 'column',
+    gap: '8px',
+    alignItems: 'flex-start'
+  },
+  resetButton: {
+    backgroundColor: '#e0e7ff',
+    color: '#3730a3',
+    borderColor: '#818cf8',
     borderRadius: '8px',
     border: '1px solid transparent',
     padding: '8px 12px',

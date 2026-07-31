@@ -137,12 +137,6 @@ const Login = () => {
           <p style={styles.applyText}>New bar apply here <Link to="/apply" style={styles.applyLink}>Apply here</Link></p>
         </div>
 
-        <div style={styles.registerSection}>
-          <p style={styles.registerText}>
-            Don't have an account? <Link to="/register" style={styles.registerLink}>Register here</Link>
-          </p>
-        </div>
-
         <div style={styles.branding}>
           <div style={styles.brandRow}>
             <span style={styles.brandLabel}>Designed by</span>
