@@ -22,18 +22,22 @@ function calculateCreditBalance(currentBalance, totalAmount, amountPaidNow = 0) 
   };
 }
 
-async function recomputeCustomerCreditBalance(customerId) {
+async function recomputeCustomerCreditBalance(customerId, barId) {
   if (!customerId) {
     return 0;
   }
 
-  const creditOrders = await Order.find({
+  const query = {
     customer: customerId,
     reversed: { $ne: true },
     paymentMethod: 'credit',
     balanceDue: { $gt: 0 }
-  });
+  };
+  if (barId) {
+    query.barId = barId;
+  }
 
+  const creditOrders = await Order.find(query);
   const balance = (creditOrders || []).reduce((sum, order) => sum + Number(order.balanceDue || 0), 0);
   const customer = await Customer.findById(customerId);
   if (customer) {

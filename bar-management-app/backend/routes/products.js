@@ -3,7 +3,7 @@ const router = express.Router();
 const { protect, isBarOwnerOrSales } = require('../middleware/auth');
 const Product = require('../models/Product');
 
-router.use(protect, isBarOwnerOrSales);
+router.use(protect);
 
 // Get all products
 router.get('/', async (req, res) => {
@@ -17,7 +17,7 @@ router.get('/', async (req, res) => {
 });
 
 // Get low stock products
-router.get('/low-stock', async (req, res) => {
+router.get('/low-stock', isBarOwnerOrSales, async (req, res) => {
   try {
     const products = await Product.find({
       barId: req.user.barId,
@@ -47,7 +47,7 @@ router.get('/:id', async (req, res) => {
 });
 
 // Create product
-router.post('/', async (req, res) => {
+router.post('/', isBarOwnerOrSales, async (req, res) => {
   try {
     const product = new Product(req.body);
     await product.save();
@@ -59,7 +59,7 @@ router.post('/', async (req, res) => {
 });
 
 // Update product - FIXED
-router.put('/:id', async (req, res) => {
+router.put('/:id', isBarOwnerOrSales, async (req, res) => {
   try {
     console.log('Updating product:', req.params.id);
     console.log('Update data:', req.body);
@@ -89,7 +89,7 @@ router.put('/:id', async (req, res) => {
 });
 
 // Delete product
-router.delete('/:id', async (req, res) => {
+router.delete('/:id', isBarOwnerOrSales, async (req, res) => {
   try {
     const product = await Product.findOne({ _id: req.params.id, barId: req.user.barId });
     if (!product) {

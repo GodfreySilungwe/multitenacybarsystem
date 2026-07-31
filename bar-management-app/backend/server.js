@@ -152,7 +152,7 @@ app.get('/', (req, res) => {
 
 // Health check
 app.get('/api/health', (req, res) => {
-  res.json({ status: 'OK', message: 'Backend is running!', table: process.env.DYNAMODB_TABLE_NAME || 'mtisungeactualtable' });
+  res.json({ status: 'OK', message: 'Backend is running!', table: process.env.DYNAMODB_TABLE_NAME});
 });
 
 let server;

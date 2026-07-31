@@ -67,12 +67,35 @@ router.get('/today', async (req, res) => {
     const totalSales = activeOrders.reduce((sum, o) => sum + (o.totalAmount || 0), 0);
     const totalProfit = activeOrders.reduce((sum, o) => sum + (o.profit || 0), 0);
     
+    // Enrich orders with product names
+    const products = await Product.find({ barId: req.user.barId });
+    const productMap = new Map((products || []).map((product) => [product._id || product.id, product]));
+
+    const enrichedOrders = (todayOrders || []).map((order) => ({
+      ...order,
+      items: (order.items || []).map((item) => {
+        const itemProductId = item.product?._id || item.product;
+        const catalogProduct = itemProductId ? productMap.get(itemProductId) : null;
+        const productName = item.productName || catalogProduct?.name || item.product?.name || 'Product';
+        const productCategory = catalogProduct?.category?.name || catalogProduct?.categoryName || item.product?.category?.name || 'Uncategorized';
+
+        return {
+          ...item,
+          productName,
+          product: catalogProduct
+            ? { _id: catalogProduct._id || catalogProduct.id, name: catalogProduct.name, category: catalogProduct.category }
+            : item.product || null,
+          categoryName: productCategory
+        };
+      })
+    }));
+    
     res.json({
       count: activeOrders.length,
       totalSales,
       totalProfit,
       reversedCount: reversedOrders.length,
-      orders: todayOrders
+      orders: enrichedOrders
     });
   } catch (error) {
     console.error('Error fetching today orders:', error);
@@ -169,6 +192,7 @@ router.post('/', async (req, res) => {
     }
 
     const order = new Order({
+      barId: req.user.barId,
       orderNumber: `ORD-${Date.now().toString().slice(-8)}`,
       customer: customer || null,
       customerName: customerDoc?.name || 'Walk-in Customer',
@@ -186,12 +210,29 @@ router.post('/', async (req, res) => {
 
     // Recompute and persist customer's creditBalance from outstanding credit orders
     if (customerDoc) {
-      await recomputeCustomerCreditBalance(customerDoc._id);
+      await recomputeCustomerCreditBalance(customerDoc._id, req.user.barId);
     }
 
     await savedOrder.populate('customer');
     await savedOrder.populate('items.product');
-    res.status(201).json(savedOrder);
+
+    // Enrich response with product names
+    const enrichedOrder = {
+      ...savedOrder,
+      items: (savedOrder.items || []).map((item) => {
+        const itemProductId = item.product?._id || item.product;
+        const productData = itemProductId && typeof itemProductId === 'object' ? itemProductId : null;
+        const productName = item.productName || productData?.name || 'Product';
+
+        return {
+          ...item,
+          productName,
+          product: productData || item.product || null
+        };
+      })
+    };
+
+    res.status(201).json(enrichedOrder);
 
   } catch (error) {
     console.error('Error creating order:', error);
@@ -222,7 +263,7 @@ router.post('/:id/reverse', async (req, res) => {
 
     let customerDoc = null;
     if (order.customer) {
-      const customerDoc = await Customer.findOne({ _id: order.customer, barId: req.user.barId });
+      customerDoc = await Customer.findOne({ _id: order.customer, barId: req.user.barId });
       if (customerDoc) {
         customerDoc.totalSpent = Math.max(0, toNumber(customerDoc.totalSpent, 0) - toNumber(order.totalAmount, 0));
         customerDoc.loyaltyPoints = Math.max(0, toNumber(customerDoc.loyaltyPoints, 0) - Math.floor(toNumber(order.totalAmount, 0) / 100));
@@ -239,7 +280,7 @@ router.post('/:id/reverse', async (req, res) => {
 
     // Recompute customer's credit balance excluding reversed orders
     if (customerDoc) {
-      const customerOrders = await Order.find({ customer: customerDoc._id });
+      const customerOrders = await Order.find({ customer: customerDoc._id, barId: req.user.barId });
       const outstanding = (customerOrders || [])
         .filter(o => !o.reversed && (o.paymentMethod === 'credit' || o.paymentStatus === 'partial' || o.paymentStatus === 'credit'))
         .reduce((sum, o) => sum + Number(o.balanceDue || 0), 0);
@@ -278,9 +319,9 @@ router.post('/:id/pay', async (req, res) => {
     order.paymentMethod = order.paymentMethod || 'credit';
 
     if (order.customer) {
-      const customerDoc = await Customer.findOne({ _id: order.customer, barId: req.user.barId });
-      if (customerDoc) {
-        await recomputeCustomerCreditBalance(customerDoc._id);
+      const customerDocLocal = await Customer.findOne({ _id: order.customer, barId: req.user.barId });
+      if (customerDocLocal) {
+        await recomputeCustomerCreditBalance(customerDocLocal._id, req.user.barId);
       }
     }
 

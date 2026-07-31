@@ -8,14 +8,14 @@ const Customer = require('../models/Customer');
 const Order = require('../models/Order');
 const { recomputeCustomerCreditBalance } = require('../lib/credit');
 
-router.use(protect, isBarOwnerOrSales);
+router.use(protect);
 
 const toNumber = (value, fallback = 0) => {
   const numericValue = Number(value);
   return Number.isFinite(numericValue) ? numericValue : fallback;
 };
 
-const normalizeRequestItems = async (items = []) => {
+const normalizeRequestItems = async (items = [], barId) => {
   const normalizedItems = [];
   let totalAmount = 0;
 
@@ -25,7 +25,7 @@ const normalizeRequestItems = async (items = []) => {
       continue;
     }
 
-    const product = await Product.findOne({ _id: productId, barId: req.user.barId });
+    const product = await Product.findOne({ _id: productId, barId });
     if (!product) {
       continue;
     }
@@ -49,7 +49,7 @@ const normalizeRequestItems = async (items = []) => {
 };
 
 
-const enrichRequest = async (request) => {
+const enrichRequest = async (request, barId) => {
   let items = [];
 
   if (Array.isArray(request.items) && request.items.length > 0) {
@@ -61,7 +61,7 @@ const enrichRequest = async (request) => {
       subtotal: toNumber(item.subtotal, 0)
     }));
   } else if (request.productId) {
-    const product = await Product.findOne({ _id: request.productId, barId: req.user.barId });
+    const product = await Product.findOne({ _id: request.productId, barId });
     items = [{
       productId: request.productId,
       productName: product?.name || request.productName || 'Product',
@@ -98,8 +98,12 @@ const enrichRequest = async (request) => {
 
 router.get('/', async (req, res) => {
   try {
-    const requests = await CustomerOrderRequest.find({ barId: req.user.barId }).sort({ createdAt: -1 });
-    const enriched = await Promise.all((requests || []).map((request) => enrichRequest(request)));
+    const query = { barId: req.user.barId };
+    if (req.user.role === 'customer') {
+      query.customerId = req.user.customerId;
+    }
+    const requests = await CustomerOrderRequest.find(query).sort({ createdAt: -1 });
+    const enriched = await Promise.all((requests || []).map((request) => enrichRequest(request, req.user.barId)));
     res.json(enriched);
   } catch (error) {
     res.status(500).json({ message: error.message });
@@ -108,18 +112,24 @@ router.get('/', async (req, res) => {
 
 router.post('/', async (req, res) => {
   try {
-    const { customerId, customerName, items = [] } = req.body;
+    let { customerId, customerName, items = [] } = req.body;
+
+    if (req.user.role === 'customer') {
+      customerId = req.user.customerId;
+      customerName = req.user.fullName || req.user.username || req.user.email || 'Customer';
+    }
 
     if (!customerId || !Array.isArray(items) || items.length === 0) {
       return res.status(400).json({ message: 'Customer and at least one product are required.' });
     }
 
-    const { items: normalizedItems, totalAmount } = await normalizeRequestItems(items);
+    const { items: normalizedItems, totalAmount } = await normalizeRequestItems(items, req.user.barId);
     if (normalizedItems.length === 0) {
       return res.status(400).json({ message: 'No valid products were selected.' });
     }
 
     const request = new CustomerOrderRequest({
+      barId: req.user.barId,
       customerId,
       customerName,
       items: normalizedItems,
@@ -140,7 +150,7 @@ router.post('/', async (req, res) => {
   }
 });
 
-router.patch('/:id/confirm', async (req, res) => {
+router.patch('/:id/confirm', isBarOwnerOrSales, async (req, res) => {
   try {
     const request = await CustomerOrderRequest.findOne({ _id: req.params.id, barId: req.user.barId });
     if (!request) {
@@ -208,6 +218,7 @@ const product = await Product.findOne({ _id: item.productId || item.product || i
       }
 
       const creditOrder = new Order({
+        barId: req.user.barId,
         customer: request.customerId,
         items: orderItems,
         totalAmount,
@@ -233,7 +244,7 @@ const product = await Product.findOne({ _id: item.productId || item.product || i
     await request.save();
 
     if (request.customerId) {
-      await recomputeCustomerCreditBalance(request.customerId);
+      await recomputeCustomerCreditBalance(request.customerId, req.user.barId);
     }
 
     res.json({ message: 'Order confirmed.', request });
@@ -242,7 +253,7 @@ const product = await Product.findOne({ _id: item.productId || item.product || i
   }
 });
 
-router.patch('/:id/reject', async (req, res) => {
+router.patch('/:id/reject', isBarOwnerOrSales, async (req, res) => {
   try {
     const request = await CustomerOrderRequest.findOne({ _id: req.params.id, barId: req.user.barId });
     if (!request) {
@@ -266,7 +277,11 @@ router.patch('/:id/reject', async (req, res) => {
 
 router.post('/pay-bill', async (req, res) => {
   try {
-    const { customerId, paymentMethod = 'cash', paymentReference = '', amount = 0 } = req.body;
+    let { customerId, paymentMethod = 'cash', paymentReference = '', amount = 0 } = req.body;
+
+    if (req.user.role === 'customer') {
+      customerId = req.user.customerId;
+    }
 
     if (!customerId) {
       return res.status(400).json({ message: 'Customer is required.' });
@@ -290,6 +305,7 @@ router.post('/pay-bill', async (req, res) => {
     }
 
     const paymentRequest = new CustomerPaymentRequest({
+      barId: req.user.barId,
       customerId,
       customerName: customer.name || customer.fullName || '',
       amountRequested: paymentAmount,
@@ -322,7 +338,7 @@ router.get('/payments', async (req, res) => {
   }
 });
 
-router.patch('/payments/:id/confirm', async (req, res) => {
+router.patch('/payments/:id/confirm', isBarOwnerOrSales, async (req, res) => {
   try {
     const paymentRequest = await CustomerPaymentRequest.findOne({ _id: req.params.id, barId: req.user.barId });
     if (!paymentRequest) {
@@ -402,7 +418,7 @@ router.patch('/payments/:id/confirm', async (req, res) => {
     paymentRequest.confirmedAt = new Date().toISOString();
     await paymentRequest.save();
 
-    await recomputeCustomerCreditBalance(customerId);
+    await recomputeCustomerCreditBalance(customerId, req.user.barId);
 
     res.json({ message: 'Payment confirmed and applied.', paymentRequest, appliedAmount, updatedRequests });
   } catch (error) {
@@ -410,7 +426,7 @@ router.patch('/payments/:id/confirm', async (req, res) => {
   }
 });
 
-router.patch('/payments/:id/reject', async (req, res) => {
+router.patch('/payments/:id/reject', isBarOwnerOrSales, async (req, res) => {
   try {
     const paymentRequest = await CustomerPaymentRequest.findOne({ _id: req.params.id, barId: req.user.barId });
     if (!paymentRequest) {

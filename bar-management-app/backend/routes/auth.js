@@ -215,7 +215,7 @@ router.post('/login', async (req, res) => {
     );
 
     const linkedCustomer = user.role === 'customer'
-      ? await Customer.findOne({ phone: user.phone || user.username })
+      ? await Customer.findOne({ accountUserId: user._id, barId: user.barId })
       : null;
 
     res.json({
@@ -297,7 +297,7 @@ router.get('/me', async (req, res) => {
     }
 
     const linkedCustomer = user.role === 'customer'
-      ? await Customer.findOne({ phone: user.phone || user.username })
+      ? await Customer.findOne({ accountUserId: user._id, barId: user.barId })
       : null;
 
     const safeUser = { ...user };

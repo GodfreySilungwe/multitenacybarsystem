@@ -33,15 +33,15 @@ const generatePassword = (username) => {
   return `${base || 'sales'}${suffix}`;
 };
 
-const deleteCustomerRelatedData = async (customerId) => {
+const deleteCustomerRelatedData = async (customerId, barId) => {
   if (!customerId) {
     return;
   }
 
   const [requests, payments, orders] = await Promise.all([
-    CustomerOrderRequest.find({ barId: req.user.barId, customerId }),
-    CustomerPaymentRequest.find({ barId: req.user.barId, customerId }),
-    Order.find({ barId: req.user.barId, customer: customerId })
+    CustomerOrderRequest.find({ barId, customerId }),
+    CustomerPaymentRequest.find({ barId, customerId }),
+    Order.find({ barId, customer: customerId })
   ]);
 
   await Promise.all([
@@ -60,6 +60,43 @@ router.get('/', async (req, res) => {
     res.json(safeUsers);
   } catch (error) {
     console.error('Error fetching users:', error);
+    res.status(500).json({ message: error.message });
+  }
+});
+
+router.patch('/:id/reset-password', async (req, res) => {
+  try {
+    const { newPassword } = req.body || {};
+    const targetPassword = String(newPassword || '').trim();
+
+    if (!targetPassword) {
+      return res.status(400).json({ message: 'New password is required.' });
+    }
+
+    if (targetPassword.length < 6) {
+      return res.status(400).json({ message: 'New password must be at least 6 characters.' });
+    }
+
+    const user = await User.findOne({ _id: req.params.id, barId: req.user.barId });
+    if (!user) {
+      return res.status(404).json({ message: 'User not found.' });
+    }
+
+    if (String(user._id) === String(req.user._id || req.user.id)) {
+      return res.status(400).json({ message: 'Use the change password option for your own account.' });
+    }
+
+    const salt = await bcrypt.genSalt(10);
+    user.password = await bcrypt.hash(targetPassword, salt);
+    await user.save();
+
+    res.json({
+      message: 'Password reset successfully.',
+      username: user.username,
+      password: targetPassword
+    });
+  } catch (error) {
+    console.error('Error resetting user password:', error);
     res.status(500).json({ message: error.message });
   }
 });
@@ -122,7 +159,7 @@ router.delete('/:id', async (req, res) => {
     if (user.role === 'customer') {
       const customer = await Customer.findOne({ accountUserId: user._id, barId: req.user.barId });
       if (customer) {
-        await deleteCustomerRelatedData(customer._id);
+        await deleteCustomerRelatedData(customer._id, req.user.barId);
         await customer.delete();
       }
     }

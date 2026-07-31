@@ -1,5 +1,6 @@
 const jwt = require('jsonwebtoken');
 const User = require('../models/User');
+const Customer = require('../models/Customer');
 const Bar = require('../models/Bar');
 const { setTenantContext } = require('../lib/tenantContext');
 
@@ -43,6 +44,13 @@ const optionalAuth = async (req, res, next) => {
     const safeUser = { ...user };
     if (safeUser.password) {
       delete safeUser.password;
+    }
+
+    if (safeUser.role === 'customer') {
+      const linkedCustomer = await Customer.findOne({ accountUserId: safeUser._id, barId: safeUser.barId });
+      if (linkedCustomer) {
+        safeUser.customerId = linkedCustomer._id;
+      }
     }
 
     req.user = safeUser;

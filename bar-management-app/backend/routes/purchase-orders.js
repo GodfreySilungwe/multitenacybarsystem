@@ -70,6 +70,7 @@ router.post('/', async (req, res) => {
     }
 
     const order = new PurchaseOrder({
+      barId: req.user.barId,
       supplier,
       items: orderItems,
       totalAmount,
@@ -90,7 +91,7 @@ router.post('/', async (req, res) => {
 router.put('/:id/status', async (req, res) => {
   try {
     const { status } = req.body;
-    const order = await PurchaseOrder.findById(req.params.id);
+    const order = await PurchaseOrder.findOne({ _id: req.params.id, barId: req.user.barId });
     
     if (!order) {
       return res.status(404).json({ message: 'Purchase order not found' });
@@ -104,7 +105,7 @@ router.put('/:id/status', async (req, res) => {
       
       // Update product stock
       for (const item of order.items) {
-        const product = await Product.findById(item.product);
+        const product = await Product.findOne({ _id: item.product, barId: req.user.barId });
         if (product) {
           product.currentStock += item.quantity;
           await product.save();

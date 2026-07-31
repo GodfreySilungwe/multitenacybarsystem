@@ -9,7 +9,7 @@ const User = require('../models/User');
 const CustomerOrderRequest = require('../models/CustomerOrderRequest');
 const CustomerPaymentRequest = require('../models/CustomerPaymentRequest');
 
-router.use(protect, isBarOwnerOrSales);
+router.use(protect);
 
 const toNumber = (value, fallback = 0) => {
   const numericValue = Number(value);
@@ -46,7 +46,7 @@ const buildCustomerCreditSummary = async (customerId, barId) => {
 
           const products = await Promise.all((order.items || []).map(async (item) => {
             const productId = item?.product?._id || item?.product || item?.productId;
-            const product = productId ? await Product.findById(productId) : null;
+            const product = productId ? await Product.findOne({ _id: productId, barId }) : null;
             return {
               name: product?.name || item.product?.name || 'Unknown product',
               quantity: Number(item.quantity || 0),
@@ -111,7 +111,7 @@ const enrichCustomer = async (customer, barId) => {
 };
 
 // Get all customers
-router.get('/', async (req, res) => {
+router.get('/', isBarOwnerOrSales, async (req, res) => {
   try {
     const customers = await Customer.find({ barId: req.user.barId }).sort({ name: 1 });
     const enrichedCustomers = await Promise.all(customers.map((customer) => enrichCustomer(customer, req.user.barId)));
@@ -128,6 +128,9 @@ router.get('/:id', async (req, res) => {
     if (!customer) {
       return res.status(404).json({ message: 'Customer not found' });
     }
+    if (req.user.role === 'customer' && String(req.user.customerId) !== String(req.params.id)) {
+      return res.status(403).json({ message: 'Access denied' });
+    }
     const enrichedCustomer = await enrichCustomer(customer, req.user.barId);
     res.json(enrichedCustomer);
   } catch (error) {
@@ -136,7 +139,7 @@ router.get('/:id', async (req, res) => {
 });
 
 // Create customer
-router.post('/', async (req, res) => {
+router.post('/', isBarOwnerOrSales, async (req, res) => {
   try {
     const { name, phone, gender, creditBalance = 0, username, password } = req.body;
 
@@ -157,6 +160,7 @@ router.post('/', async (req, res) => {
     }
 
     const customer = new Customer({
+      barId: req.user.barId,
       name,
       phone,
       gender,
@@ -175,6 +179,7 @@ router.post('/', async (req, res) => {
       fullName: name,
       phone,
       role: 'customer',
+      barId: req.user.barId,
       isActive: true
     });
     await accountUser.save();
@@ -198,7 +203,7 @@ router.post('/', async (req, res) => {
 });
 
 // Update customer
-router.put('/:id', async (req, res) => {
+router.put('/:id', isBarOwnerOrSales, async (req, res) => {
   try {
     const updates = {
       ...req.body,
@@ -219,7 +224,7 @@ router.put('/:id', async (req, res) => {
 });
 
 // Pay part or all of a customer credit balance
-router.post('/:id/pay', async (req, res) => {
+router.post('/:id/pay', isBarOwnerOrSales, async (req, res) => {
   try {
     const customer = await Customer.findOne({ _id: req.params.id, barId: req.user.barId });
     if (!customer) {
@@ -310,7 +315,7 @@ router.post('/:id/pay', async (req, res) => {
 });
 
 // Delete customer
-router.delete('/:id', async (req, res) => {
+router.delete('/:id', isBarOwnerOrSales, async (req, res) => {
   try {
     const customer = await Customer.findOne({ _id: req.params.id, barId: req.user.barId });
     if (!customer) {

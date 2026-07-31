@@ -31,7 +31,26 @@ router.use(protect, isGlobalOwner);
 router.get('/', async (req, res) => {
   try {
     const bars = await Bar.find().sort({ name: 1 });
-    res.json(bars);
+    const userRecords = await User.find({ barId: { $ne: null } }).sort({ username: 1 });
+
+    const barsWithOwners = await Promise.all(bars.map(async (bar) => {
+      const owner = userRecords.find((user) => String(user.barId) === String(bar._id) && user.role === 'owner') || null;
+      const salesAccounts = userRecords.filter((user) => String(user.barId) === String(bar._id) && user.role === 'sales' && user.isActive !== false);
+
+      return {
+        ...bar.toObject?.() || bar,
+        owner: owner ? {
+          id: owner._id,
+          username: owner.username,
+          email: owner.email,
+          fullName: owner.fullName,
+          phone: owner.phone
+        } : null,
+        activeSalesAccounts: salesAccounts.length
+      };
+    }));
+
+    res.json(barsWithOwners);
   } catch (error) {
     console.error('Error fetching bars:', error);
     res.status(500).json({ message: error.message });
@@ -111,6 +130,44 @@ router.post('/', async (req, res) => {
   } catch (error) {
     console.error('Error creating bar:', error);
     res.status(400).json({ message: error.message });
+  }
+});
+
+router.patch('/:id/reset-owner-password', async (req, res) => {
+  try {
+    const { newPassword } = req.body || {};
+    const targetPassword = String(newPassword || '').trim();
+
+    if (!targetPassword) {
+      return res.status(400).json({ message: 'New password is required.' });
+    }
+
+    if (targetPassword.length < 6) {
+      return res.status(400).json({ message: 'New password must be at least 6 characters.' });
+    }
+
+    const bar = await Bar.findById(req.params.id);
+    if (!bar) {
+      return res.status(404).json({ message: 'Bar not found' });
+    }
+
+    const ownerUser = await User.findOne({ barId: bar._id, role: 'owner' });
+    if (!ownerUser) {
+      return res.status(404).json({ message: 'Bar owner not found.' });
+    }
+
+    const salt = await bcrypt.genSalt(10);
+    ownerUser.password = await bcrypt.hash(targetPassword, salt);
+    await ownerUser.save();
+
+    res.json({
+      message: 'Bar owner password reset successfully.',
+      username: ownerUser.username,
+      password: targetPassword
+    });
+  } catch (error) {
+    console.error('Error resetting bar owner password:', error);
+    res.status(500).json({ message: error.message });
   }
 });
 
