@@ -89,13 +89,13 @@ const Dashboard = () => {
         setLowStockProducts([]);
         setLastUpdated(new Date().toLocaleTimeString());
       } else {
-        const [todayRes, productsRes, customersRes, lowStockRes, ordersRes, usersRes] = await Promise.all([
+        const [todayRes, productsRes, customersRes, lowStockRes, ordersRes, usersSummaryRes] = await Promise.all([
           api.get('/orders/today'),
           api.get('/products'),
           api.get('/customers'),
           api.get('/products/low-stock'),
           api.get('/orders'),
-          api.get('/users')
+          api.get('/users/summary')
         ].map((promise) => promise.catch((err) => err)));
 
         const todayData = todayRes instanceof Error ? { count: 0, totalSales: 0, totalProfit: 0 } : todayRes.data;
@@ -103,8 +103,8 @@ const Dashboard = () => {
         const customers = customersRes instanceof Error ? [] : customersRes.data || [];
         const lowStock = lowStockRes instanceof Error ? [] : lowStockRes.data || [];
         const recent = ordersRes instanceof Error ? [] : (ordersRes.data || []).slice(0, 5);
-        const users = usersRes instanceof Error ? [] : usersRes.data || [];
-        const activeSalesAccounts = users.filter((user) => user.role === 'sales' && user.isActive !== false).length;
+        const userSummary = usersSummaryRes instanceof Error ? {} : usersSummaryRes.data || {};
+        const activeSalesAccounts = Number(userSummary.activeSalesAccounts || 0);
 
         setStats({
           todaySales: todayData.totalSales || 0,

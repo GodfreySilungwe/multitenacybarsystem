@@ -465,6 +465,10 @@ const CustomerPortal = () => {
             <div style={responsiveStyles.emptyBox}>You have no unpaid credit purchases at the moment.</div>
           )}
         </div>
+
+        <div style={responsiveStyles.accountFooterNote}>
+          Apply on www.smartbarmw.tech to start using Smart Bar on your bar.
+        </div>
       </div>
     </PageContainer>
   );
@@ -540,6 +544,13 @@ const baseStyles = {
     borderRadius: '16px',
     padding: '16px',
     backgroundColor: '#fcfcfd'
+  },
+  accountFooterNote: {
+    marginTop: '4px',
+    textAlign: 'center',
+    fontSize: '12px',
+    color: '#7f1d1d',
+    fontWeight: '600'
   },
   sectionHeader: {
     display: 'flex',

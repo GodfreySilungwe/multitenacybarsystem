@@ -105,8 +105,12 @@ const ReceiptModal = ({ order, onClose }) => {
             <div class="footer">
               <div class="bold">Thank you for your business!</div>
               <div>Visit us again 😊</div>
-              <div>Follow us on Facebook: @SMARTBAR</div>
-              ${customerAccount ? `<div class="notice"><span class="bold">Customer Login:</span> ${customerAccount.username} / ${customerAccount.password}\nFollow bill accumulation at www.smartbarmw.tech</div>` : ''}
+              ${customerAccount ? `<div class="notice">
+                <div class="bold">Customer Login Details</div>
+                <div>Username: ${customerAccount.username}</div>
+                <div>Password: ${customerAccount.password}</div>
+                <div>Follow bill accumulation at www.smartbarmw.tech using the credentials above.</div>
+              </div>` : ''}
             </div>
           </div>
         </body>
@@ -180,7 +184,6 @@ const ReceiptModal = ({ order, onClose }) => {
           <div style={styles.footer}>
             <p style={styles.thankYou}>Thank you for your business!</p>
             <p style={styles.footerText}>Visit us again 😊</p>
-            <p style={styles.footerText}>Follow us on Facebook: @SMARTBAR</p>
             {customerAccount && (
               <div style={styles.customerAccountBlock}>
                 <p style={styles.customerAccountTitle}>Customer Login Details</p>
