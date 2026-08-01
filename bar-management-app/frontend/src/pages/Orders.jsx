@@ -62,7 +62,6 @@ const Orders = () => {
   const filteredOrders = getFilteredOrders();
   const activeOrders = filteredOrders.filter(order => !order.reversed);
   const totalSales = activeOrders.reduce((sum, o) => sum + o.totalAmount, 0);
-  const totalProfit = activeOrders.reduce((sum, o) => sum + o.profit, 0);
 
   if (loading) {
     return (
@@ -118,8 +117,7 @@ const Orders = () => {
       <div style={styles.summary}>
         {[
           { label: 'Total Orders', value: filteredOrders.length, icon: '📋', color: '#3498db', delay: 1 },
-          { label: 'Total Sales', value: formatPriceMK(totalSales), icon: '💰', color: '#2ecc71', delay: 2 },
-          { label: 'Total Profit', value: formatPriceMK(totalProfit), icon: '📈', color: '#e94560', delay: 3 }
+          { label: 'Total Sales', value: formatPriceMK(totalSales), icon: '💰', color: '#2ecc71', delay: 2 }
         ].map((item, index) => (
           <div 
             key={index}
@@ -166,7 +164,6 @@ const Orders = () => {
                     <th>Customer</th>
                     <th>Items</th>
                     <th>Amount</th>
-                    <th>Profit</th>
                     <th>Payment</th>
                     <th>Status</th>
                     <th>Date</th>
@@ -195,7 +192,6 @@ const Orders = () => {
                           </span>
                         </td>
                         <td style={styles.amount}>{formatPriceMK(order.totalAmount)}</td>
-                        <td style={styles.profit}>+{formatPriceMK(order.profit)}</td>
                         <td>
                           <span style={{
                             ...styles.paymentBadge,

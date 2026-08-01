@@ -355,7 +355,22 @@ const POS = () => {
       const response = await api.post('/orders', orderData);
       
       const newOrder = response.data;
-      setReceiptOrder(newOrder);
+      const selectedCustomerAccount = selectedCustomerData
+        ? {
+            username: selectedCustomerData.accountUsername || selectedCustomerData.username || '',
+            password: selectedCustomerData.accountPassword || ''
+          }
+        : null;
+
+      const receiptCustomerAccount = selectedCustomerAccount?.username
+        ? selectedCustomerAccount
+        : newOrder.customerAccount || null;
+
+      setReceiptOrder({
+        ...newOrder,
+        customerName: selectedCustomerData?.name || newOrder.customerName || 'Walk-in Customer',
+        customerAccount: receiptCustomerAccount
+      });
       if (selectedCustomer) {
         emitCustomerPortalEvent('customer-request-updated', {
           customerId: selectedCustomer,

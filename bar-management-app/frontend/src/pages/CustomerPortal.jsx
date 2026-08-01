@@ -87,9 +87,9 @@ const CustomerPortal = () => {
   const hasOutstandingBill = outstandingBill > 0;
   const paymentMethods = [
     { value: 'cash', label: 'Cash' },
-    { value: 'airtel_money', label: 'Airtel Money Code 1234' },
-    { value: 'mpamba', label: 'Mpamba Code 1234' },
-    { value: 'bank_account', label: 'Bank Acc# 1234' }
+    { value: 'airtel_money', label: 'Airtel Money' },
+    { value: 'mpamba', label: 'Mpamba' },
+    { value: 'bank_account', label: 'Bank Account' }
   ];
 
   const paymentHint = paymentMethod === 'cash' ? 'No reference needed for cash payments.' : 'Add a receipt reference or payer name for this payment.';

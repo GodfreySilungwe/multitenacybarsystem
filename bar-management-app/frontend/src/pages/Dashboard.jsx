@@ -319,7 +319,6 @@ const Dashboard = () => {
                         <th>Customer</th>
                         <th>Items</th>
                         <th>Amount</th>
-                        <th>Profit</th>
                         <th>Payment</th>
                         <th>Time</th>
                       </tr>
@@ -334,7 +333,6 @@ const Dashboard = () => {
                           <td>{order.customer?.name || 'Walk-in'}</td>
                           <td>{order.items.length} items</td>
                           <td style={styles.amount}>{formatPriceMK(order.totalAmount)}</td>
-                          <td style={styles.profit}>+{formatPriceMK(order.profit)}</td>
                           <td>
                             <span style={{
                               ...styles.paymentBadge,
