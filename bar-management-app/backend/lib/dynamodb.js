@@ -1,5 +1,5 @@
 const { DynamoDBClient, DescribeTableCommand, CreateTableCommand } = require('@aws-sdk/client-dynamodb');
-const { DynamoDBDocumentClient, PutCommand, GetCommand, ScanCommand, DeleteCommand } = require('@aws-sdk/lib-dynamodb');
+const { DynamoDBDocumentClient, PutCommand, GetCommand, QueryCommand, DeleteCommand } = require('@aws-sdk/lib-dynamodb');
 const crypto = require('crypto');
 const { getTenantId, isGlobalAdmin } = require('./tenantContext');
 
@@ -10,6 +10,7 @@ const TABLE_CREATION_MAX_ATTEMPTS = 20;
 
 const client = new DynamoDBClient({ region });
 const docClient = DynamoDBDocumentClient.from(client);
+let tableReadyPromise = null;
 
 function generateId() {
   return crypto.randomUUID();
@@ -91,67 +92,80 @@ function fromDynamoItem(item) {
 }
 
 async function ensureTableExists() {
-  try {
-    const result = await client.send(new DescribeTableCommand({ TableName: TABLE_NAME }));
-    if (result.Table?.TableStatus === 'ACTIVE') {
-      return true;
-    }
-  } catch (error) {
-    if (error?.name !== 'ResourceNotFoundException') {
-      throw error;
-    }
-
-    console.log(`📦 Creating DynamoDB table ${TABLE_NAME}...`);
-    try {
-      await client.send(new CreateTableCommand({
-        TableName: TABLE_NAME,
-        AttributeDefinitions: [
-          { AttributeName: 'pk', AttributeType: 'S' },
-          { AttributeName: 'sk', AttributeType: 'S' }
-        ],
-        KeySchema: [
-          { AttributeName: 'pk', KeyType: 'HASH' },
-          { AttributeName: 'sk', KeyType: 'RANGE' }
-        ],
-        BillingMode: 'PAY_PER_REQUEST'
-      }));
-    } catch (createError) {
-      if (createError?.name !== 'ResourceInUseException') {
-        throw createError;
-      }
-    }
+  if (tableReadyPromise) {
+    return tableReadyPromise;
   }
 
-  for (let attempt = 1; attempt <= TABLE_CREATION_MAX_ATTEMPTS; attempt += 1) {
+  tableReadyPromise = (async () => {
     try {
       const result = await client.send(new DescribeTableCommand({ TableName: TABLE_NAME }));
       if (result.Table?.TableStatus === 'ACTIVE') {
         return true;
       }
     } catch (error) {
-      if (error?.name === 'ResourceNotFoundException') {
-        // Table is still propagating; keep polling.
-      } else {
+      if (error?.name !== 'ResourceNotFoundException') {
         throw error;
+      }
+
+      console.log(`📦 Creating DynamoDB table ${TABLE_NAME}...`);
+      try {
+        await client.send(new CreateTableCommand({
+          TableName: TABLE_NAME,
+          AttributeDefinitions: [
+            { AttributeName: 'pk', AttributeType: 'S' },
+            { AttributeName: 'sk', AttributeType: 'S' }
+          ],
+          KeySchema: [
+            { AttributeName: 'pk', KeyType: 'HASH' },
+            { AttributeName: 'sk', KeyType: 'RANGE' }
+          ],
+          BillingMode: 'PAY_PER_REQUEST'
+        }));
+      } catch (createError) {
+        if (createError?.name !== 'ResourceInUseException') {
+          throw createError;
+        }
       }
     }
 
-    if (attempt === TABLE_CREATION_MAX_ATTEMPTS) {
-      throw new Error(`DynamoDB table ${TABLE_NAME} did not become active in time`);
+    for (let attempt = 1; attempt <= TABLE_CREATION_MAX_ATTEMPTS; attempt += 1) {
+      try {
+        const result = await client.send(new DescribeTableCommand({ TableName: TABLE_NAME }));
+        if (result.Table?.TableStatus === 'ACTIVE') {
+          return true;
+        }
+      } catch (error) {
+        if (error?.name === 'ResourceNotFoundException') {
+          // Table is still propagating; keep polling.
+        } else {
+          throw error;
+        }
+      }
+
+      if (attempt === TABLE_CREATION_MAX_ATTEMPTS) {
+        throw new Error(`DynamoDB table ${TABLE_NAME} did not become active in time`);
+      }
+
+      await new Promise((resolve) => setTimeout(resolve, TABLE_CREATION_WAIT_MS));
     }
 
-    await new Promise((resolve) => setTimeout(resolve, TABLE_CREATION_WAIT_MS));
-  }
+    return false;
+  })();
 
-  return false;
+  return tableReadyPromise;
 }
 
 async function listEntities(entityType) {
   await ensureTableExists();
   const tenantBarId = getTenantId();
-  const result = await docClient.send(new ScanCommand({
+  const entityPartitionKey = String(entityType).toUpperCase();
+  const result = await docClient.send(new QueryCommand({
     TableName: TABLE_NAME,
-    ConsistentRead: true
+    ConsistentRead: true,
+    KeyConditionExpression: 'pk = :pk',
+    ExpressionAttributeValues: {
+      ':pk': entityPartitionKey
+    }
   }));
 
   return (result.Items || [])

@@ -156,9 +156,23 @@ app.get('/api/health', (req, res) => {
 });
 
 let server;
+let initializationPromise = null;
+
+async function initializeServerState() {
+  if (initializationPromise) {
+    return initializationPromise;
+  }
+
+  initializationPromise = (async () => {
+    await ensureTableExists();
+    await require('./routes/auth').ensureDefaultOwnerUser();
+  })();
+
+  return initializationPromise;
+}
+
 async function startServer() {
-  await ensureTableExists();
-  await require('./routes/auth').ensureDefaultOwnerUser();
+  await initializeServerState();
 
   const PORT = process.env.PORT || 5000;
   server = app.listen(PORT, () => {
@@ -206,8 +220,7 @@ function normalizeLambdaEvent(event) {
 }
 
 async function handler(event, context) {
-  await ensureTableExists();
-  await require('./routes/auth').ensureDefaultOwnerUser();
+  await initializeServerState();
   context.callbackWaitsForEmptyEventLoop = false;
   normalizeLambdaEvent(event);
   console.log('Lambda event normalized:', {

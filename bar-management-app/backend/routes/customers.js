@@ -6,6 +6,7 @@ const Customer = require('../models/Customer');
 const Order = require('../models/Order');
 const Product = require('../models/Product');
 const User = require('../models/User');
+const Bar = require('../models/Bar');
 const CustomerOrderRequest = require('../models/CustomerOrderRequest');
 const CustomerPaymentRequest = require('../models/CustomerPaymentRequest');
 
@@ -76,6 +77,17 @@ const buildCustomerCreditSummary = async (customerId, barId) => {
   }
 };
 
+const normalizeUsername = (value, fallback = 'customer') => {
+  const normalized = String(value || fallback).trim().toLowerCase().replace(/[^a-z0-9]/g, '');
+  return normalized || 'customer';
+};
+
+const createCustomerUsername = (barIdentifier, phone, username, name) => {
+  const barKey = normalizeUsername(barIdentifier, 'bar');
+  const userKey = normalizeUsername(phone || username || name, 'customer');
+  return `${barKey}-${userKey}`;
+};
+
 const deleteCustomerRelatedData = async (customerId, barId) => {
   if (!customerId) {
     return;
@@ -143,7 +155,9 @@ router.post('/', isBarOwnerOrSales, async (req, res) => {
   try {
     const { name, phone, gender, creditBalance = 0, username, password } = req.body;
 
-    const normalizedUsername = (username || phone || `${name}`.toLowerCase().replace(/\s+/g, '')).trim();
+    const bar = await Bar.findById(req.user.barId);
+    const barIdentifier = bar?.code || bar?.name || String(req.user.barId);
+    const normalizedUsername = createCustomerUsername(barIdentifier, phone, username, name);
     const normalizedPassword = password || `${phone || 'customer'}123`;
 
     const existingCustomer = await Customer.findOne({ phone, barId: req.user.barId });
@@ -151,12 +165,14 @@ router.post('/', isBarOwnerOrSales, async (req, res) => {
       return res.status(400).json({ message: 'Phone number already exists' });
     }
 
-    const existingUser = await User.findOne({
-      $or: [{ username: normalizedUsername }, { email: phone }],
-      barId: req.user.barId || null
-    });
-    if (existingUser) {
+    const existingUsername = await User.findOne({ username: normalizedUsername });
+    if (existingUsername) {
       return res.status(400).json({ message: 'Username already exists' });
+    }
+
+    const existingEmailInBar = await User.findOne({ email: phone, barId: req.user.barId || null });
+    if (existingEmailInBar) {
+      return res.status(400).json({ message: 'Phone number already exists in this bar' });
     }
 
     const customer = new Customer({

@@ -216,9 +216,18 @@ router.post('/', async (req, res) => {
     await savedOrder.populate('customer');
     await savedOrder.populate('items.product');
 
+    const customerAccount = customerDoc
+      ? {
+          username: customerDoc.accountUsername || customerDoc.username || '',
+          password: customerDoc.accountPassword || ''
+        }
+      : null;
+
     // Enrich response with product names
     const enrichedOrder = {
       ...savedOrder,
+      customerName: customerDoc?.name || savedOrder.customerName || 'Walk-in Customer',
+      customerAccount,
       items: (savedOrder.items || []).map((item) => {
         const itemProductId = item.product?._id || item.product;
         const productData = itemProductId && typeof itemProductId === 'object' ? itemProductId : null;

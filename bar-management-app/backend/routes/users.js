@@ -6,7 +6,7 @@ const Customer = require('../models/Customer');
 const Order = require('../models/Order');
 const CustomerOrderRequest = require('../models/CustomerOrderRequest');
 const CustomerPaymentRequest = require('../models/CustomerPaymentRequest');
-const { protect, isBarOwner } = require('../middleware/auth');
+const { protect, isBarOwner, isBarOwnerOrSales } = require('../middleware/auth');
 
 const toSafeUser = (user) => {
   const safe = { ...user };
@@ -51,9 +51,26 @@ const deleteCustomerRelatedData = async (customerId, barId) => {
   ]);
 };
 
-router.use(protect, isBarOwner);
+router.use(protect);
 
-router.get('/', async (req, res) => {
+router.get('/summary', isBarOwnerOrSales, async (req, res) => {
+  try {
+    const users = await User.find({ barId: req.user.barId }).sort({ username: 1 });
+    const salesUsers = users.filter((user) => user.role === 'sales');
+    const activeSalesAccounts = salesUsers.filter((user) => user.isActive !== false).length;
+
+    res.json({
+      totalUsers: users.length,
+      totalSalesAccounts: salesUsers.length,
+      activeSalesAccounts
+    });
+  } catch (error) {
+    console.error('Error fetching user summary:', error);
+    res.status(500).json({ message: error.message });
+  }
+});
+
+router.get('/', isBarOwner, async (req, res) => {
   try {
     const users = await User.find({ barId: req.user.barId }).sort({ username: 1 });
     const safeUsers = users.map((user) => toSafeUser(user));
@@ -64,7 +81,7 @@ router.get('/', async (req, res) => {
   }
 });
 
-router.patch('/:id/reset-password', async (req, res) => {
+router.patch('/:id/reset-password', isBarOwner, async (req, res) => {
   try {
     const { newPassword } = req.body || {};
     const targetPassword = String(newPassword || '').trim();
@@ -101,7 +118,7 @@ router.patch('/:id/reset-password', async (req, res) => {
   }
 });
 
-router.post('/', async (req, res) => {
+router.post('/', isBarOwner, async (req, res) => {
   try {
     const { username, email, password, fullName, role = 'sales' } = req.body;
     const normalizedUsername = normalizeUsername(username || fullName, 'sales');
@@ -149,7 +166,7 @@ router.post('/', async (req, res) => {
   }
 });
 
-router.delete('/:id', async (req, res) => {
+router.delete('/:id', isBarOwner, async (req, res) => {
   try {
     const user = await User.findOne({ _id: req.params.id, barId: req.user.barId });
     if (!user) {
