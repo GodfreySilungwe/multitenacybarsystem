@@ -2,6 +2,7 @@ const express = require('express');
 const router = express.Router();
 const { protect, isBarOwnerOrSales } = require('../middleware/auth');
 const bcrypt = require('bcryptjs');
+const { queryEntities, decodeLastEvaluatedKey } = require('../lib/dynamodb');
 const Customer = require('../models/Customer');
 const Order = require('../models/Order');
 const Product = require('../models/Product');
@@ -82,10 +83,17 @@ const normalizeUsername = (value, fallback = 'customer') => {
   return normalized || 'customer';
 };
 
-const createCustomerUsername = (barIdentifier, phone, username, name) => {
-  const barKey = normalizeUsername(barIdentifier, 'bar');
-  const userKey = normalizeUsername(phone || username || name, 'customer');
-  return `${barKey}-${userKey}`;
+const generateCustomerUsername = async (barIdentifier) => {
+  const barKey = normalizeUsername(barIdentifier, 'bar').slice(0, 12);
+  for (let i = 1; i <= 99; i += 1) {
+    const suffix = String(i).padStart(2, '0');
+    const candidate = `${barKey}${suffix}`;
+    const existingUser = await User.findOne({ username: candidate });
+    if (!existingUser) {
+      return candidate;
+    }
+  }
+  throw new Error('Unable to generate unique customer username');
 };
 
 const deleteCustomerRelatedData = async (customerId, barId) => {
@@ -125,9 +133,51 @@ const enrichCustomer = async (customer, barId) => {
 // Get all customers
 router.get('/', isBarOwnerOrSales, async (req, res) => {
   try {
-    const customers = await Customer.find({ barId: req.user.barId }).sort({ name: 1 });
+    const limit = req.query.limit ? Number(req.query.limit) : null;
+    const lastKey = req.query.lastKey ? decodeLastEvaluatedKey(req.query.lastKey) : null;
+
+    const queryOptions = {
+      barId: req.user.barId,
+      limit,
+      lastEvaluatedKey: lastKey
+    };
+
+    const result = await queryEntities('customer', queryOptions);
+    const customers = (result.items || []).sort((a, b) => String(a.name || '').localeCompare(String(b.name || '')));
     const enrichedCustomers = await Promise.all(customers.map((customer) => enrichCustomer(customer, req.user.barId)));
+
+    if (limit || lastKey) {
+      return res.json({ items: enrichedCustomers, nextKey: result.lastEvaluatedKey });
+    }
+
     res.json(enrichedCustomers);
+  } catch (error) {
+    res.status(500).json({ message: error.message });
+  }
+});
+
+router.get('/summary', isBarOwnerOrSales, async (req, res) => {
+  try {
+    const { items: customers = [] } = await queryEntities('customer', { barId: req.user.barId });
+    const creditAccounts = (customers || [])
+      .filter((customer) => Number(customer.creditBalance || 0) > 0)
+      .map((customer) => ({
+        _id: customer._id,
+        name: customer.name,
+        phone: customer.phone,
+        balance: Number(customer.creditBalance || 0)
+      }))
+      .sort((a, b) => b.balance - a.balance)
+      .slice(0, 10);
+
+    const totalCreditOutstanding = creditAccounts.reduce((sum, customer) => sum + customer.balance, 0);
+
+    res.json({
+      totalCustomers: customers.length,
+      customersWithCredit: creditAccounts.length,
+      totalCreditOutstanding,
+      topCreditAccounts: creditAccounts
+    });
   } catch (error) {
     res.status(500).json({ message: error.message });
   }
@@ -156,8 +206,8 @@ router.post('/', isBarOwnerOrSales, async (req, res) => {
     const { name, phone, gender, creditBalance = 0, username, password } = req.body;
 
     const bar = await Bar.findById(req.user.barId);
-    const barIdentifier = bar?.code || bar?.name || String(req.user.barId);
-    const normalizedUsername = createCustomerUsername(barIdentifier, phone, username, name);
+    const barIdentifier = bar?.name || bar?.code || String(req.user.barId);
+    const normalizedUsername = await generateCustomerUsername(barIdentifier);
     const normalizedPassword = password || `${phone || 'customer'}123`;
 
     const existingCustomer = await Customer.findOne({ phone, barId: req.user.barId });

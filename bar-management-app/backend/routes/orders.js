@@ -6,6 +6,7 @@ const Product = require('../models/Product');
 const Customer = require('../models/Customer');
 const CustomerOrderRequest = require('../models/CustomerOrderRequest');
 const { recomputeCustomerCreditBalance } = require('../lib/credit');
+const { queryEntities, decodeLastEvaluatedKey } = require('../lib/dynamodb');
 
 router.use(protect, isBarOwnerOrSales);
 
@@ -17,35 +18,175 @@ const toNumber = (value, fallback = 0) => {
 // Get all orders
 router.get('/', async (req, res) => {
   try {
-    const orders = await Order.find({ barId: req.user.barId })
-      .populate('customer', 'name phone')
-      .sort({ createdAt: -1 });
+    const limit = req.query.limit ? Number(req.query.limit) : null;
+    const lastKey = req.query.lastKey ? decodeLastEvaluatedKey(req.query.lastKey) : null;
+    const startDate = req.query.startDate ? new Date(req.query.startDate).toISOString() : null;
+    const endDate = req.query.endDate ? new Date(req.query.endDate).toISOString() : null;
+    const includeReversed = req.query.includeReversed !== 'false';
 
-    const products = await Product.find({ barId: req.user.barId });
-    const productMap = new Map((products || []).map((product) => [product._id || product.id, product]));
+    const queryOptions = {
+      barId: req.user.barId,
+      limit,
+      lastEvaluatedKey: lastKey
+    };
 
-    const enrichedOrders = (orders || []).map((order) => ({
+    if (startDate) queryOptions.startDate = startDate;
+    if (endDate) queryOptions.endDate = endDate;
+    if (!includeReversed) queryOptions.includeReversed = false;
+
+    const orderQuery = await queryEntities('order', queryOptions);
+    const orders = (orderQuery.items || []).sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
+    const enrichedOrders = orders.map((order) => ({
       ...order,
-      items: (order.items || []).map((item) => {
-        const itemProductId = item.product?._id || item.product;
-        const catalogProduct = itemProductId ? productMap.get(itemProductId) : null;
-        const productName = item.productName || catalogProduct?.name || item.product?.name || 'Product';
-        const productCategory = catalogProduct?.category?.name || catalogProduct?.categoryName || item.product?.category?.name || 'Uncategorized';
-
-        return {
-          ...item,
-          productName,
-          product: catalogProduct
-            ? { _id: catalogProduct._id || catalogProduct.id, name: catalogProduct.name, category: catalogProduct.category }
-            : item.product || null,
-          categoryName: productCategory
-        };
-      })
+      items: (order.items || []).map((item) => ({
+        ...item,
+        productName: item.productName || item.product?.name || 'Product'
+      }))
     }));
+
+    if (limit || lastKey || startDate || endDate || req.query.includeReversed === 'false') {
+      return res.json({
+        items: enrichedOrders,
+        nextKey: orderQuery.lastEvaluatedKey
+      });
+    }
 
     res.json(enrichedOrders);
   } catch (error) {
     console.error('Error fetching orders:', error);
+    res.status(500).json({ message: error.message });
+  }
+});
+
+router.get('/summary', async (req, res) => {
+  try {
+    const range = String(req.query.range || 'week').toLowerCase();
+    let startDate = null;
+    let endDate = new Date().toISOString();
+
+    if (range === 'today') {
+      const today = new Date();
+      today.setHours(0, 0, 0, 0);
+      startDate = today.toISOString();
+    } else if (range === 'week') {
+      const weekAgo = new Date();
+      weekAgo.setDate(weekAgo.getDate() - 7);
+      startDate = weekAgo.toISOString();
+    } else if (range === 'month') {
+      const monthAgo = new Date();
+      monthAgo.setMonth(monthAgo.getMonth() - 1);
+      startDate = monthAgo.toISOString();
+    } else if (range === 'year') {
+      const yearAgo = new Date();
+      yearAgo.setFullYear(yearAgo.getFullYear() - 1);
+      startDate = yearAgo.toISOString();
+    } else if (req.query.startDate) {
+      startDate = new Date(req.query.startDate).toISOString();
+    }
+
+    const queryOptions = {
+      barId: req.user.barId,
+      includeReversed: false,
+      startDate
+    };
+
+    if (req.query.endDate) {
+      queryOptions.endDate = new Date(req.query.endDate).toISOString();
+    } else {
+      queryOptions.endDate = endDate;
+    }
+
+    const { items: orders = [] } = await queryEntities('order', queryOptions);
+    const activeOrders = orders.filter((order) => !order.reversed);
+
+    const totalSales = activeOrders.reduce((sum, order) => sum + Number(order.totalAmount || 0), 0);
+    const totalProfit = activeOrders.reduce((sum, order) => sum + Number(order.profit || 0), 0);
+    const totalOrders = activeOrders.length;
+    const totalQuantitySold = activeOrders.reduce((sum, order) => sum + (order.items || []).reduce((itemSum, item) => itemSum + Number(item.quantity || 0), 0), 0);
+    const averageOrderValue = totalOrders > 0 ? totalSales / totalOrders : 0;
+    const averageItemsPerOrder = totalOrders > 0 ? totalQuantitySold / totalOrders : 0;
+    const grossMarginRatio = totalSales > 0 ? (totalProfit / totalSales) * 100 : 0;
+
+    const paymentMethodsMap = {};
+    const productSalesMap = {};
+    const categorySalesMap = {};
+
+    activeOrders.forEach((order) => {
+      const paymentMethod = order.paymentMethod || 'cash';
+      if (!paymentMethodsMap[paymentMethod]) {
+        paymentMethodsMap[paymentMethod] = { count: 0, amount: 0 };
+      }
+      paymentMethodsMap[paymentMethod].count += 1;
+      paymentMethodsMap[paymentMethod].amount += Number(order.totalAmount || 0);
+
+      (order.items || []).forEach((item) => {
+        const productId = item.product?._id || item.product || item.productId || item.productName;
+        const productName = item.productName || item.product?.name || 'Unknown Product';
+        const key = productId || productName;
+
+        if (!productSalesMap[key]) {
+          productSalesMap[key] = { name: productName, quantity: 0, revenue: 0 };
+        }
+        productSalesMap[key].quantity += Number(item.quantity || 0);
+        productSalesMap[key].revenue += Number(item.subtotal || 0);
+
+        const categoryName = item.categoryName || item.product?.category?.name || 'Uncategorized';
+        if (!categorySalesMap[categoryName]) {
+          categorySalesMap[categoryName] = 0;
+        }
+        categorySalesMap[categoryName] += Number(item.subtotal || 0);
+      });
+    });
+
+    const paymentMethods = Object.keys(paymentMethodsMap).map((method) => ({
+      method: method.replace(/_/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase()),
+      count: paymentMethodsMap[method].count,
+      amount: paymentMethodsMap[method].amount
+    }));
+
+    const topProducts = Object.values(productSalesMap)
+      .sort((a, b) => b.revenue - a.revenue)
+      .slice(0, 10);
+
+    const categorySales = Object.keys(categorySalesMap).map((name) => ({
+      name,
+      revenue: categorySalesMap[name]
+    })).sort((a, b) => b.revenue - a.revenue);
+
+    const dailySalesMap = {};
+    activeOrders.forEach((order) => {
+      const date = new Date(order.createdAt).toLocaleDateString();
+      if (!dailySalesMap[date]) {
+        dailySalesMap[date] = { sales: 0, profit: 0, count: 0 };
+      }
+      dailySalesMap[date].sales += Number(order.totalAmount || 0);
+      dailySalesMap[date].profit += Number(order.profit || 0);
+      dailySalesMap[date].count += 1;
+    });
+
+    const dailySales = Object.keys(dailySalesMap).map((date) => ({
+      date,
+      sales: dailySalesMap[date].sales,
+      profit: dailySalesMap[date].profit,
+      count: dailySalesMap[date].count
+    })).sort((a, b) => new Date(a.date) - new Date(b.date));
+
+    res.json({
+      sales: activeOrders.slice(0, 100),
+      topProducts,
+      categorySales,
+      dailySales,
+      paymentMethods,
+      totalSales,
+      totalProfit,
+      totalOrders,
+      averageOrderValue,
+      totalQuantitySold,
+      averageItemsPerOrder,
+      grossMarginRatio
+    });
+  } catch (error) {
+    console.error('Error fetching orders summary:', error);
     res.status(500).json({ message: error.message });
   }
 });

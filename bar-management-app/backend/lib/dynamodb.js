@@ -91,6 +91,88 @@ function fromDynamoItem(item) {
   return normalizeRecord(record);
 }
 
+function encodeLastEvaluatedKey(lastEvaluatedKey) {
+  if (!lastEvaluatedKey) return null;
+  try {
+    return Buffer.from(JSON.stringify(lastEvaluatedKey)).toString('base64');
+  } catch (error) {
+    return null;
+  }
+}
+
+function decodeLastEvaluatedKey(token) {
+  if (!token) return null;
+  try {
+    return JSON.parse(Buffer.from(token, 'base64').toString('utf8'));
+  } catch (error) {
+    return null;
+  }
+}
+
+async function queryEntities(entityType, options = {}) {
+  await ensureTableExists();
+  const entityPartitionKey = String(entityType).toUpperCase();
+  const params = {
+    TableName: TABLE_NAME,
+    KeyConditionExpression: 'pk = :pk',
+    ExpressionAttributeValues: {
+      ':pk': entityPartitionKey
+    }
+  };
+
+  if (options.limit && Number.isFinite(Number(options.limit))) {
+    params.Limit = Number(options.limit);
+  }
+
+  if (options.lastEvaluatedKey) {
+    params.ExclusiveStartKey = options.lastEvaluatedKey;
+  }
+
+  const filterExpressions = [];
+  const values = params.ExpressionAttributeValues;
+
+  if (options.barId !== undefined && options.barId !== null) {
+    filterExpressions.push('barId = :barId');
+    values[':barId'] = options.barId;
+  }
+
+  if (options.filters && typeof options.filters === 'object') {
+    for (const [field, fieldValue] of Object.entries(options.filters)) {
+      if (fieldValue === undefined || fieldValue === null) continue;
+      const placeholder = `:${field}`;
+      filterExpressions.push(`${field} = ${placeholder}`);
+      values[placeholder] = fieldValue;
+    }
+  }
+
+  if (options.startDate) {
+    filterExpressions.push('createdAt >= :startDate');
+    values[':startDate'] = options.startDate;
+  }
+
+  if (options.endDate) {
+    filterExpressions.push('createdAt <= :endDate');
+    values[':endDate'] = options.endDate;
+  }
+
+  if (options.includeReversed === false) {
+    filterExpressions.push('(attribute_not_exists(reversed) OR reversed <> :reversed)');
+    values[':reversed'] = true;
+  }
+
+  if (filterExpressions.length) {
+    params.FilterExpression = filterExpressions.join(' AND ');
+  }
+
+  const result = await docClient.send(new QueryCommand(params));
+  const items = (result.Items || []).map(fromDynamoItem);
+
+  return {
+    items,
+    lastEvaluatedKey: result.LastEvaluatedKey ? encodeLastEvaluatedKey(result.LastEvaluatedKey) : null
+  };
+}
+
 async function ensureTableExists() {
   if (tableReadyPromise) {
     return tableReadyPromise;
@@ -264,6 +346,8 @@ module.exports = {
   ensureTableExists,
   generateId,
   listEntities,
+  queryEntities,
+  decodeLastEvaluatedKey,
   getEntity,
   createEntity,
   updateEntity,
