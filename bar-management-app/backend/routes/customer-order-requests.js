@@ -15,6 +15,33 @@ const toNumber = (value, fallback = 0) => {
   return Number.isFinite(numericValue) ? numericValue : fallback;
 };
 
+const validateCustomerOrderItems = async (items = [], barId) => {
+  const errors = [];
+
+  for (const rawItem of items || []) {
+    const productId = rawItem?.productId || rawItem?.product || rawItem?._id;
+    if (!productId) {
+      continue;
+    }
+
+    const product = await Product.findOne({ _id: productId, barId });
+    if (!product) {
+      errors.push(`Product not found for ${rawItem?.productName || rawItem?.name || 'selected item'}.`);
+      continue;
+    }
+
+    const quantity = Math.max(1, Math.floor(toNumber(rawItem?.quantity, 1)));
+    if (Number(product.currentStock || 0) <= 0 || Number(product.currentStock || 0) < quantity) {
+      errors.push(`Insufficient stock for ${product.name}. Available: ${product.currentStock}`);
+    }
+  }
+
+  return {
+    valid: errors.length === 0,
+    errors
+  };
+};
+
 const normalizeRequestItems = async (items = [], barId) => {
   const normalizedItems = [];
   let totalAmount = 0;
@@ -126,6 +153,11 @@ router.post('/', async (req, res) => {
     const { items: normalizedItems, totalAmount } = await normalizeRequestItems(items, req.user.barId);
     if (normalizedItems.length === 0) {
       return res.status(400).json({ message: 'No valid products were selected.' });
+    }
+
+    const stockValidation = await validateCustomerOrderItems(normalizedItems, req.user.barId);
+    if (!stockValidation.valid) {
+      return res.status(400).json({ message: stockValidation.errors.join(' | ') });
     }
 
     const request = new CustomerOrderRequest({
@@ -449,3 +481,4 @@ router.patch('/payments/:id/reject', isBarOwnerOrSales, async (req, res) => {
 });
 
 module.exports = router;
+module.exports.validateCustomerOrderItems = validateCustomerOrderItems;

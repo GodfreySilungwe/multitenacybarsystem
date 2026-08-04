@@ -95,6 +95,13 @@ router.delete('/:id', isBarOwnerOrSales, async (req, res) => {
     if (!product) {
       return res.status(404).json({ message: 'Product not found' });
     }
+
+    if (Number(product.currentStock || 0) > 0) {
+      return res.status(400).json({
+        message: 'Cannot delete product with available stock. Reduce stock to zero before deleting.'
+      });
+    }
+
     await product.delete();
     res.json({ message: 'Product deleted successfully' });
   } catch (error) {

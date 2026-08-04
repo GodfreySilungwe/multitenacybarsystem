@@ -69,6 +69,16 @@ router.delete('/:id', async (req, res) => {
     if (!category) {
       return res.status(404).json({ message: 'Category not found' });
     }
+
+    const Product = require('../models/Product');
+    const categoryProducts = await Product.find({ barId: req.user.barId, category: category._id });
+    const hasStock = (categoryProducts || []).some((product) => Number(product.currentStock || 0) > 0);
+    if (categoryProducts.length > 0 || hasStock) {
+      return res.status(400).json({
+        message: 'Cannot delete category while it still has products assigned or stock remaining.'
+      });
+    }
+
     await category.delete();
     res.json({ message: 'Category deleted successfully' });
   } catch (error) {

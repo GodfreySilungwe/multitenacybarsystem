@@ -7,12 +7,23 @@ const Customer = require('../models/Customer');
 const CustomerOrderRequest = require('../models/CustomerOrderRequest');
 const { recomputeCustomerCreditBalance } = require('../lib/credit');
 const { queryEntities, decodeLastEvaluatedKey } = require('../lib/dynamodb');
+const { buildOrderSummary } = require('../lib/orderSummary');
 
 router.use(protect, isBarOwnerOrSales);
 
 const toNumber = (value, fallback = 0) => {
   const numericValue = Number(value);
   return Number.isFinite(numericValue) ? numericValue : fallback;
+};
+
+const cleanProductName = (value) => {
+  if (value === null || value === undefined) {
+    return '';
+  }
+
+  const normalized = String(value).trim();
+  const genericNames = new Set(['Product', 'Unknown Product', 'Unknown product', 'unknown product']);
+  return genericNames.has(normalized) ? '' : normalized;
 };
 
 // Get all orders
@@ -58,6 +69,32 @@ router.get('/', async (req, res) => {
   }
 });
 
+const resolveOrderProductNames = async (orders = [], barId) => {
+  const products = await Product.find({ barId });
+  const productMap = new Map((products || []).map((product) => [String(product._id || product.id), product]));
+
+  return (orders || []).map((order) => ({
+    ...order,
+    items: (order.items || []).map((item) => {
+      const productId = item.product?._id || item.product || item.productId || item._id;
+      const catalogProduct = productId ? productMap.get(String(productId)) : null;
+      const resolvedName = cleanProductName(item.productName)
+        || cleanProductName(item.product?.name)
+        || cleanProductName(item.name)
+        || catalogProduct?.name
+        || (productId ? `Product ${String(productId).slice(-4)}` : 'Product');
+
+      return {
+        ...item,
+        productName: resolvedName,
+        product: catalogProduct
+          ? { ...item.product, _id: catalogProduct._id || catalogProduct.id, name: catalogProduct.name, category: catalogProduct.category }
+          : item.product || null
+      };
+    })
+  }));
+};
+
 router.get('/summary', async (req, res) => {
   try {
     const range = String(req.query.range || 'week').toLowerCase();
@@ -97,93 +134,22 @@ router.get('/summary', async (req, res) => {
     }
 
     const { items: orders = [] } = await queryEntities('order', queryOptions);
-    const activeOrders = orders.filter((order) => !order.reversed);
-
-    const totalSales = activeOrders.reduce((sum, order) => sum + Number(order.totalAmount || 0), 0);
-    const totalProfit = activeOrders.reduce((sum, order) => sum + Number(order.profit || 0), 0);
-    const totalOrders = activeOrders.length;
-    const totalQuantitySold = activeOrders.reduce((sum, order) => sum + (order.items || []).reduce((itemSum, item) => itemSum + Number(item.quantity || 0), 0), 0);
-    const averageOrderValue = totalOrders > 0 ? totalSales / totalOrders : 0;
-    const averageItemsPerOrder = totalOrders > 0 ? totalQuantitySold / totalOrders : 0;
-    const grossMarginRatio = totalSales > 0 ? (totalProfit / totalSales) * 100 : 0;
-
-    const paymentMethodsMap = {};
-    const productSalesMap = {};
-    const categorySalesMap = {};
-
-    activeOrders.forEach((order) => {
-      const paymentMethod = order.paymentMethod || 'cash';
-      if (!paymentMethodsMap[paymentMethod]) {
-        paymentMethodsMap[paymentMethod] = { count: 0, amount: 0 };
-      }
-      paymentMethodsMap[paymentMethod].count += 1;
-      paymentMethodsMap[paymentMethod].amount += Number(order.totalAmount || 0);
-
-      (order.items || []).forEach((item) => {
-        const productId = item.product?._id || item.product || item.productId || item.productName;
-        const productName = item.productName || item.product?.name || 'Unknown Product';
-        const key = productId || productName;
-
-        if (!productSalesMap[key]) {
-          productSalesMap[key] = { name: productName, quantity: 0, revenue: 0 };
-        }
-        productSalesMap[key].quantity += Number(item.quantity || 0);
-        productSalesMap[key].revenue += Number(item.subtotal || 0);
-
-        const categoryName = item.categoryName || item.product?.category?.name || 'Uncategorized';
-        if (!categorySalesMap[categoryName]) {
-          categorySalesMap[categoryName] = 0;
-        }
-        categorySalesMap[categoryName] += Number(item.subtotal || 0);
-      });
-    });
-
-    const paymentMethods = Object.keys(paymentMethodsMap).map((method) => ({
-      method: method.replace(/_/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase()),
-      count: paymentMethodsMap[method].count,
-      amount: paymentMethodsMap[method].amount
-    }));
-
-    const topProducts = Object.values(productSalesMap)
-      .sort((a, b) => b.revenue - a.revenue)
-      .slice(0, 10);
-
-    const categorySales = Object.keys(categorySalesMap).map((name) => ({
-      name,
-      revenue: categorySalesMap[name]
-    })).sort((a, b) => b.revenue - a.revenue);
-
-    const dailySalesMap = {};
-    activeOrders.forEach((order) => {
-      const date = new Date(order.createdAt).toLocaleDateString();
-      if (!dailySalesMap[date]) {
-        dailySalesMap[date] = { sales: 0, profit: 0, count: 0 };
-      }
-      dailySalesMap[date].sales += Number(order.totalAmount || 0);
-      dailySalesMap[date].profit += Number(order.profit || 0);
-      dailySalesMap[date].count += 1;
-    });
-
-    const dailySales = Object.keys(dailySalesMap).map((date) => ({
-      date,
-      sales: dailySalesMap[date].sales,
-      profit: dailySalesMap[date].profit,
-      count: dailySalesMap[date].count
-    })).sort((a, b) => new Date(a.date) - new Date(b.date));
+    const enrichedOrders = await resolveOrderProductNames(orders, req.user.barId);
+    const summary = buildOrderSummary(enrichedOrders);
 
     res.json({
-      sales: activeOrders.slice(0, 100),
-      topProducts,
-      categorySales,
-      dailySales,
-      paymentMethods,
-      totalSales,
-      totalProfit,
-      totalOrders,
-      averageOrderValue,
-      totalQuantitySold,
-      averageItemsPerOrder,
-      grossMarginRatio
+      sales: summary.sales,
+      topProducts: summary.topProducts,
+      categorySales: summary.categorySales,
+      dailySales: summary.dailySales,
+      paymentMethods: summary.paymentMethods,
+      totalSales: summary.totalSales,
+      totalProfit: summary.totalProfit,
+      totalOrders: summary.totalOrders,
+      averageOrderValue: summary.averageOrderValue,
+      totalQuantitySold: summary.totalQuantitySold,
+      averageItemsPerOrder: summary.averageItemsPerOrder,
+      grossMarginRatio: summary.grossMarginRatio
     });
   } catch (error) {
     console.error('Error fetching orders summary:', error);
