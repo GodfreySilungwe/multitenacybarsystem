@@ -43,6 +43,7 @@ const Dashboard = () => {
   const [globalBars, setGlobalBars] = useState([]);
   const [recentOrders, setRecentOrders] = useState([]);
   const [lowStockProducts, setLowStockProducts] = useState([]);
+  const [paymentMethods, setPaymentMethods] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [lastUpdated, setLastUpdated] = useState(null);
@@ -89,13 +90,14 @@ const Dashboard = () => {
         setLowStockProducts([]);
         setLastUpdated(new Date().toLocaleTimeString());
       } else {
-        const [todayRes, productsRes, customersRes, lowStockRes, ordersRes, usersSummaryRes] = await Promise.all([
+        const [todayRes, productsRes, customersRes, lowStockRes, ordersRes, usersSummaryRes, summaryRes] = await Promise.all([
           api.get('/orders/today'),
           api.get('/products'),
           api.get('/customers'),
           api.get('/products/low-stock'),
           api.get('/orders'),
-          api.get('/users/summary')
+          api.get('/users/summary'),
+          api.get('/orders/summary', { params: { range: 'today' } })
         ].map((promise) => promise.catch((err) => err)));
 
         const todayData = todayRes instanceof Error ? { count: 0, totalSales: 0, totalProfit: 0 } : todayRes.data;
@@ -104,6 +106,7 @@ const Dashboard = () => {
         const lowStock = lowStockRes instanceof Error ? [] : lowStockRes.data || [];
         const recent = ordersRes instanceof Error ? [] : (ordersRes.data || []).slice(0, 5);
         const userSummary = usersSummaryRes instanceof Error ? {} : usersSummaryRes.data || {};
+        const summaryData = summaryRes instanceof Error ? {} : summaryRes.data || {};
         const activeSalesAccounts = Number(userSummary.activeSalesAccounts || 0);
 
         setStats({
@@ -123,6 +126,7 @@ const Dashboard = () => {
         });
         setRecentOrders(recent);
         setLowStockProducts(lowStock);
+        setPaymentMethods(summaryData.paymentMethods || []);
         setLastUpdated(new Date().toLocaleTimeString());
       }
     } catch (err) {
@@ -301,6 +305,38 @@ const Dashboard = () => {
               </UnifiedCard>
             </div>
           )}
+
+          <div className="fade-in" style={{ marginBottom: '20px' }}>
+            <UnifiedCard title="💳 Revenue by Payment Method (Today)">
+              {paymentMethods.length > 0 ? (
+                <div style={styles.tableWrapper}>
+                  <table style={styles.table}>
+                    <thead>
+                      <tr>
+                        <th>Payment Method</th>
+                        <th>Transactions</th>
+                        <th>Revenue</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {paymentMethods.map((method, index) => (
+                        <tr key={index} style={styles.tableRow}>
+                          <td style={styles.orderNumber}>{method.method}</td>
+                          <td>{method.count}</td>
+                          <td style={styles.amount}>{formatPriceMK(method.amount)}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              ) : (
+                <div style={styles.emptyState}>
+                  <p style={styles.emptyIcon}>💳</p>
+                  <p style={styles.emptyText}>No sales revenue recorded today</p>
+                </div>
+              )}
+            </UnifiedCard>
+          </div>
 
           <div className="fade-in">
             <UnifiedCard title="📋 Recent Orders">

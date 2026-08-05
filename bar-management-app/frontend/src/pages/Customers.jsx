@@ -9,6 +9,15 @@ import { confirmTypedDelete } from '../utils/confirmation';
 const Customers = () => {
   const [customers, setCustomers] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [loadingMore, setLoadingMore] = useState(false);
+  const [hasMore, setHasMore] = useState(false);
+  const [nextKey, setNextKey] = useState(null);
+  const [summary, setSummary] = useState({
+    totalCustomers: 0,
+    customersWithCredit: 0,
+    totalCreditOutstanding: 0,
+    topCreditAccounts: []
+  });
   const [showForm, setShowForm] = useState(false);
   const [editingCustomer, setEditingCustomer] = useState(null);
   const [settleAmounts, setSettleAmounts] = useState({});
@@ -22,18 +31,48 @@ const Customers = () => {
   });
 
   useEffect(() => {
-    loadCustomers();
+    loadCustomers({ reset: true });
   }, []);
 
-  const loadCustomers = async () => {
+  const loadCustomers = async ({ reset = false, lastKey = null } = {}) => {
     try {
-      const res = await api.get('/customers');
-      setCustomers(res.data);
+      if (reset) {
+        setLoading(true);
+      } else {
+        setLoadingMore(true);
+      }
+
+      const params = {
+        limit: 20
+      };
+
+      if (!reset && lastKey) {
+        params.lastKey = lastKey;
+      }
+
+      const [customersRes, summaryRes] = await Promise.all([
+        api.get('/customers', { params }),
+        api.get('/customers/summary')
+      ]);
+
+      const customersData = customersRes.data || {};
+      const items = Array.isArray(customersData) ? customersData : customersData.items || [];
+
+      setCustomers((prev) => (reset ? items : [...prev, ...items]));
+      setNextKey(customersData.nextKey || null);
+      setHasMore(Boolean(customersData.nextKey));
+      setSummary(summaryRes.data || summary);
     } catch (err) {
       console.error('Error loading customers:', err);
     } finally {
       setLoading(false);
+      setLoadingMore(false);
     }
+  };
+
+  const loadMoreCustomers = async () => {
+    if (!nextKey) return;
+    await loadCustomers({ reset: false, lastKey: nextKey });
   };
 
   const handleSubmit = async (e) => {
@@ -44,7 +83,6 @@ const Customers = () => {
       } else {
         const response = await api.post('/customers', {
           ...formData,
-          username: formData.phone,
           password: `${formData.phone}${Math.floor(Math.random() * 90 + 10)}`
         });
         if (response.data?.credentials) {
@@ -54,7 +92,7 @@ const Customers = () => {
       setShowForm(false);
       setEditingCustomer(null);
       setFormData({ name: '', phone: '', gender: 'Male', creditBalance: '0' });
-      await loadCustomers();
+      await loadCustomers({ reset: true });
     } catch (err) {
       console.error('Error saving customer:', err);
       alert('Failed to save customer');
@@ -65,7 +103,7 @@ const Customers = () => {
     if (!confirmTypedDelete('delete this customer')) return;
     try {
       await api.delete(`/customers/${id}`);
-      await loadCustomers();
+      await loadCustomers({ reset: true });
     } catch (err) {
       console.error('Error deleting customer:', err);
       alert('Failed to delete customer');
@@ -111,8 +149,8 @@ const Customers = () => {
     { value: 'bank_account', label: 'Bank Account' }
   ];
 
-  const totalOutstandingCredit = customers.reduce((sum, customer) => sum + Number(customer.creditBalance || 0), 0);
-  const customersWithCredit = customers.filter(customer => Number(customer.creditBalance || 0) > 0).length;
+  const totalOutstandingCredit = summary.totalCreditOutstanding || 0;
+  const customersWithCredit = summary.customersWithCredit || 0;
 
   if (loading) {
     return (
@@ -331,6 +369,18 @@ const Customers = () => {
             </div>
           ))}
         </div>
+        {hasMore && (
+          <div style={styles.loadMoreWrapper}>
+            <button
+              type="button"
+              style={styles.loadMoreBtn}
+              onClick={loadMoreCustomers}
+              disabled={loadingMore}
+            >
+              {loadingMore ? 'Loading…' : 'Load more customers'}
+            </button>
+          </div>
+        )}
       </div>
     </PageContainer>
   );
@@ -644,6 +694,22 @@ const styles = {
     fontWeight: '700',
     cursor: 'pointer',
     marginTop: '8px'
+  },
+  loadMoreWrapper: {
+    display: 'flex',
+    justifyContent: 'center',
+    padding: '18px 0'
+  },
+  loadMoreBtn: {
+    minWidth: '220px',
+    padding: '10px 18px',
+    borderRadius: '999px',
+    border: '1px solid #e2e8f0',
+    backgroundColor: '#ffffff',
+    color: '#111827',
+    cursor: 'pointer',
+    fontWeight: '700',
+    transition: 'all 0.2s ease'
   }
 };
 

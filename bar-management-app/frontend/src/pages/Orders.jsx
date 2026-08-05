@@ -7,35 +7,114 @@ import { formatPriceMK } from '../utils/formatPrice';
 const Orders = () => {
   const [orders, setOrders] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [loadingMore, setLoadingMore] = useState(false);
+  const [hasMore, setHasMore] = useState(false);
+  const [nextKey, setNextKey] = useState(null);
   const [filter, setFilter] = useState('all');
+  const [customStartDate, setCustomStartDate] = useState('');
+  const [customEndDate, setCustomEndDate] = useState('');
   const [expandedOrder, setExpandedOrder] = useState(null);
   const [reversingOrderId, setReversingOrderId] = useState(null);
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
+  const [summary, setSummary] = useState({
+    totalSales: 0,
+    totalOrders: 0,
+    averageOrderValue: 0,
+    totalQuantitySold: 0,
+    averageItemsPerOrder: 0,
+    grossMarginRatio: 0
+  });
 
   useEffect(() => {
-    loadOrders();
-  }, []);
+    loadOrders({ reset: true });
+  }, [filter, customStartDate, customEndDate]);
 
-  const loadOrders = async () => {
+  const buildOrderParams = (options = {}) => {
+    const params = {
+      limit: 20
+    };
+
+    if (filter === 'today') {
+      const today = new Date();
+      today.setHours(0, 0, 0, 0);
+      params.startDate = today.toISOString();
+    }
+
+    if (filter === 'custom' && customStartDate) {
+      params.startDate = new Date(customStartDate).toISOString();
+    }
+
+    if (filter === 'custom' && customEndDate) {
+      params.endDate = new Date(`${customEndDate}T23:59:59`).toISOString();
+    }
+
+    if (options.lastKey) {
+      params.lastKey = options.lastKey;
+    }
+
+    return params;
+  };
+
+  const loadOrders = async ({ reset = false, lastKey = null } = {}) => {
     try {
-      const res = await api.get('/orders');
-      setOrders(res.data);
+      if (reset) {
+        setLoading(true);
+      } else {
+        setLoadingMore(true);
+      }
+
+      const params = buildOrderParams({ lastKey: reset ? null : lastKey });
+      const summaryParams = {
+        range: filter === 'all' ? 'all' : filter,
+        ...(filter === 'custom' && customStartDate ? { startDate: customStartDate } : {}),
+        ...(filter === 'custom' && customEndDate ? { endDate: customEndDate } : {})
+      };
+
+      const [ordersRes, summaryRes] = await Promise.all([
+        api.get('/orders', { params }),
+        api.get('/orders/summary', { params: summaryParams })
+      ]);
+
+      const responseData = ordersRes.data || {};
+      const items = Array.isArray(responseData) ? responseData : responseData.items || [];
+      const next = responseData.nextKey || null;
+      const summaryData = summaryRes.data || {};
+
+      setOrders((prev) => (reset ? items : [...prev, ...items]));
+      setSummary({
+        totalSales: summaryData.totalSales || 0,
+        totalOrders: summaryData.totalOrders || 0,
+        averageOrderValue: summaryData.averageOrderValue || 0,
+        totalQuantitySold: summaryData.totalQuantitySold || 0,
+        averageItemsPerOrder: summaryData.averageItemsPerOrder || 0,
+        grossMarginRatio: summaryData.grossMarginRatio || 0
+      });
+      setNextKey(next);
+      setHasMore(Boolean(next));
     } catch (err) {
       console.error('Error loading orders:', err);
+      setError('Failed to load orders');
+      setTimeout(() => setError(''), 5000);
     } finally {
       setLoading(false);
+      setLoadingMore(false);
     }
   };
 
-  const getFilteredOrders = () => {
-    if (filter === 'today') {
-      const today = new Date().toDateString();
-      return orders.filter(order => 
-        new Date(order.createdAt).toDateString() === today
-      );
+  const loadMoreOrders = async () => {
+    if (!nextKey) return;
+    await loadOrders({ reset: false, lastKey: nextKey });
+  };
+
+  const getFilteredOrders = () => orders;
+
+  const handleCustomRangeApply = () => {
+    if (filter !== 'custom') {
+      setFilter('custom');
+      return;
     }
-    return orders;
+    loadOrders({ reset: true });
   };
 
   const reverseOrder = async (orderId) => {
@@ -44,7 +123,7 @@ const Orders = () => {
       setReversingOrderId(orderId);
       await api.post(`/orders/${orderId}/reverse`, { reason: 'Accidental sale reversal' });
       setSuccess('✅ Order reversed successfully');
-      await loadOrders();
+      await loadOrders({ reset: true });
       setTimeout(() => setSuccess(''), 5000);
     } catch (err) {
       console.error('Error reversing order:', err);
@@ -60,8 +139,8 @@ const Orders = () => {
   };
 
   const filteredOrders = getFilteredOrders();
-  const activeOrders = filteredOrders.filter(order => !order.reversed);
-  const totalSales = activeOrders.reduce((sum, o) => sum + o.totalAmount, 0);
+  const totalSales = summary.totalSales || 0;
+  const totalOrders = summary.totalOrders || filteredOrders.length;
 
   if (loading) {
     return (
@@ -87,7 +166,7 @@ const Orders = () => {
       <div style={styles.header}>
         <p style={styles.subtitle}>View all orders and transactions</p>
         <div style={styles.filters}>
-          {['all', 'today'].map((filterOption, index) => (
+          {['all', 'today', 'custom'].map((filterOption, index) => (
             <button
               key={filterOption}
               className={`fade-in delay-${(index % 4) + 1}`}
@@ -107,16 +186,40 @@ const Orders = () => {
                 }
               }}
             >
-              {filterOption.charAt(0).toUpperCase() + filterOption.slice(1)}
+              {filterOption === 'custom' ? 'Custom' : filterOption.charAt(0).toUpperCase() + filterOption.slice(1)}
             </button>
           ))}
         </div>
       </div>
 
+      {filter === 'custom' && (
+        <div style={styles.customRangeRow}>
+          <label style={styles.customRangeLabel}>
+            Start
+            <input
+              type="date"
+              value={customStartDate}
+              onChange={(e) => setCustomStartDate(e.target.value)}
+              style={styles.dateInput}
+            />
+          </label>
+          <label style={styles.customRangeLabel}>
+            End
+            <input
+              type="date"
+              value={customEndDate}
+              onChange={(e) => setCustomEndDate(e.target.value)}
+              style={styles.dateInput}
+            />
+          </label>
+          <button style={styles.applyCustomBtn} onClick={handleCustomRangeApply}>Apply</button>
+        </div>
+      )}
+
       {/* Summary Cards with Animations */}
       <div style={styles.summary}>
         {[
-          { label: 'Total Orders', value: filteredOrders.length, icon: '📋', color: '#3498db', delay: 1 },
+          { label: 'Total Orders', value: totalOrders, icon: '📋', color: '#3498db', delay: 1 },
           { label: 'Total Sales', value: formatPriceMK(totalSales), icon: '💰', color: '#2ecc71', delay: 2 }
         ].map((item, index) => (
           <div 
@@ -148,7 +251,7 @@ const Orders = () => {
       {/* Orders List */}
       <div className="fade-in">
         <MessageBar />
-        <UnifiedCard title={`Orders (${filteredOrders.length})`}>
+        <UnifiedCard title={`Orders (${totalOrders})`}>
           {filteredOrders.length === 0 ? (
             <div style={styles.emptyState}>
               <p style={styles.emptyIcon}>📋</p>
@@ -281,6 +384,13 @@ const Orders = () => {
                   ))}
                 </tbody>
               </table>
+              {hasMore && (
+                <div style={styles.loadMoreWrapper}>
+                  <button style={styles.loadMoreBtn} onClick={loadMoreOrders} disabled={loadingMore}>
+                    {loadingMore ? 'Loading…' : 'Load more orders'}
+                  </button>
+                </div>
+              )}
             </div>
           )}
         </UnifiedCard>
@@ -321,6 +431,36 @@ const styles = {
     backgroundColor: '#e94560',
     color: 'white',
     borderColor: '#e94560'
+  },
+  customRangeRow: {
+    display: 'flex',
+    alignItems: 'end',
+    gap: '12px',
+    marginBottom: '20px',
+    flexWrap: 'wrap'
+  },
+  customRangeLabel: {
+    display: 'flex',
+    flexDirection: 'column',
+    gap: '6px',
+    fontSize: '12px',
+    color: '#555',
+    fontWeight: '600'
+  },
+  dateInput: {
+    padding: '8px 10px',
+    borderRadius: '8px',
+    border: '1px solid #d9d9d9',
+    fontSize: '14px'
+  },
+  applyCustomBtn: {
+    padding: '9px 16px',
+    borderRadius: '8px',
+    border: '1px solid #e94560',
+    backgroundColor: '#e94560',
+    color: '#fff',
+    cursor: 'pointer',
+    fontWeight: '700'
   },
   summary: {
     display: 'grid',
@@ -377,6 +517,22 @@ const styles = {
   tableWrapper: {
     overflowX: 'auto',
     width: '100%'
+  },
+  loadMoreWrapper: {
+    display: 'flex',
+    justifyContent: 'center',
+    padding: '18px 0'
+  },
+  loadMoreBtn: {
+    minWidth: '220px',
+    padding: '10px 18px',
+    borderRadius: '999px',
+    border: '1px solid #e2e8f0',
+    backgroundColor: '#ffffff',
+    color: '#111827',
+    cursor: 'pointer',
+    fontWeight: '700',
+    transition: 'all 0.2s ease'
   },
   table: {
     width: '100%',

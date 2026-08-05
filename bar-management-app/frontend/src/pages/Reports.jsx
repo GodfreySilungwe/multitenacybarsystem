@@ -12,11 +12,10 @@ import {
   Title,
   Tooltip,
   Legend,
-  ArcElement,
   PointElement,
   LineElement
 } from 'chart.js';
-import { Bar, Pie, Line } from 'react-chartjs-2';
+import { Bar, Line } from 'react-chartjs-2';
 
 // Register ChartJS components
 ChartJS.register(
@@ -26,7 +25,6 @@ ChartJS.register(
   Title,
   Tooltip,
   Legend,
-  ArcElement,
   PointElement,
   LineElement
 );
@@ -35,6 +33,8 @@ const Reports = () => {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [dateRange, setDateRange] = useState('week');
+  const [customStartDate, setCustomStartDate] = useState('');
+  const [customEndDate, setCustomEndDate] = useState('');
   const [reportData, setReportData] = useState({
     sales: [],
     topProducts: [],
@@ -54,174 +54,43 @@ const Reports = () => {
 
   useEffect(() => {
     loadReportData();
-  }, [dateRange]);
+  }, [dateRange, customStartDate, customEndDate]);
 
   const loadReportData = async () => {
     try {
       setLoading(true);
       setError(null);
 
-      const ordersRes = await api.get('/orders');
-      const orders = ordersRes.data;
-      const customersRes = await api.get('/customers');
-      const customers = customersRes.data || [];
-      const productsRes = await api.get('/products');
-
-      const now = new Date();
-      let startDate = new Date();
-      
-      if (dateRange === 'today') {
-        startDate.setHours(0, 0, 0, 0);
-      } else if (dateRange === 'week') {
-        startDate.setDate(now.getDate() - 7);
-      } else if (dateRange === 'month') {
-        startDate.setMonth(now.getMonth() - 1);
-      } else if (dateRange === 'year') {
-        startDate.setFullYear(now.getFullYear() - 1);
+      const params = { range: dateRange };
+      if (dateRange === 'custom') {
+        if (customStartDate) params.startDate = customStartDate;
+        if (customEndDate) params.endDate = customEndDate;
       }
 
-      const filteredOrders = orders.filter(order => {
-        const orderDate = new Date(order.createdAt);
-        return orderDate >= startDate && !order.reversed;
-      });
+      const [ordersRes, customersRes] = await Promise.all([
+        api.get('/orders/summary', { params }),
+        api.get('/customers/summary')
+      ]);
 
-      const totalSales = filteredOrders.reduce((sum, o) => sum + o.totalAmount, 0);
-      const totalProfit = filteredOrders.reduce((sum, o) => sum + o.profit, 0);
-      const totalOrders = filteredOrders.length;
-      const totalQuantitySold = filteredOrders.reduce((sum, order) => sum + (order.items || []).reduce((itemSum, item) => itemSum + (item.quantity || 0), 0), 0);
-      const averageOrderValue = totalOrders > 0 ? totalSales / totalOrders : 0;
-      const averageItemsPerOrder = totalOrders > 0 ? totalQuantitySold / totalOrders : 0;
-      const grossMarginRatio = totalSales > 0 ? (totalProfit / totalSales) * 100 : 0;
-
-      const dailySalesMap = {};
-      filteredOrders.forEach(order => {
-        const date = new Date(order.createdAt).toLocaleDateString();
-        if (!dailySalesMap[date]) {
-          dailySalesMap[date] = { sales: 0, profit: 0, count: 0 };
-        }
-        dailySalesMap[date].sales += order.totalAmount;
-        dailySalesMap[date].profit += order.profit;
-        dailySalesMap[date].count += 1;
-      });
-
-      const dailySales = Object.keys(dailySalesMap).map(date => ({
-        date,
-        sales: dailySalesMap[date].sales,
-        profit: dailySalesMap[date].profit,
-        count: dailySalesMap[date].count
-      })).sort((a, b) => new Date(a.date) - new Date(b.date));
-
-      const productCatalog = (productsRes.data || []).reduce((catalog, product) => {
-        const productId = product._id || product.id;
-        if (productId) {
-          catalog[productId] = {
-            name: product.name || 'Unknown',
-            categoryName: product.category?.name || product.categoryName || 'Uncategorized'
-          };
-        }
-        return catalog;
-      }, {});
-
-      const productSalesMap = {};
-      filteredOrders.forEach(order => {
-        order.items.forEach(item => {
-          const productId = item.product?._id || item.product;
-          const catalogEntry = productId ? productCatalog[productId] : null;
-          const productName = item.productName || catalogEntry?.name || item.product?.name || item.name || 'Unknown';
-          const saleKey = productId || productName;
-
-          if (!productSalesMap[saleKey]) {
-            productSalesMap[saleKey] = {
-              name: productName,
-              quantity: 0,
-              revenue: 0
-            };
-          }
-
-          productSalesMap[saleKey].quantity += item.quantity;
-          productSalesMap[saleKey].revenue += item.subtotal;
-        });
-      });
-
-      const topProducts = Object.values(productSalesMap)
-        .map(entry => ({
-          name: entry.name || 'Unknown',
-          quantity: entry.quantity,
-          revenue: entry.revenue
-        }))
-        .sort((a, b) => b.revenue - a.revenue)
-        .slice(0, 10);
-
-      const categorySalesMap = {};
-      filteredOrders.forEach(order => {
-        order.items.forEach(item => {
-          const productId = item.product?._id || item.product;
-          const catalogEntry = productId ? productCatalog[productId] : null;
-          const categoryName = item.categoryName || catalogEntry?.categoryName || item.product?.category?.name || 'Uncategorized';
-          if (!categorySalesMap[categoryName]) {
-            categorySalesMap[categoryName] = 0;
-          }
-          categorySalesMap[categoryName] += item.subtotal;
-        });
-      });
-
-      const categorySales = Object.keys(categorySalesMap)
-        .map(name => ({
-          name,
-          revenue: categorySalesMap[name]
-        }))
-        .sort((a, b) => b.revenue - a.revenue);
-
-      const formatPaymentMethodLabel = (method) => {
-        const normalized = String(method || 'cash').replace(/_/g, ' ').trim();
-        if (!normalized) return 'Cash';
-        return normalized.replace(/\b\w/g, (char) => char.toUpperCase());
-      };
-
-      const paymentMethodsMap = {};
-      filteredOrders.forEach(order => {
-        const method = order.paymentMethod || 'cash';
-        if (!paymentMethodsMap[method]) {
-          paymentMethodsMap[method] = { count: 0, amount: 0 };
-        }
-        paymentMethodsMap[method].count += 1;
-        paymentMethodsMap[method].amount += order.totalAmount;
-      });
-
-      const paymentMethods = Object.keys(paymentMethodsMap).map(method => ({
-        method: formatPaymentMethodLabel(method),
-        count: paymentMethodsMap[method].count,
-        amount: paymentMethodsMap[method].amount
-      }));
-
-      const creditAccounts = customers
-        .filter(customer => Number(customer.creditBalance || 0) > 0)
-        .map(customer => ({
-          name: customer.name,
-          phone: customer.phone,
-          balance: Number(customer.creditBalance || 0)
-        }))
-        .sort((a, b) => b.balance - a.balance);
-
-      const totalCreditOutstanding = creditAccounts.reduce((sum, customer) => sum + customer.balance, 0);
+      const summaryData = ordersRes.data || {};
+      const customerSummary = customersRes.data || {};
 
       setReportData({
-        sales: filteredOrders,
-        topProducts,
-        categorySales,
-        dailySales,
-        paymentMethods,
-        creditAccounts,
-        totalSales,
-        totalProfit,
-        totalOrders,
-        averageOrderValue,
-        totalCreditOutstanding,
-        totalQuantitySold,
-        averageItemsPerOrder,
-        grossMarginRatio
+        sales: summaryData.sales || [],
+        topProducts: summaryData.topProducts || [],
+        categorySales: summaryData.categorySales || [],
+        dailySales: summaryData.dailySales || [],
+        paymentMethods: summaryData.paymentMethods || [],
+        creditAccounts: customerSummary.topCreditAccounts || [],
+        totalSales: summaryData.totalSales || 0,
+        totalProfit: summaryData.totalProfit || 0,
+        totalOrders: summaryData.totalOrders || 0,
+        averageOrderValue: summaryData.averageOrderValue || 0,
+        totalCreditOutstanding: customerSummary.totalCreditOutstanding || 0,
+        totalQuantitySold: summaryData.totalQuantitySold || 0,
+        averageItemsPerOrder: summaryData.averageItemsPerOrder || 0,
+        grossMarginRatio: summaryData.grossMarginRatio || 0
       });
-
     } catch (err) {
       console.error('Error loading report data:', err);
       setError('Failed to load report data');
@@ -231,6 +100,8 @@ const Reports = () => {
   };
 
   const salesTotalForPercent = reportData.totalSales || 1;
+  const paymentTotalProceeds = (reportData.paymentMethods || []).reduce((sum, method) => sum + Number(method.amount || 0), 0);
+  const paymentTotalTransactions = (reportData.paymentMethods || []).reduce((sum, method) => sum + Number(method.count || 0), 0);
   const dailySalesChartData = {
     labels: reportData.dailySales.map(d => d.date),
     datasets: [
@@ -261,39 +132,24 @@ const Reports = () => {
       {
         label: 'Revenue (MK)',
         data: reportData.topProducts.map(p => p.revenue),
-        backgroundColor: [
-          '#e94560', '#3498db', '#2ecc71', '#f39c12', '#9b59b6',
-          '#1abc9c', '#e67e22', '#2c3e50', '#e74c3c', '#00bcd4'
-        ],
+        backgroundColor: 'rgba(233, 69, 96, 0.6)',
+        borderColor: '#e94560',
         borderWidth: 1,
         borderRadius: 4
       }
     ]
   };
 
-  const categoryChartData = {
-    labels: reportData.categorySales.map(c => c.name),
+  const profitProductsChartData = {
+    labels: reportData.topProducts.map(p => p.name),
     datasets: [
       {
-        label: 'Revenue (MK)',
-        data: reportData.categorySales.map(c => c.revenue),
-        backgroundColor: [
-          '#e94560', '#3498db', '#2ecc71', '#f39c12', '#9b59b6',
-          '#1abc9c', '#e67e22', '#2c3e50'
-        ],
-        borderWidth: 1
-      }
-    ]
-  };
-
-  const paymentChartData = {
-    labels: reportData.paymentMethods.map(p => p.method),
-    datasets: [
-      {
-        label: 'Transactions',
-        data: reportData.paymentMethods.map(p => p.count),
-        backgroundColor: ['#2ecc71', '#3498db', '#f39c12', '#9b59b6'],
-        borderWidth: 1
+        label: 'Profit (MK)',
+        data: reportData.topProducts.map(p => p.profit || 0),
+        backgroundColor: 'rgba(46, 204, 113, 0.6)',
+        borderColor: '#2ecc71',
+        borderWidth: 1,
+        borderRadius: 4
       }
     ]
   };
@@ -346,6 +202,14 @@ const Reports = () => {
     }
   };
 
+  const profitProductsChartOptions = {
+    ...topProductsChartOptions,
+    plugins: {
+      ...topProductsChartOptions.plugins,
+      legend: { display: false }
+    }
+  };
+
   if (loading) {
     return (
       <PageContainer title="📊 Reports">
@@ -376,7 +240,7 @@ const Reports = () => {
         <div style={styles.filterGroup}>
           <label style={styles.filterLabel}>Date Range:</label>
           <div style={styles.filterButtons}>
-            {['today', 'week', 'month', 'year'].map((range, index) => (
+            {['today', 'week', 'month', 'year', 'custom'].map((range, index) => (
               <button
                 key={range}
                 className={`fade-in delay-${(index % 4) + 1}`}
@@ -386,7 +250,7 @@ const Reports = () => {
                 }}
                 onClick={() => setDateRange(range)}
               >
-                {range.charAt(0).toUpperCase() + range.slice(1)}
+                {range === 'custom' ? 'Custom' : range.charAt(0).toUpperCase() + range.slice(1)}
               </button>
             ))}
           </div>
@@ -406,6 +270,29 @@ const Reports = () => {
           🔄 Refresh
         </button>
       </div>
+
+      {dateRange === 'custom' && (
+        <div style={styles.customRangeRow}>
+          <label style={styles.customRangeLabel}>
+            Start
+            <input
+              type="date"
+              value={customStartDate}
+              onChange={(e) => setCustomStartDate(e.target.value)}
+              style={styles.dateInput}
+            />
+          </label>
+          <label style={styles.customRangeLabel}>
+            End
+            <input
+              type="date"
+              value={customEndDate}
+              onChange={(e) => setCustomEndDate(e.target.value)}
+              style={styles.dateInput}
+            />
+          </label>
+        </div>
+      )}
 
       {/* Export Buttons */}
       <div style={styles.exportSection}>
@@ -452,6 +339,43 @@ const Reports = () => {
             </div>
           </div>
         ))}
+      </div>
+
+      <div className="fade-in delay-5" style={{ marginBottom: '20px' }}>
+        <UnifiedCard title="💳 Payment Method Proceeds">
+          {reportData.paymentMethods.length > 0 ? (
+            <div style={styles.tableWrapper}>
+              <table style={styles.table}>
+                <thead>
+                  <tr>
+                    <th>Payment Method</th>
+                    <th>Transactions</th>
+                    <th>Proceeds</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {reportData.paymentMethods.map((method, index) => (
+                    <tr key={index} style={styles.tableRow}>
+                      <td style={styles.productName}>{method.method}</td>
+                      <td>{method.count}</td>
+                      <td style={styles.revenue}>{formatPriceMK(method.amount)}</td>
+                    </tr>
+                  ))}
+                  <tr style={{ ...styles.tableRow, fontWeight: '700', backgroundColor: '#f9fafb' }}>
+                    <td style={styles.productName}>Total Proceeds</td>
+                    <td>{reportData.paymentMethods.reduce((sum, method) => sum + (method.count || 0), 0)}</td>
+                    <td style={styles.revenue}>{formatPriceMK(reportData.paymentMethods.reduce((sum, method) => sum + (method.amount || 0), 0))}</td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+          ) : (
+            <div style={styles.noData}>
+              <p style={styles.noDataIcon}>💳</p>
+              <p>No payment proceeds recorded for this date range</p>
+            </div>
+          )}
+        </UnifiedCard>
       </div>
 
       {reportData.creditAccounts.length > 0 && (
@@ -506,7 +430,7 @@ const Reports = () => {
               ) : (
                 <div style={styles.noData}>
                   <p style={styles.noDataIcon}>🏆</p>
-                  <p>No product data available</p>
+                  <p>No product revenue data available</p>
                 </div>
               )}
             </div>
@@ -514,57 +438,20 @@ const Reports = () => {
         </div>
 
         <div className="fade-in delay-3" style={styles.chartWrapper}>
-          <UnifiedCard title="📁 Sales by Category" style={styles.chartCard}>
+          <UnifiedCard title="💹 Product Profit" style={styles.chartCard}>
             <div style={styles.chartContainer}>
-              {reportData.categorySales.length > 0 ? (
-                <Pie data={categoryChartData} options={{
-                  responsive: true,
-                  maintainAspectRatio: false,
-                  plugins: {
-                    legend: {
-                      position: 'right',
-                      labels: { font: { size: 11 } }
-                    }
-                  }
-                }} />
+              {reportData.topProducts.length > 0 ? (
+                <Bar data={profitProductsChartData} options={profitProductsChartOptions} />
               ) : (
                 <div style={styles.noData}>
-                  <p style={styles.noDataIcon}>📁</p>
-                  <p>No category data available</p>
+                  <p style={styles.noDataIcon}>💹</p>
+                  <p>No product profit data available</p>
                 </div>
               )}
             </div>
           </UnifiedCard>
         </div>
 
-        <div className="fade-in delay-4" style={styles.chartWrapper}>
-          <UnifiedCard title="💳 Payment Methods" style={styles.chartCard}>
-            <div style={styles.chartContainer}>
-              {reportData.paymentMethods.length > 0 ? (
-                <Pie data={paymentChartData} options={{
-                  responsive: true,
-                  maintainAspectRatio: false,
-                  plugins: {
-                    legend: {
-                      position: 'right',
-                      labels: { font: { size: 11 } }
-                    },
-                    tooltip: {
-                      callbacks: {
-                        label: (context) => context.label
-                      }
-                    }
-                  }
-                }} />
-              ) : (
-                <div style={styles.noData}>
-                  <p style={styles.noDataIcon}>💳</p>
-                  <p>No payment data available</p>
-                </div>
-              )}
-            </div>
-          </UnifiedCard>
-        </div>
       </div>
 
       {/* Top Products Table */}
