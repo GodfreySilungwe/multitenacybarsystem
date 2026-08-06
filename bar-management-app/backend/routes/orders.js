@@ -16,6 +16,41 @@ const toNumber = (value, fallback = 0) => {
   return Number.isFinite(numericValue) ? numericValue : fallback;
 };
 
+const MALAWI_OFFSET_MINUTES = 120;
+
+const parseLocalDateBoundary = (value, endOfDay = false, offsetMinutes = MALAWI_OFFSET_MINUTES) => {
+  if (!value) {
+    return null;
+  }
+
+  const dateOnlyMatch = /^\d{4}-\d{2}-\d{2}$/.test(value);
+  if (dateOnlyMatch) {
+    const [year, month, day] = value.split('-').map(Number);
+    const utcValue = Date.UTC(year, month - 1, day, endOfDay ? 23 : 0, endOfDay ? 59 : 0, endOfDay ? 59 : 0, endOfDay ? 999 : 0);
+    const adjusted = utcValue - offsetMinutes * 60000;
+    return new Date(adjusted).toISOString();
+  }
+
+  const parsed = new Date(value);
+  if (Number.isNaN(parsed.getTime())) {
+    return null;
+  }
+
+  return parsed.toISOString();
+};
+
+const getLocalTodayStartUtc = (offsetMinutes = MALAWI_OFFSET_MINUTES) => {
+  const now = new Date();
+  const localNowMs = now.getTime() + offsetMinutes * 60000;
+  const localNow = new Date(localNowMs);
+  const year = localNow.getUTCFullYear();
+  const month = localNow.getUTCMonth();
+  const day = localNow.getUTCDate();
+  const localMidnightUtcMs = Date.UTC(year, month, day, 0, 0, 0, 0);
+  // adjust back by offset to produce the UTC timestamp representing local midnight
+  return new Date(localMidnightUtcMs - offsetMinutes * 60000);
+};
+
 const cleanProductName = (value) => {
   if (value === null || value === undefined) {
     return '';
@@ -31,8 +66,8 @@ router.get('/', async (req, res) => {
   try {
     const limit = req.query.limit ? Number(req.query.limit) : null;
     const lastKey = req.query.lastKey ? decodeLastEvaluatedKey(req.query.lastKey) : null;
-    const startDate = req.query.startDate ? new Date(req.query.startDate).toISOString() : null;
-    const endDate = req.query.endDate ? new Date(req.query.endDate).toISOString() : null;
+    const startDate = req.query.startDate ? parseLocalDateBoundary(req.query.startDate, false) : null;
+    const endDate = req.query.endDate ? parseLocalDateBoundary(req.query.endDate, true) : null;
     const includeReversed = req.query.includeReversed !== 'false';
 
     const queryOptions = {
@@ -56,6 +91,13 @@ router.get('/', async (req, res) => {
     }));
 
     if (limit || lastKey || startDate || endDate || req.query.includeReversed === 'false') {
+      if (startDate || endDate) {
+        try {
+          console.debug('DEBUG /orders with date filter -> count:', enrichedOrders.length, 'sample:', (enrichedOrders[0] && { id: enrichedOrders[0]._id || enrichedOrders[0].id, orderNumber: enrichedOrders[0].orderNumber }) || null);
+        } catch (err) {
+          // ignore
+        }
+      }
       return res.json({
         items: enrichedOrders,
         nextKey: orderQuery.lastEvaluatedKey
@@ -84,12 +126,19 @@ const resolveOrderProductNames = async (orders = [], barId) => {
         || catalogProduct?.name
         || (productId ? `Product ${String(productId).slice(-4)}` : 'Product');
 
+      const enrichedProduct = catalogProduct
+        ? {
+            _id: catalogProduct._id || catalogProduct.id,
+            name: catalogProduct.name,
+            category: catalogProduct.category,
+            costPrice: catalogProduct.costPrice ?? item.product?.costPrice ?? item.costPrice ?? item.productCostPrice ?? 0
+          }
+        : (item.product && typeof item.product === 'object' ? item.product : null);
+
       return {
         ...item,
         productName: resolvedName,
-        product: catalogProduct
-          ? { ...item.product, _id: catalogProduct._id || catalogProduct.id, name: catalogProduct.name, category: catalogProduct.category }
-          : item.product || null
+        product: enrichedProduct
       };
     })
   }));
@@ -102,9 +151,7 @@ router.get('/summary', async (req, res) => {
     let endDate = new Date().toISOString();
 
     if (range === 'today') {
-      const today = new Date();
-      today.setHours(0, 0, 0, 0);
-      startDate = today.toISOString();
+      startDate = getLocalTodayStartUtc().toISOString();
     } else if (range === 'week') {
       const weekAgo = new Date();
       weekAgo.setDate(weekAgo.getDate() - 7);
@@ -118,7 +165,7 @@ router.get('/summary', async (req, res) => {
       yearAgo.setFullYear(yearAgo.getFullYear() - 1);
       startDate = yearAgo.toISOString();
     } else if (req.query.startDate) {
-      startDate = new Date(req.query.startDate).toISOString();
+      startDate = parseLocalDateBoundary(req.query.startDate, false);
     }
 
     const queryOptions = {
@@ -128,7 +175,7 @@ router.get('/summary', async (req, res) => {
     };
 
     if (req.query.endDate) {
-      queryOptions.endDate = new Date(req.query.endDate).toISOString();
+      queryOptions.endDate = parseLocalDateBoundary(req.query.endDate, true);
     } else {
       queryOptions.endDate = endDate;
     }
@@ -160,13 +207,15 @@ router.get('/summary', async (req, res) => {
 // Get today's orders (for dashboard)
 router.get('/today', async (req, res) => {
   try {
-    const startOfDay = new Date();
-    startOfDay.setHours(0, 0, 0, 0);
+    const startOfDay = getLocalTodayStartUtc();
     
     const todayOrders = await Order.find({
       barId: req.user.barId,
       createdAt: { $gte: startOfDay }
     });
+    try {
+      console.debug('DEBUG /orders/today -> found:', (todayOrders || []).length, 'firstOrder:', (todayOrders && todayOrders[0] && (todayOrders[0]._id || todayOrders[0].id || todayOrders[0].orderNumber)) || null);
+    } catch (err) {}
 
     const reversedOrders = (todayOrders || []).filter((order) => order.reversed);
     const activeOrders = (todayOrders || []).filter((order) => !order.reversed);

@@ -46,24 +46,38 @@ function buildOrderSummary(orders = []) {
     paymentMethodsMap[paymentMethod].count += 1;
     paymentMethodsMap[paymentMethod].amount += normalizeNumber(order.totalAmount);
 
+    const orderProfit = normalizeNumber(order.profit);
+    const orderRevenue = (order.items || []).reduce((sum, item) => sum + normalizeNumber(item.subtotal), 0);
+
     (order.items || []).forEach((item) => {
       const productId = item.product?._id || item.product || item.productId || item.productName;
       const productName = getDisplayProductName(item);
       const key = productId || productName;
 
-      const productCostPrice = normalizeNumber(item.costPrice ?? item.product?.costPrice ?? item.productCostPrice ?? 0);
+      const rawCostPrice = item.costPrice ?? item.product?.costPrice ?? item.productCostPrice;
+      const hasCostPrice = rawCostPrice !== null && rawCostPrice !== undefined;
+      const productCostPrice = normalizeNumber(rawCostPrice ?? 0);
+      const itemRevenue = normalizeNumber(item.subtotal);
+
+      let itemProfit = 0;
+      if (hasCostPrice) {
+        itemProfit = itemRevenue - (productCostPrice * normalizeNumber(item.quantity));
+      } else if (orderRevenue > 0) {
+        itemProfit = (orderProfit * itemRevenue) / orderRevenue;
+      }
+
       if (!productSalesMap[key]) {
         productSalesMap[key] = { name: productName, quantity: 0, revenue: 0, profit: 0 };
       }
       productSalesMap[key].quantity += normalizeNumber(item.quantity);
-      productSalesMap[key].revenue += normalizeNumber(item.subtotal);
-      productSalesMap[key].profit += normalizeNumber(item.subtotal) - (productCostPrice * normalizeNumber(item.quantity));
+      productSalesMap[key].revenue += itemRevenue;
+      productSalesMap[key].profit += itemProfit;
 
       const categoryName = item.categoryName || item.product?.category?.name || 'Uncategorized';
       if (!categorySalesMap[categoryName]) {
         categorySalesMap[categoryName] = 0;
       }
-      categorySalesMap[categoryName] += normalizeNumber(item.subtotal);
+      categorySalesMap[categoryName] += itemRevenue;
     });
   });
 

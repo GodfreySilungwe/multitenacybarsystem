@@ -1,14 +1,69 @@
 const express = require('express');
 const router = express.Router();
 const { protect, isBarOwnerOrSales } = require('../middleware/auth');
+const { queryEntities, decodeLastEvaluatedKey } = require('../lib/dynamodb');
 const Product = require('../models/Product');
+const Category = require('../models/Category');
 
 router.use(protect);
 
-// Get all products
+// Get all products with optional pagination
 router.get('/', async (req, res) => {
   try {
-    const products = await Product.find({ barId: req.user.barId }).populate('category', 'name');
+    const limit = req.query.limit ? Number(req.query.limit) : null;
+    const lastKey = req.query.lastKey ? decodeLastEvaluatedKey(req.query.lastKey) : null;
+    const query = { barId: req.user.barId };
+
+    const search = req.query.search ? String(req.query.search).trim() : '';
+
+    if (search) {
+      const searchRegex = new RegExp(search.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'i');
+      const matchingCategories = await Category.find({
+        barId: req.user.barId,
+        name: searchRegex
+      }).select('_id');
+      const categoryIds = matchingCategories.map((category) => category._id);
+
+      const searchConditions = [
+        { name: searchRegex },
+        { unit: searchRegex },
+        { description: searchRegex }
+      ];
+
+      if (categoryIds.length > 0) {
+        searchConditions.push({ category: { $in: categoryIds } });
+      }
+
+      const products = await Product.find({
+        ...query,
+        $or: searchConditions
+      })
+        .populate('category', 'name')
+        .limit(limit || 3);
+
+      const enrichedProducts = products.map((product) => ({
+        ...product.toObject(),
+        category: product.category || null
+      }));
+
+      return res.json(enrichedProducts);
+    }
+
+    if (limit || lastKey) {
+      const options = {
+        barId: req.user.barId,
+        limit: limit || 20,
+        lastEvaluatedKey: lastKey
+      };
+      const result = await queryEntities('product', options);
+      const products = (result.items || []).map((product) => ({
+        ...product,
+        category: product.category ? (typeof product.category === 'object' ? product.category : { _id: product.category, name: 'Category' }) : null
+      }));
+      return res.json({ items: products, nextKey: result.lastEvaluatedKey });
+    }
+
+    const products = await Product.find(query).populate('category', 'name');
     res.json(products);
   } catch (error) {
     console.error('Error fetching products:', error);
