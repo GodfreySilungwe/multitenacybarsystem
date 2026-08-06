@@ -49,7 +49,7 @@ router.get('/', async (req, res) => {
       return res.json(enrichedProducts);
     }
 
-    if (limit || lastKey) {
+    if (lastKey) {
       const options = {
         barId: req.user.barId,
         limit: limit || 20,
@@ -60,6 +60,7 @@ router.get('/', async (req, res) => {
         ...product,
         category: product.category ? (typeof product.category === 'object' ? product.category : { _id: product.category, name: 'Category' }) : null
       }));
+      products.sort((a, b) => String(a.name || '').localeCompare(String(b.name || '')));
       return res.json({ items: products, nextKey: result.lastEvaluatedKey });
     }
 

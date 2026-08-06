@@ -5,6 +5,7 @@ const Order = require('../models/Order');
 const Product = require('../models/Product');
 const Customer = require('../models/Customer');
 const CustomerOrderRequest = require('../models/CustomerOrderRequest');
+const CustomerPaymentRequest = require('../models/CustomerPaymentRequest');
 const { recomputeCustomerCreditBalance } = require('../lib/credit');
 const { queryEntities, decodeLastEvaluatedKey } = require('../lib/dynamodb');
 const { buildOrderSummary } = require('../lib/orderSummary');
@@ -184,6 +185,50 @@ router.get('/summary', async (req, res) => {
     const enrichedOrders = await resolveOrderProductNames(orders, req.user.barId);
     const summary = buildOrderSummary(enrichedOrders);
 
+    const paymentQuery = {
+      barId: req.user.barId,
+      status: 'confirmed'
+    };
+
+    if (startDate) {
+      paymentQuery.confirmedAt = { $gte: startDate };
+    }
+    if (queryOptions.endDate) {
+      paymentQuery.confirmedAt = {
+        ...(paymentQuery.confirmedAt || {}),
+        $lte: queryOptions.endDate
+      };
+    }
+
+    const payments = await CustomerPaymentRequest.find(paymentQuery);
+
+    const settlementMethods = ['cash', 'airtel_money', 'mpamba', 'bank_account'];
+    const settlementMap = settlementMethods.reduce((acc, method) => {
+      acc[method] = 0;
+      return acc;
+    }, {});
+
+    payments.forEach((payment) => {
+      const method = settlementMethods.includes(payment.paymentMethod) ? payment.paymentMethod : 'cash';
+      settlementMap[method] += Number(payment.amountApplied || 0);
+    });
+
+    const settlementLabels = {
+      cash: 'Cash',
+      airtel_money: 'Airtel money',
+      mpamba: 'Mpamba',
+      bank_account: 'Banks'
+    };
+
+    const creditSettlementSummary = settlementMethods.map((method) => ({
+      method: settlementLabels[method] || method.replace(/_/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase()),
+      amount: settlementMap[method] || 0
+    }));
+
+    const unpaidCredit = (enrichedOrders || [])
+      .filter((order) => order.paymentMethod === 'credit' && !order.reversed)
+      .reduce((sum, order) => sum + Number(order.balanceDue || 0), 0);
+
     res.json({
       sales: summary.sales,
       topProducts: summary.topProducts,
@@ -196,7 +241,9 @@ router.get('/summary', async (req, res) => {
       averageOrderValue: summary.averageOrderValue,
       totalQuantitySold: summary.totalQuantitySold,
       averageItemsPerOrder: summary.averageItemsPerOrder,
-      grossMarginRatio: summary.grossMarginRatio
+      grossMarginRatio: summary.grossMarginRatio,
+      creditSettlementSummary,
+      unpaidCredit
     });
   } catch (error) {
     console.error('Error fetching orders summary:', error);
