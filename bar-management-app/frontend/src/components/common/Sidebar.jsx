@@ -53,7 +53,7 @@ const Sidebar = ({ isMobileOpen = false, onClose = () => {} }) => {
     { path: '/products', label: 'SMART BAR', icon: faTools, barOwnerOnly: true },
     { path: '/categories', label: 'Categories', icon: faTags, barOwnerOnly: true },
     { path: '/customers', label: 'Customers', icon: faUsers, salesAndOwnerOnly: true },
-    { path: '/orders', label: 'Orders', icon: faClipboardList, barOwnerOnly: true },
+    { path: '/orders', label: 'Orders', icon: faClipboardList, barOwnerOrSales: true },
     { path: '/reports', label: 'Reports', icon: faChartPie, barOwnerOnly: true },
     { path: '/inventory', label: 'Inventory', icon: faClipboardCheck, barOwnerOnly: true },
     { path: '/suppliers', label: 'Suppliers', icon: faTruck, barOwnerOnly: true },
@@ -74,7 +74,7 @@ const Sidebar = ({ isMobileOpen = false, onClose = () => {} }) => {
     }
 
     if (role === 'sales') {
-      return item.salesOnly === true || item.salesAndOwnerOnly === true || item.path === '/';
+      return item.salesOnly === true || item.salesAndOwnerOnly === true || item.barOwnerOrSales === true || item.path === '/';
     }
 
     if (showGlobalOwner) {
@@ -82,7 +82,7 @@ const Sidebar = ({ isMobileOpen = false, onClose = () => {} }) => {
     }
 
     if (isBarOwner) {
-      return item.barOwnerOnly === true || item.path === '/' || item.ownerOnly === true;
+      return item.barOwnerOnly === true || item.barOwnerOrSales === true || item.path === '/' || item.ownerOnly === true;
     }
 
     return false;

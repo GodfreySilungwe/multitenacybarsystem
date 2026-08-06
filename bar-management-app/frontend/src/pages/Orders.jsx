@@ -1,4 +1,5 @@
-import { useState, useEffect } from 'react';
+import { Fragment, useState, useEffect } from 'react';
+import { useAuth } from '../context/AuthContext';
 import api from '../api/api';
 import PageContainer from './PageContainer';
 import UnifiedCard from '../components/common/UnifiedCard';
@@ -10,7 +11,7 @@ const Orders = () => {
   const [loadingMore, setLoadingMore] = useState(false);
   const [hasMore, setHasMore] = useState(false);
   const [nextKey, setNextKey] = useState(null);
-  const [filter, setFilter] = useState('all');
+  const [filter, setFilter] = useState('today');
   const [customStartDate, setCustomStartDate] = useState('');
   const [customEndDate, setCustomEndDate] = useState('');
   const [expandedOrder, setExpandedOrder] = useState(null);
@@ -26,27 +27,36 @@ const Orders = () => {
     grossMarginRatio: 0
   });
 
+  const { isSales, isBarOwner, isOwner } = useAuth();
+  const canManageOrders = isBarOwner || isOwner;
+  const canReverseOrders = canManageOrders;
+  const showProfitColumn = canManageOrders;
+  const orderFilterOptions = isSales ? ['today', 'custom'] : ['all', 'today', 'custom'];
+
   useEffect(() => {
     loadOrders({ reset: true });
   }, [filter, customStartDate, customEndDate]);
 
+  const getLocalDateString = (date = new Date()) => {
+    return date.toLocaleDateString('en-CA');
+  };
+
   const buildOrderParams = (options = {}) => {
     const params = {
-      limit: 20
+      limit: 20,
+      includeReversed: false
     };
 
     if (filter === 'today') {
-      const today = new Date();
-      today.setHours(0, 0, 0, 0);
-      params.startDate = today.toISOString();
+      params.startDate = getLocalDateString();
     }
 
     if (filter === 'custom' && customStartDate) {
-      params.startDate = new Date(customStartDate).toISOString();
+      params.startDate = customStartDate;
     }
 
     if (filter === 'custom' && customEndDate) {
-      params.endDate = new Date(`${customEndDate}T23:59:59`).toISOString();
+      params.endDate = customEndDate;
     }
 
     if (options.lastKey) {
@@ -114,6 +124,13 @@ const Orders = () => {
       setFilter('custom');
       return;
     }
+
+    if (!customStartDate || !customEndDate) {
+      setError('Select both start and end dates for custom range');
+      setTimeout(() => setError(''), 5000);
+      return;
+    }
+
     loadOrders({ reset: true });
   };
 
@@ -122,14 +139,13 @@ const Orders = () => {
       if (!window.confirm('Are you sure you want to reverse this sale? This will restore stock and adjust customer balances.')) return;
       setReversingOrderId(orderId);
       await api.post(`/orders/${orderId}/reverse`, { reason: 'Accidental sale reversal' });
-      setSuccess('✅ Order reversed successfully');
+      setSummary((prev) => ({ ...prev }));
       await loadOrders({ reset: true });
-      setTimeout(() => setSuccess(''), 5000);
+      setTimeout(() => setReversingOrderId(null), 500);
     } catch (err) {
       console.error('Error reversing order:', err);
       setError(err.response?.data?.message || 'Failed to reverse order');
       setTimeout(() => setError(''), 5000);
-    } finally {
       setReversingOrderId(null);
     }
   };
@@ -166,7 +182,7 @@ const Orders = () => {
       <div style={styles.header}>
         <p style={styles.subtitle}>View all orders and transactions</p>
         <div style={styles.filters}>
-          {['all', 'today', 'custom'].map((filterOption, index) => (
+          {orderFilterOptions.map((filterOption, index) => (
             <button
               key={filterOption}
               className={`fade-in delay-${(index % 4) + 1}`}
@@ -267,6 +283,7 @@ const Orders = () => {
                     <th>Customer</th>
                     <th>Items</th>
                     <th>Amount</th>
+                    {showProfitColumn && <th>Profit</th>}
                     <th>Payment</th>
                     <th>Status</th>
                     <th>Date</th>
@@ -275,9 +292,8 @@ const Orders = () => {
                 </thead>
                 <tbody>
                   {filteredOrders.map((order, index) => (
-                    <>
+                    <Fragment key={order._id}>
                       <tr 
-                        key={order._id}
                         className={`fade-in delay-${(index % 6) + 1}`}
                         style={styles.tableRow}
                         onMouseEnter={(e) => {
@@ -295,6 +311,9 @@ const Orders = () => {
                           </span>
                         </td>
                         <td style={styles.amount}>{formatPriceMK(order.totalAmount)}</td>
+                    {showProfitColumn && (
+                      <td style={styles.profit}>{formatPriceMK(order.profit || 0)}</td>
+                    )}
                         <td>
                           <span style={{
                             ...styles.paymentBadge,
@@ -308,9 +327,9 @@ const Orders = () => {
                         <td>
                           <span style={{
                             ...styles.statusBadge,
-                            ...(order.reversed ? styles.statusReversed : order.status === 'completed' ? styles.statusCompleted : styles.statusPartial)
+                            ...(order.status === 'completed' ? styles.statusCompleted : styles.statusPartial)
                           }}>
-                            {order.reversed ? 'Reversed' : (order.status ? order.status.charAt(0).toUpperCase() + order.status.slice(1) : (order.paymentStatus === 'paid' ? 'Completed' : 'Partial'))}
+                            {order.status ? order.status.charAt(0).toUpperCase() + order.status.slice(1) : (order.paymentStatus === 'paid' ? 'Completed' : 'Partial')}
                           </span>
                         </td>
                         <td style={styles.date}>{new Date(order.createdAt).toLocaleString()}</td>
@@ -333,7 +352,7 @@ const Orders = () => {
                       </tr>
                       {expandedOrder === order._id && (
                         <tr className="fade-in delay-1">
-                          <td colSpan="8" style={styles.detailsRow}>
+                          <td colSpan={showProfitColumn ? '9' : '8'} style={styles.detailsRow}>
                             <div style={styles.orderDetails}>
                               <h4 style={styles.detailsTitle}>📦 Order Items</h4>
                               {order.items.map((item, itemIndex) => (
@@ -361,26 +380,22 @@ const Orders = () => {
                               <div style={styles.orderTotal}>
                                 <span>Total: {formatPriceMK(order.totalAmount)}</span>
                               </div>
-                              <div style={{ marginTop: '10px' }}>
-                                <button
-                                  style={styles.reverseBtn}
-                                  onClick={() => reverseOrder(order._id)}
-                                  disabled={reversingOrderId === order._id || order.reversed}
-                                >
-                                  {order.reversed ? 'Already reversed' : (reversingOrderId === order._id ? 'Reversing...' : 'Reverse Sale')}
-                                </button>
-                              </div>
-                              {order.reversed && (
-                                <div style={styles.reversalInfo}>
-                                  <strong>Reversed:</strong> {new Date(order.reversedAt).toLocaleString()}<br />
-                                  <strong>Reason:</strong> {order.reversalReason || 'Sale reversed'}
+                              {canReverseOrders && (
+                                <div style={{ marginTop: '10px' }}>
+                                  <button
+                                    style={styles.reverseBtn}
+                                    onClick={() => reverseOrder(order._id)}
+                                    disabled={reversingOrderId === order._id || order.reversed}
+                                  >
+                                    {reversingOrderId === order._id ? 'Reversing...' : 'Reverse Sale'}
+                                  </button>
                                 </div>
                               )}
                             </div>
                           </td>
                         </tr>
                       )}
-                    </>
+                    </Fragment>
                   ))}
                 </tbody>
               </table>
@@ -555,10 +570,6 @@ const styles = {
     fontWeight: 'bold',
     color: '#2ecc71'
   },
-  profit: {
-    color: '#3498db',
-    fontWeight: '500'
-  },
   date: {
     fontSize: '12px',
     color: '#888',
@@ -603,19 +614,6 @@ const styles = {
     backgroundColor: '#fef3c7',
     color: '#92400e'
   },
-  statusReversed: {
-    backgroundColor: '#fee2e2',
-    color: '#991b1b'
-  },
-  reversalInfo: {
-    marginTop: '14px',
-    padding: '12px',
-    borderRadius: '12px',
-    backgroundColor: '#fff1f2',
-    border: '1px solid #f5c2c7',
-    color: '#842029',
-    fontSize: '13px'
-  },
   detailsBtn: {
     padding: '4px 12px',
     borderRadius: '6px',
@@ -628,6 +626,40 @@ const styles = {
   detailsRow: {
     backgroundColor: '#f8f9fa',
     padding: '0'
+  },
+  creditSummaryGrid: {
+    display: 'grid',
+    gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))',
+    gap: '14px',
+    marginBottom: '20px'
+  },
+  creditSummaryItem: {
+    backgroundColor: 'white',
+    borderRadius: '14px',
+    padding: '16px',
+    boxShadow: '0 2px 10px rgba(0,0,0,0.04)',
+    display: 'flex',
+    flexDirection: 'column',
+    gap: '6px'
+  },
+  creditSummaryLabel: {
+    fontSize: '12px',
+    color: '#666',
+    textTransform: 'uppercase',
+    letterSpacing: '0.5px'
+  },
+  creditSummaryValue: {
+    fontSize: '18px',
+    fontWeight: '700',
+    color: '#1a1a2e'
+  },
+  creditSummaryEmpty: {
+    gridColumn: '1 / -1',
+    padding: '18px',
+    borderRadius: '14px',
+    backgroundColor: '#fff7e6',
+    color: '#b35c00',
+    fontWeight: '600'
   },
   orderDetails: {
     padding: '16px 20px',

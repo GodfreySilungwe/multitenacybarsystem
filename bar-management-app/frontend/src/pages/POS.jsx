@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef, useCallback } from 'react';
 import api from '../api/api';
 import PageContainer from './PageContainer';
 import UnifiedCard from '../components/common/UnifiedCard';
@@ -6,7 +6,28 @@ import ReceiptModal from '../components/common/ReceiptModal';
 import { formatPriceMK } from '../utils/formatPrice';
 
 const POS = () => {
-  const [products, setProducts] = useState([]);
+  const PRODUCT_PAGE_SIZE = 20;
+
+  const [loadedProducts, setLoadedProducts] = useState([]);
+  const [productPaginationLoading, setProductPaginationLoading] = useState(false);
+  const [searchResults, setSearchResults] = useState(null);
+  const isFetchingProductPageRef = useRef(false);
+  const productGridRef = useRef(null);
+
+  const getProductId = (product) => String(product?._id || product?.id || product?.productId || '');
+
+  const dedupeProducts = (products) => {
+    const seen = new Set();
+    return (products || []).filter((product) => {
+      const id = getProductId(product);
+      if (!id || seen.has(id)) {
+        return false;
+      }
+      seen.add(id);
+      return true;
+    });
+  };
+  const [backendSearchLoading, setBackendSearchLoading] = useState(false);
   const [categories, setCategories] = useState([]);
   const [cart, setCart] = useState([]);
   const [selectedCategory, setSelectedCategory] = useState('all');
@@ -140,20 +161,107 @@ const POS = () => {
     }
   };
 
+  const loadProductPage = useCallback(async () => {
+    if (isFetchingProductPageRef.current) return;
+    try {
+      isFetchingProductPageRef.current = true;
+      setProductPaginationLoading(true);
+      const productsRes = await api.get('/products');
+      const productsData = productsRes.data || {};
+      const items = Array.isArray(productsData) ? productsData : (productsData.items || []);
+
+      setLoadedProducts(dedupeProducts(items));
+    } catch (err) {
+      console.error('Error loading product list:', err);
+      setError('Failed to load product list');
+    } finally {
+      isFetchingProductPageRef.current = false;
+      setProductPaginationLoading(false);
+    }
+  }, []);
+
+  const loadInitialProducts = async () => {
+    setLoadedProducts([]);
+    await loadProductPage();
+  };
+
+  useEffect(() => {
+    let active = true;
+    const searchTerm = productSearch.trim().toLowerCase();
+
+    if (!searchTerm) {
+      setSearchResults(null);
+      setBackendSearchLoading(false);
+      return;
+    }
+
+    const localMatches = dedupeProducts(
+      loadedProducts
+        .filter((product) => {
+          return (
+            product.name?.toLowerCase().includes(searchTerm) ||
+            product.unit?.toLowerCase().includes(searchTerm) ||
+            product.category?.name?.toLowerCase().includes(searchTerm)
+          );
+        })
+        .filter((product) => {
+          if (selectedCategory === 'all') return true;
+          return product.category?._id === selectedCategory || product.category === selectedCategory;
+        })
+    );
+
+    const localMatchIds = new Set(localMatches.map(getProductId).filter(Boolean));
+    setSearchResults(localMatches);
+    setBackendSearchLoading(true);
+
+    const timeoutId = setTimeout(async () => {
+      if (!active) return;
+      try {
+        const params = { search: productSearch.trim(), limit: 10 };
+        const res = await api.get('/products', { params });
+        const data = res.data || {};
+        const backendMatches = Array.isArray(data) ? data : data.items || [];
+        const uniqueBackendMatches = dedupeProducts(
+          backendMatches
+            .filter((product) => {
+              if (selectedCategory === 'all') return true;
+              return product.category?._id === selectedCategory || product.category === selectedCategory;
+            })
+            .filter((product) => {
+              const id = getProductId(product);
+              return id && !localMatchIds.has(id);
+            })
+        );
+
+        if (!active) return;
+        setSearchResults(dedupeProducts([...localMatches, ...uniqueBackendMatches]));
+      } catch (err) {
+        console.error('Product search error:', err);
+        if (active) setSearchResults(localMatches);
+      } finally {
+        if (active) setBackendSearchLoading(false);
+      }
+    }, 300);
+
+    return () => {
+      active = false;
+      clearTimeout(timeoutId);
+    };
+  }, [productSearch, loadedProducts, selectedCategory]);
+
   const loadData = async () => {
     try {
-      const [productsRes, customersRes, categoriesRes, requestsRes, paymentsRes] = await Promise.all([
-        api.get('/products'),
+      const [customersRes, categoriesRes, requestsRes, paymentsRes] = await Promise.all([
         api.get('/customers'),
         api.get('/categories'),
         api.get('/customer-order-requests'),
         api.get('/customer-order-requests/payments')
       ]);
-      setProducts(productsRes.data);
       setCustomers(customersRes.data);
       setCategories(categoriesRes.data);
       setCustomerRequests((requestsRes.data || []).sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt)));
       setCustomerPayments(((paymentsRes.data || []).filter(p => (p.status || 'pending') === 'pending')).sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt)));
+      await loadInitialProducts();
     } catch (err) {
       console.error('Error loading data:', err);
       setError('Failed to load data');
@@ -400,7 +508,8 @@ const POS = () => {
   };
 
   const normalizedSearch = productSearch.trim().toLowerCase();
-  const filteredProducts = products
+
+  const baseFilteredProducts = loadedProducts
     .filter((product) => selectedCategory === 'all' || product.category?._id === selectedCategory || product.category === selectedCategory)
     .filter((product) => {
       if (!normalizedSearch) return true;
@@ -410,6 +519,17 @@ const POS = () => {
         product.category?.name?.toLowerCase().includes(normalizedSearch)
       );
     });
+
+  const displayProducts = productSearch.trim()
+    ? searchResults || []
+    : baseFilteredProducts;
+
+  const visibleProducts = displayProducts;
+
+  const filteredProducts = displayProducts;
+  const isInitialProductLoad = !productSearch.trim() && loadedProducts.length === 0 && productPaginationLoading;
+  const isSearchInProgress = productSearch.trim() && backendSearchLoading;
+  const showEmptyState = filteredProducts.length === 0 && !isInitialProductLoad && !isSearchInProgress;
 
   const paymentMethodOptions = [
     { value: 'cash', label: '💵 Cash' },
@@ -546,6 +666,12 @@ const POS = () => {
       )}
 
       <style>{`
+        @media (max-width: 1024px) {
+          .pos-mobile-category-buttons {
+            display: none !important;
+          }
+        }
+
         @media (max-width: 768px) {
           .pos-mobile-stack {
             grid-template-columns: 1fr !important;
@@ -596,6 +722,17 @@ const POS = () => {
             justify-content: flex-end !important;
           }
         }
+
+        @keyframes spin {
+          0% { transform: rotate(0deg); }
+          100% { transform: rotate(360deg); }
+        }
+
+        @keyframes pulse {
+          0% { opacity: 0.85; }
+          50% { opacity: 0.55; }
+          100% { opacity: 0.85; }
+        }
       `}</style>
 
       <div style={styles.posLayout} className="pos-mobile-stack">
@@ -609,67 +746,90 @@ const POS = () => {
                 value={productSearch}
                 onChange={(e) => setProductSearch(e.target.value)}
                 style={styles.searchInput}
+                className="pos-mobile-search-input"
               />
-              <button
-                className="category-btn pos-mobile-category-btn"
-                style={{
-                  ...styles.categoryBtn,
-                  ...(selectedCategory === 'all' ? styles.categoryBtnActive : {})
-                }}
-                onClick={() => setSelectedCategory('all')}
-              >
-                All
-              </button>
-              {categories.map(cat => (
+              <div style={styles.categoryButtons} className="pos-mobile-category-buttons">
                 <button
-                  key={cat._id}
                   className="category-btn pos-mobile-category-btn"
                   style={{
                     ...styles.categoryBtn,
-                    ...(selectedCategory === cat._id ? styles.categoryBtnActive : {})
+                    ...(selectedCategory === 'all' ? styles.categoryBtnActive : {})
                   }}
-                  onClick={() => setSelectedCategory(cat._id)}
+                  onClick={() => setSelectedCategory('all')}
                 >
-                  {cat.name}
+                  All
                 </button>
-              ))}
+                {categories.map(cat => (
+                  <button
+                    key={cat._id}
+                    className="category-btn pos-mobile-category-btn"
+                    style={{
+                      ...styles.categoryBtn,
+                      ...(selectedCategory === cat._id ? styles.categoryBtnActive : {})
+                    }}
+                    onClick={() => setSelectedCategory(cat._id)}
+                  >
+                    {cat.name}
+                  </button>
+                ))}
+              </div>
             </div>
 
-            <div style={styles.productGrid} className="pos-mobile-product-grid">
-              {filteredProducts.map((product, index) => (
-                <button
-                  key={product._id}
-                  className={`fade-in delay-${(index % 6) + 1} pos-mobile-product-btn`}
-                  style={{
-                    ...styles.productBtn,
-                    ...(product.currentStock <= 0 ? styles.productOutOfStock : {}),
-                    ...(activeAddedProductId === product._id ? styles.productAdded : {})
-                  }}
-                  onClick={() => addToCart(product)}
-                  disabled={product.currentStock <= 0}
-                  onMouseEnter={(e) => {
-                    if (product.currentStock > 0) {
-                      e.currentTarget.style.transform = 'translateY(-6px)';
-                      e.currentTarget.style.boxShadow = '0 8px 30px rgba(0,0,0,0.12)';
-                      e.currentTarget.style.borderColor = '#e94560';
-                    }
-                  }}
-                  onMouseLeave={(e) => {
-                    e.currentTarget.style.transform = 'translateY(0)';
-                    e.currentTarget.style.boxShadow = '0 2px 8px rgba(0,0,0,0.04)';
-                    e.currentTarget.style.borderColor = '#e0e0e0';
-                  }}
-                >
-                  <div style={styles.productName}>{product.name}</div>
-                  <div style={styles.productPrice}>{formatPriceMK(product.sellingPrice)}</div>
-                  <div style={styles.productUnit}>{product.unit || 'piece'}</div>
-                  <div style={styles.productStock}>
-                    {product.currentStock > 0 ? `📦 ${product.currentStock}` : '❌ Out of Stock'}
-                  </div>
-                </button>
-              ))}
-              {filteredProducts.length === 0 && (
+            <div
+              ref={productGridRef}
+              style={styles.productGrid}
+              className="pos-mobile-product-grid"
+            >
+              {isInitialProductLoad ? (
+                <div style={styles.productLoadingFooter}>
+                  <div style={styles.spinnerSmall} />
+                  Loading products...
+                </div>
+              ) : (
+                visibleProducts.map((product) => (
+                  <button
+                    key={product._id}
+                    className="pos-mobile-product-btn"
+                    style={{
+                      ...styles.productBtn,
+                      ...(product.currentStock <= 0 ? styles.productOutOfStock : {}),
+                      ...(activeAddedProductId === product._id ? styles.productAdded : {})
+                    }}
+                    onClick={() => addToCart(product)}
+                    disabled={product.currentStock <= 0}
+                    onMouseEnter={(e) => {
+                      if (product.currentStock > 0) {
+                        e.currentTarget.style.transform = 'translateY(-6px)';
+                        e.currentTarget.style.boxShadow = '0 8px 30px rgba(0,0,0,0.12)';
+                        e.currentTarget.style.borderColor = '#e94560';
+                      }
+                    }}
+                    onMouseLeave={(e) => {
+                      e.currentTarget.style.transform = 'translateY(0)';
+                      e.currentTarget.style.boxShadow = '0 2px 8px rgba(0,0,0,0.04)';
+                      e.currentTarget.style.borderColor = '#e0e0e0';
+                    }}
+                  >
+                    <div style={styles.productName}>{product.name}</div>
+                    <div style={styles.productPrice}>{formatPriceMK(product.sellingPrice)}</div>
+                    <div style={styles.productUnit}>{product.unit || 'piece'}</div>
+                    <div style={styles.productStock}>
+                      {product.currentStock > 0 ? `📦 ${product.currentStock}` : '❌ Out of Stock'}
+                    </div>
+                  </button>
+                ))
+              )}
+              {showEmptyState && (
                 <div style={styles.emptyState}>No items found in the SMART BAR menu</div>
+              )}
+              {productSearch.trim() && backendSearchLoading && (
+                <div style={styles.productLoadingFooter}>Searching products…</div>
+              )}
+              {productPaginationLoading && !isInitialProductLoad && (
+                <div style={styles.productLoadingFooter}>
+                  <div style={styles.spinnerSmall} />
+                  Loading products…
+                </div>
               )}
             </div>
           </UnifiedCard>
@@ -912,6 +1072,20 @@ const styles = {
     display: 'flex',
     gap: '8px',
     marginBottom: '15px',
+    flexWrap: 'wrap',
+    alignItems: 'center'
+  },
+  searchInput: {
+    flex: '1 1 240px',
+    minWidth: '160px',
+    padding: '10px 12px',
+    borderRadius: '8px',
+    border: '1px solid #ddd',
+    fontSize: '14px'
+  },
+  categoryButtons: {
+    display: 'flex',
+    gap: '8px',
     flexWrap: 'wrap'
   },
   categoryBtn: {
@@ -944,7 +1118,7 @@ const styles = {
     border: '1px solid #e0e0e0',
     backgroundColor: 'white',
     cursor: 'pointer',
-    transition: 'all 0.3s ease',
+    transition: 'transform 0.2s ease, box-shadow 0.2s ease, border-color 0.2s ease',
     textAlign: 'center',
     width: '100%',
     minHeight: '120px',
@@ -996,6 +1170,26 @@ productUnit: {
     color: '#888',
     padding: '40px 0',
     gridColumn: '1 / -1'
+  },
+  productLoadingFooter: {
+    gridColumn: '1 / -1',
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: '10px',
+    textAlign: 'center',
+    padding: '12px 0',
+    color: '#444',
+    fontSize: '14px',
+    fontWeight: '600'
+  },
+  spinnerSmall: {
+    width: '18px',
+    height: '18px',
+    border: '3px solid #f0f0f0',
+    borderTop: '3px solid #e94560',
+    borderRadius: '50%',
+    animation: 'spin 1s linear infinite'
   },
   customerSection: {
     marginBottom: '15px'

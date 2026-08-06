@@ -77,7 +77,7 @@ function App() {
               </ProtectedRoute>
             } />
             <Route path="/orders" element={
-              <ProtectedRoute barOwnerOnly>
+              <ProtectedRoute barOwnerOrSales>
                 <Layout>
                   <Orders />
                 </Layout>

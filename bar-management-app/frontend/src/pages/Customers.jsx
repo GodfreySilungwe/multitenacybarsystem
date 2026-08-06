@@ -43,7 +43,7 @@ const Customers = () => {
       }
 
       const params = {
-        limit: 20
+        limit: 10
       };
 
       if (!reset && lastKey) {

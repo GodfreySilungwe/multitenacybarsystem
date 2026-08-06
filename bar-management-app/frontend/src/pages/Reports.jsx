@@ -195,8 +195,10 @@ const Reports = () => {
       x: {
         ticks: {
           autoSkip: false,
-          maxRotation: 0,
-          minRotation: 0
+          maxRotation: 90,
+          minRotation: 90,
+          align: 'end',
+          padding: 10
         }
       }
     }
@@ -612,7 +614,7 @@ const styles = {
   },
   chartsGrid: {
     display: 'grid',
-    gridTemplateColumns: '1fr 1fr',
+    gridTemplateColumns: 'repeat(auto-fit, minmax(380px, 1fr))',
     gap: '20px',
     marginBottom: '20px',
     width: '100%'
@@ -624,7 +626,7 @@ const styles = {
     marginBottom: '0'
   },
   chartContainer: {
-    height: '280px',
+    height: '340px',
     width: '100%',
     position: 'relative'
   },

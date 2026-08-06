@@ -21,15 +21,19 @@ import PageContainer from './PageContainer';
 import { formatPriceMK } from '../utils/formatPrice';
 
 const Dashboard = () => {
-  const { isGlobalOwner } = useAuth();
+  const { isGlobalOwner, isSales, isBarOwner, isOwner } = useAuth();
   const [stats, setStats] = useState({
     todaySales: 0,
+    todayCashSales: 0,
+    todayCreditSales: 0,
     todayProfit: 0,
     totalOrders: 0,
     reversedOrders: 0,
     lowStock: 0,
     totalProducts: 0,
     totalCustomers: 0,
+    customersServed: 0,
+    totalItemsSold: 0,
     activeSalesAccounts: 0,
     allSalesAccounts: 0,
     totalBars: 0,
@@ -44,13 +48,25 @@ const Dashboard = () => {
   const [recentOrders, setRecentOrders] = useState([]);
   const [lowStockProducts, setLowStockProducts] = useState([]);
   const [paymentMethods, setPaymentMethods] = useState([]);
+  const [creditSettlementSummary, setCreditSettlementSummary] = useState([]);
+  const [totalOutstandingCredit, setTotalOutstandingCredit] = useState(0);
+  const [outstandingCreditInPeriod, setOutstandingCreditInPeriod] = useState(0);
+  const [productSales, setProductSales] = useState([]);
+  const [outstandingCustomers, setOutstandingCustomers] = useState([]);
+  const [unpaidCredit, setUnpaidCredit] = useState(0);
+  const [totalCreditSales, setTotalCreditSales] = useState(0);
+  const [totalImmediateReceipts, setTotalImmediateReceipts] = useState(0);
+  const [totalCreditCollected, setTotalCreditCollected] = useState(0);
+  const [dateRange, setDateRange] = useState('today');
+  const [customStartDate, setCustomStartDate] = useState('');
+  const [customEndDate, setCustomEndDate] = useState('');
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [lastUpdated, setLastUpdated] = useState(null);
 
   useEffect(() => {
     fetchDashboardData();
-  }, []);
+  }, [dateRange, customStartDate, customEndDate]);
 
   const fetchDashboardData = async () => {
     try {
@@ -90,6 +106,12 @@ const Dashboard = () => {
         setLowStockProducts([]);
         setLastUpdated(new Date().toLocaleTimeString());
       } else {
+        const params = { range: dateRange };
+        if (dateRange === 'custom') {
+          if (customStartDate) params.startDate = customStartDate;
+          if (customEndDate) params.endDate = customEndDate;
+        }
+
         const [todayRes, productsRes, customersRes, lowStockRes, ordersRes, usersSummaryRes, summaryRes] = await Promise.all([
           api.get('/orders/today'),
           api.get('/products'),
@@ -97,7 +119,7 @@ const Dashboard = () => {
           api.get('/products/low-stock'),
           api.get('/orders'),
           api.get('/users/summary'),
-          api.get('/orders/summary', { params: { range: 'today' } })
+          api.get('/orders/summary', { params })
         ].map((promise) => promise.catch((err) => err)));
 
         const todayData = todayRes instanceof Error ? { count: 0, totalSales: 0, totalProfit: 0 } : todayRes.data;
@@ -110,13 +132,17 @@ const Dashboard = () => {
         const activeSalesAccounts = Number(userSummary.activeSalesAccounts || 0);
 
         setStats({
-          todaySales: todayData.totalSales || 0,
-          todayProfit: todayData.totalProfit || 0,
-          totalOrders: todayData.count || 0,
-          reversedOrders: todayData.reversedCount || 0,
+          todaySales: summaryData.totalSales || 0,
+          todayCashSales: summaryData.totalImmediateReceipts || 0,
+          todayCreditSales: summaryData.totalCreditSales || 0,
+          todayProfit: summaryData.totalProfit || 0,
+          totalOrders: summaryData.totalOrders || 0,
+          reversedOrders: summaryData.reversedOrders || 0,
           lowStock: lowStock.length || 0,
           totalProducts: products.length || 0,
           totalCustomers: customers.length || 0,
+          customersServed: summaryData.customersServedCount || 0,
+          totalItemsSold: summaryData.totalQuantitySold || 0,
           activeSalesAccounts,
           totalBars: 0,
           activeBars: 0,
@@ -127,6 +153,19 @@ const Dashboard = () => {
         setRecentOrders(recent);
         setLowStockProducts(lowStock);
         setPaymentMethods(summaryData.paymentMethods || []);
+        setCreditSettlementSummary(summaryData.creditSettlementSummary || []);
+        setProductSales(summaryData.productSales || []);
+        setOutstandingCustomers(summaryData.outstandingCustomers || []);
+        setUnpaidCredit(summaryData.unpaidCredit || 0);
+        setTotalCreditSales(summaryData.totalCreditSales || 0);
+        setTotalImmediateReceipts(summaryData.directSales || summaryData.totalImmediateReceipts || 0);
+        setTotalOutstandingCredit(summaryData.totalOutstandingCredit || 0);
+        setOutstandingCreditInPeriod(summaryData.outstandingCreditInPeriod || 0);
+        setStats((prev) => ({
+          ...prev,
+          todayCashSales: summaryData.directSales || summaryData.totalImmediateReceipts || 0
+        }));
+        setTotalCreditCollected(summaryData.totalCreditCollected || 0);
         setLastUpdated(new Date().toLocaleTimeString());
       }
     } catch (err) {
@@ -136,6 +175,23 @@ const Dashboard = () => {
       setLoading(false);
     }
   };
+
+  const creditOutstandingAmount = unpaidCredit;
+  const paymentRows = paymentMethods;
+  const displayPaymentRows = paymentRows.map((method) => ({
+    ...method,
+    displayMethod: String(method.method).toLowerCase().includes('credit') ? 'Credit Sales (on account)' : method.method,
+    displayAmount: method.amount
+  }));
+  const totalPaymentRevenue = paymentRows.reduce((sum, method) => sum + Number(method.amount || 0), 0);
+  const totalProductSoldQty = productSales.reduce((sum, item) => sum + Number(item.soldQuantity || 0), 0);
+  const totalStartQty = productSales.reduce((sum, item) => sum + (item.startingQty !== null ? Number(item.startingQty || 0) : 0), 0);
+  const totalClosingQty = productSales.reduce((sum, item) => sum + Number(item.closingQty || 0), 0);
+  const totalProductSalesAmount = productSales.reduce((sum, item) => sum + Number(item.totalAmount || 0), 0);
+  const expectedHandoverValue = totalImmediateReceipts + totalCreditSales - unpaidCredit + totalCreditCollected;
+  const outstandingCustomerCount = outstandingCustomers.length || 0;
+  const totalCustomersServed = stats.customersServed || 0;
+  const totalItemsSold = stats.totalItemsSold || totalProductSoldQty;
 
   if (loading) {
     return (
@@ -251,28 +307,247 @@ const Dashboard = () => {
         </>
       ) : (
         <>
+          <div style={styles.dateFilterRow}>
+            <div style={styles.filters}>
+              {['today', 'custom'].map((option) => (
+                <button
+                  key={option}
+                  style={{
+                    ...styles.filterBtn,
+                    ...(dateRange === option ? styles.filterBtnActive : {})
+                  }}
+                  onClick={() => setDateRange(option)}
+                >
+                  {option === 'today' ? 'Today' : 'Custom'}
+                </button>
+              ))}
+            </div>
+            {dateRange === 'custom' && (
+              <div style={styles.customRangeRow}>
+                <label style={styles.customRangeLabel}>
+                  Start
+                  <input
+                    type="date"
+                    value={customStartDate}
+                    onChange={(e) => setCustomStartDate(e.target.value)}
+                    style={styles.dateInput}
+                  />
+                </label>
+                <label style={styles.customRangeLabel}>
+                  End
+                  <input
+                    type="date"
+                    value={customEndDate}
+                    onChange={(e) => setCustomEndDate(e.target.value)}
+                    style={styles.dateInput}
+                  />
+                </label>
+              </div>
+            )}
+          </div>
+
           <div style={styles.statsGrid}>
             <div className="fade-in delay-1" style={styles.statItem}>
-              <StatsCard title="Today's Sales" value={stats.todaySales} icon={faDollarSign} color="#e94560" isCurrency />
+              <StatsCard title="Sales" value={stats.todaySales} icon={faDollarSign} color="#e94560" isCurrency />
             </div>
             <div className="fade-in delay-2" style={styles.statItem}>
-              <StatsCard title="Orders Today" value={stats.totalOrders} icon={faShoppingCart} color="#3498db" />
+              <StatsCard title="Orders" value={stats.totalOrders} icon={faShoppingCart} color="#3498db" />
             </div>
             <div className="fade-in delay-3" style={styles.statItem}>
-              <StatsCard title="Reversed Today" value={stats.reversedOrders} icon={faBox} color="#e74c3c" />
+              <StatsCard title="Reversed" value={stats.reversedOrders} icon={faBox} color="#e74c3c" />
             </div>
             <div className="fade-in delay-4" style={styles.statItem}>
               <StatsCard title="Low Stock" value={stats.lowStock} icon={faExclamationTriangle} color="#f39c12" />
             </div>
             <div className="fade-in delay-5" style={styles.statItem}>
-              <StatsCard title="Total Products" value={stats.totalProducts} icon={faTools} color="#9b59b6" />
+              <StatsCard title="Products" value={stats.totalProducts} icon={faTools} color="#9b59b6" />
             </div>
             <div className="fade-in delay-6" style={styles.statItem}>
-              <StatsCard title="Total Customers" value={stats.totalCustomers} icon={faUsers} color="#1abc9c" />
+              <StatsCard title="POS Direct Sales" value={stats.todayCashSales} icon={faDollarSign} color="#27ae60" isCurrency />
             </div>
             <div className="fade-in delay-7" style={styles.statItem}>
-              <StatsCard title="Active Sales Accounts" value={stats.activeSalesAccounts} icon={faUsers} color="#9b59b6" />
+              <StatsCard title="POS Bill Management" value={stats.todayCreditSales} icon={faDollarSign} color="#8e44ad" isCurrency />
             </div>
+            <div className="fade-in delay-8" style={styles.statItem}>
+              <StatsCard title="Customers" value={stats.totalCustomers} icon={faUsers} color="#1abc9c" />
+            </div>
+            <div className="fade-in delay-9" style={styles.statItem}>
+              <StatsCard title="Sales Accounts" value={stats.activeSalesAccounts} icon={faUsers} color="#9b59b6" />
+            </div>
+          </div>
+
+          <div className="fade-in" style={{ marginBottom: '20px' }}>
+            <UnifiedCard title="🧾 Handover Summary">
+              <div style={styles.handoverGrid}>
+                <div style={styles.handoverMetric}>
+                  <span style={styles.metricLabel}>Total Sales</span>
+                  <span style={styles.metricValue}>{formatPriceMK(stats.todaySales)}</span>
+                </div>
+                {!isSales && (
+                  <div style={styles.handoverMetric}>
+                    <span style={styles.metricLabel}>Total Profit</span>
+                    <span style={styles.metricValue}>{formatPriceMK(stats.todayProfit)}</span>
+                  </div>
+                )}
+                <div style={styles.handoverMetric}>
+                  <span style={styles.metricLabel}>Orders Processed</span>
+                  <span style={styles.metricValue}>{stats.totalOrders}</span>
+                </div>
+                <div style={styles.handoverMetric}>
+                  <span style={styles.metricLabel}>Items Sold</span>
+                  <span style={styles.metricValue}>{totalItemsSold}</span>
+                </div>
+                <div style={styles.handoverMetric}>
+                  <span style={styles.metricLabel}>Customers Served</span>
+                  <span style={styles.metricValue}>{totalCustomersServed}</span>
+                </div>
+                    <div style={styles.handoverMetric}>
+                  <span style={styles.metricLabel}>POS Direct Sales</span>
+                  <span style={styles.metricValue}>{formatPriceMK(totalImmediateReceipts)}</span>
+                </div>
+                <div style={styles.handoverMetric}>
+                  <span style={styles.metricLabel}>POS Bill Management</span>
+                  <span style={styles.metricValue}>{formatPriceMK(totalCreditSales)}</span>
+                </div>
+                <div style={styles.handoverMetric}>
+                  <span style={styles.metricLabel}>Outstanding Credit (this period)</span>
+                  <span style={styles.metricValue}>{formatPriceMK(outstandingCreditInPeriod)}</span>
+                </div>
+                <div style={styles.handoverMetric}>
+                  <span style={styles.metricLabel}>Total Outstanding Credit</span>
+                  <span style={styles.metricValue}>{formatPriceMK(totalOutstandingCredit)}</span>
+                </div>
+                <div style={styles.handoverMetric}>
+                  <span style={styles.metricLabel}>Credit Collected (this period)</span>
+                  <span style={styles.metricValue}>{formatPriceMK(totalCreditCollected)}</span>
+                </div>
+                <div style={styles.handoverMetric}>
+                  <span style={styles.metricLabel}>Expected Handover</span>
+                  <span style={styles.metricValue}>{formatPriceMK(expectedHandoverValue)}</span>
+                </div>
+                <div style={styles.handoverMetric}>
+                  <span style={styles.metricLabel}>Outstanding Customers</span>
+                  <span style={styles.metricValue}>{outstandingCustomerCount}</span>
+                </div>
+              </div>
+            </UnifiedCard>
+          </div>
+
+          <div className="fade-in" style={{ marginBottom: '20px' }}>
+            <UnifiedCard title={`💳 Revenue by Payment Method (${dateRange === 'today' ? 'Today' : 'Custom Range'})`}>
+              {paymentRows.length > 0 ? (
+                <div style={styles.tableWrapper}>
+                  <table style={styles.table}>
+                    <thead>
+                      <tr>
+                        <th>Payment Method</th>
+                        <th>Transactions</th>
+                        <th>Revenue</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {displayPaymentRows.map((method, index) => (
+                        <tr key={`${method.displayMethod}-${index}`} style={styles.tableRow}>
+                          <td style={styles.orderNumber}>{method.displayMethod}</td>
+                          <td>{method.count}</td>
+                          <td style={styles.amount}>{formatPriceMK(method.displayAmount)}</td>
+                        </tr>
+                      ))}
+                      <tr style={styles.tableRow}>
+                        <td style={styles.orderNumber}><strong>Total Revenue</strong></td>
+                        <td>-</td>
+                        <td style={styles.amount}><strong>{formatPriceMK(totalPaymentRevenue)}</strong></td>
+                      </tr>
+                    </tbody>
+                  </table>
+                </div>
+              ) : (
+                <div style={styles.emptyState}>
+                  <p style={styles.emptyIcon}>💳</p>
+                  <p style={styles.emptyText}>No sales revenue recorded for this period</p>
+                </div>
+              )}
+            </UnifiedCard>
+          </div>
+
+
+          <div className="fade-in" style={{ marginBottom: '20px' }}>
+            <UnifiedCard title="📦 Product Sales Summary">
+              {productSales.length > 0 ? (
+                <div style={styles.tableWrapper}>
+                  <table style={styles.table}>
+                    <thead>
+                      <tr>
+                        <th>Product</th>
+                        <th>Start Qty</th>
+                        <th>Sold Qty</th>
+                        <th>Closing Qty</th>
+                        <th>Total Amount</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {productSales.map((item) => (
+                        <tr key={item.productId || item.name} style={styles.tableRow}>
+                          <td style={styles.orderNumber}>{item.name}</td>
+                          <td>{item.startingQty !== null ? item.startingQty : '-'}</td>
+                          <td>{item.soldQuantity}</td>
+                          <td>{item.closingQty}</td>
+                          <td style={styles.amount}>{formatPriceMK(item.totalAmount)}</td>
+                        </tr>
+                      ))}
+                      <tr style={styles.tableRow}>
+                        <td style={styles.orderNumber}><strong>Total (including unpaid bills)</strong></td>
+                        <td>{totalStartQty}</td>
+                        <td>{totalProductSoldQty}</td>
+                        <td>{totalClosingQty}</td>
+                        <td style={styles.amount}><strong>{formatPriceMK(totalProductSalesAmount)}</strong></td>
+                      </tr>
+                    </tbody>
+                  </table>
+                </div>
+              ) : (
+                <div style={styles.emptyState}>
+                  <p style={styles.emptyIcon}>📦</p>
+                  <p style={styles.emptyText}>No product sales for this period</p>
+                </div>
+              )}
+            </UnifiedCard>
+          </div>
+
+          <div className="fade-in">
+            <UnifiedCard title="🧾 Customers with Unsettled Credit">
+              {outstandingCustomers.length > 0 ? (
+                <div style={styles.tableWrapper}>
+                  <table style={styles.table}>
+                    <thead>
+                      <tr>
+                        <th>Customer</th>
+                        <th>Phone</th>
+                        <th>Outstanding Balance (Total)</th>
+                        <th>Outstanding Balance (Period)</th>
+                        <th>Open Credit Orders</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {outstandingCustomers.map((customer) => (
+                        <tr key={customer.customerId || customer.name} style={styles.tableRow}>
+                          <td style={styles.orderNumber}>{customer.name}</td>
+                          <td>{customer.phone || '-'}</td>
+                          <td style={styles.amount}>{formatPriceMK(customer.totalOutstandingBalance || 0)}</td>
+                          <td style={styles.amount}>{formatPriceMK(customer.periodOutstandingBalance || 0)}</td>
+                          <td>{customer.ordersCount}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              ) : (
+                <div style={styles.emptyState}>
+                  <p style={styles.emptyIcon}>🧾</p>
+                  <p style={styles.emptyText}>No customers with outstanding credit for this period</p>
+                </div>
+              )}
+            </UnifiedCard>
           </div>
 
           {lowStockProducts.length > 0 && (
@@ -305,38 +580,6 @@ const Dashboard = () => {
               </UnifiedCard>
             </div>
           )}
-
-          <div className="fade-in" style={{ marginBottom: '20px' }}>
-            <UnifiedCard title="💳 Revenue by Payment Method (Today)">
-              {paymentMethods.length > 0 ? (
-                <div style={styles.tableWrapper}>
-                  <table style={styles.table}>
-                    <thead>
-                      <tr>
-                        <th>Payment Method</th>
-                        <th>Transactions</th>
-                        <th>Revenue</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {paymentMethods.map((method, index) => (
-                        <tr key={index} style={styles.tableRow}>
-                          <td style={styles.orderNumber}>{method.method}</td>
-                          <td>{method.count}</td>
-                          <td style={styles.amount}>{formatPriceMK(method.amount)}</td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-              ) : (
-                <div style={styles.emptyState}>
-                  <p style={styles.emptyIcon}>💳</p>
-                  <p style={styles.emptyText}>No sales revenue recorded today</p>
-                </div>
-              )}
-            </UnifiedCard>
-          </div>
 
           <div className="fade-in">
             <UnifiedCard title="📋 Recent Orders">
@@ -431,6 +674,29 @@ const styles = {
   },
   statItem: {
     width: '100%'
+  },
+  handoverGrid: {
+    display: 'grid',
+    gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))',
+    gap: '16px'
+  },
+  handoverMetric: {
+    padding: '18px 16px',
+    borderRadius: '16px',
+    border: '1px solid #e6e8ed',
+    backgroundColor: '#fff',
+    boxShadow: '0 1px 4px rgba(0,0,0,0.04)'
+  },
+  metricLabel: {
+    display: 'block',
+    fontSize: '13px',
+    color: '#6b7280',
+    marginBottom: '10px'
+  },
+  metricValue: {
+    fontSize: '20px',
+    fontWeight: '700',
+    color: '#111827'
   },
   loading: {
     display: 'flex',
@@ -649,6 +915,52 @@ const styles = {
   table: {
     width: '100%',
     borderCollapse: 'collapse',
+    fontSize: '14px'
+  },
+  dateFilterRow: {
+    display: 'flex',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    gap: '12px',
+    marginBottom: '20px',
+    flexWrap: 'wrap'
+  },
+  filters: {
+    display: 'flex',
+    gap: '10px'
+  },
+  filterBtn: {
+    padding: '8px 16px',
+    borderRadius: '999px',
+    border: '1px solid #ddd',
+    backgroundColor: 'white',
+    cursor: 'pointer',
+    fontSize: '13px',
+    fontWeight: '700'
+  },
+  filterBtnActive: {
+    backgroundColor: '#e94560',
+    color: 'white',
+    borderColor: '#e94560'
+  },
+  customRangeRow: {
+    display: 'flex',
+    alignItems: 'flex-end',
+    gap: '12px',
+    flexWrap: 'wrap'
+  },
+  customRangeLabel: {
+    display: 'flex',
+    flexDirection: 'column',
+    gap: '6px',
+    fontSize: '12px',
+    color: '#555',
+    fontWeight: '600'
+  },
+  dateInput: {
+    padding: '8px 10px',
+    borderRadius: '8px',
+    border: '1px solid #d9d9d9',
     fontSize: '14px'
   },
   tableRow: {
