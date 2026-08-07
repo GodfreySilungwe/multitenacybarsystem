@@ -371,13 +371,34 @@ const Dashboard = () => {
               <StatsCard title="Products" value={stats.totalProducts} icon={faTools} color="#9b59b6" />
             </div>
             <div className="fade-in delay-6" style={styles.statItem}>
-              <StatsCard title="Collected Sales" value={stats.todaySalesProceeds} icon={faDollarSign} color="#27ae60" isCurrency />
+              <StatsCard
+                title="Collected Sales"
+                subtitle="Total cash and card value collected from sales, including direct POS transactions and bill settlements."
+                value={stats.todaySalesProceeds}
+                icon={faDollarSign}
+                color="#27ae60"
+                isCurrency
+              />
             </div>
             <div className="fade-in delay-7" style={styles.statItem}>
-              <StatsCard title="POS DIRECT SALES" value={stats.todayCashSales} icon={faDollarSign} color="#2ecc71" isCurrency />
+              <StatsCard
+                title="POS DIRECT SALES"
+                subtitle="Immediate on-the-spot sales recorded through the POS, excluding customer bill settlements."
+                value={stats.todayCashSales}
+                icon={faDollarSign}
+                color="#2ecc71"
+                isCurrency
+              />
             </div>
             <div className="fade-in delay-8" style={styles.statItem}>
-              <StatsCard title="POS Bill Management" value={stats.todayCreditSales} icon={faDollarSign} color="#8e44ad" isCurrency />
+              <StatsCard
+                title="POS Bill Management"
+                subtitle="Payments received against customer bills and outstanding invoices processed through POS."
+                value={stats.todayCreditSales}
+                icon={faDollarSign}
+                color="#8e44ad"
+                isCurrency
+              />
             </div>
             <div className="fade-in delay-9" style={styles.statItem}>
               <StatsCard title="Customers" value={stats.totalCustomers} icon={faUsers} color="#1abc9c" />

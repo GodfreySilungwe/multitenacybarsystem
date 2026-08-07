@@ -1,7 +1,7 @@
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 import { formatPriceMK } from '../../utils/formatPrice';
 
-const StatsCard = ({ title, value, icon, color = '#e94560', isCurrency = false }) => {
+const StatsCard = ({ title, subtitle, value, icon, color = '#e94560', isCurrency = false }) => {
   const displayValue = isCurrency ? formatPriceMK(value) : value;
   
   return (
@@ -24,6 +24,7 @@ const StatsCard = ({ title, value, icon, color = '#e94560', isCurrency = false }
       <div style={styles.content}>
         <div>
           <div style={styles.title}>{title}</div>
+          {subtitle && <div style={styles.subtitle}>{subtitle}</div>}
           <div style={{ ...styles.value, color: color }}>{displayValue}</div>
         </div>
         <div style={{ ...styles.icon, backgroundColor: color }}>
@@ -61,6 +62,12 @@ const styles = {
     fontWeight: '500',
     textTransform: 'uppercase',
     letterSpacing: '0.5px'
+  },
+  subtitle: {
+    fontSize: '12px',
+    color: '#6b7280',
+    marginBottom: '10px',
+    lineHeight: '1.35'
   },
   value: {
     fontSize: '28px',
