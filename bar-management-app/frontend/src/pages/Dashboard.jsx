@@ -24,6 +24,7 @@ const Dashboard = () => {
   const { isGlobalOwner, isSales, isBarOwner, isOwner } = useAuth();
   const [stats, setStats] = useState({
     todaySales: 0,
+    todaySalesProceeds: 0,
     todayCashSales: 0,
     todayCreditSales: 0,
     todayProfit: 0,
@@ -47,7 +48,6 @@ const Dashboard = () => {
   const [globalBars, setGlobalBars] = useState([]);
   const [recentOrders, setRecentOrders] = useState([]);
   const [lowStockProducts, setLowStockProducts] = useState([]);
-  const [paymentMethods, setPaymentMethods] = useState([]);
   const [creditSettlementSummary, setCreditSettlementSummary] = useState([]);
   const [paymentMethodProceeds, setPaymentMethodProceeds] = useState([]);
   const [totalOutstandingCredit, setTotalOutstandingCredit] = useState(0);
@@ -143,6 +143,7 @@ const Dashboard = () => {
 
         setStats({
           todaySales: summaryData.totalSales || 0,
+          todaySalesProceeds: summaryData.totalSalesByMethodProceeds || summaryData.directSales || 0,
           todayCashSales: summaryData.totalImmediateReceipts || 0,
           todayCreditSales: summaryData.totalCreditSales || 0,
           todayProfit: summaryData.totalProfit || 0,
@@ -162,7 +163,6 @@ const Dashboard = () => {
         });
         setRecentOrders(recent);
         setLowStockProducts(lowStock);
-        setPaymentMethods(summaryData.paymentMethods || []);
         setCreditSettlementSummary(summaryData.creditSettlementSummary || []);
         setPaymentMethodProceeds(summaryData.paymentMethodProceeds || []);
         setProductSales(summaryData.productSales || []);
@@ -176,7 +176,7 @@ const Dashboard = () => {
           ...prev,
           todayCashSales: summaryData.directSales || summaryData.totalImmediateReceipts || 0
         }));
-        setTotalCreditCollected(summaryData.totalCreditCollected || 0);
+        setTotalCreditCollected(summaryData.customerPreviousBillsPaid || summaryData.totalCreditCollected || 0);
         setLastUpdated(new Date().toLocaleTimeString());
       }
     } catch (err) {
@@ -188,25 +188,7 @@ const Dashboard = () => {
   };
 
   const creditOutstandingAmount = unpaidCredit;
-  const paymentRows = paymentMethods;
-  const displayPaymentRows = paymentRows.map((method) => ({
-    ...method,
-    displayMethod: String(method.method).toLowerCase().includes('credit') ? 'Credit Sales (on account)' : method.method,
-    displayAmount: method.amount
-  }));
-  const totalPaymentRevenue = paymentRows.reduce((sum, method) => sum + Number(method.amount || 0), 0);
 
-  const paymentMethodProceedsRows = paymentMethodProceeds.map((item) => ({
-    ...item,
-    method: item.method,
-    directAmount: Number(item.directAmount || 0),
-    creditAmount: Number(item.creditAmount || 0),
-    totalAmount: Number(item.totalAmount !== undefined ? item.totalAmount : Number(item.directAmount || 0) + Number(item.creditAmount || 0))
-  }));
-  const totalProceedsDirect = paymentMethodProceedsRows.reduce((sum, item) => sum + item.directAmount, 0);
-  const totalProceedsCredit = paymentMethodProceedsRows.reduce((sum, item) => sum + item.creditAmount, 0);
-  const totalProceedsAmount = paymentMethodProceedsRows.reduce((sum, item) => sum + item.totalAmount, 0);
-  const totalUnsettledBill = totalOutstandingCredit;
   const totalCustomerOutstandingBalance = outstandingCustomers.reduce((sum, customer) => sum + Number(customer.totalOutstandingBalance || 0), 0);
   const totalCustomerPeriodBalance = outstandingCustomers.reduce((sum, customer) => sum + Number(customer.periodOutstandingBalance || 0), 0);
   const totalCreditOrderCount = outstandingCustomers.reduce((sum, customer) => sum + Number(customer.ordersCount || 0), 0);
@@ -389,15 +371,18 @@ const Dashboard = () => {
               <StatsCard title="Products" value={stats.totalProducts} icon={faTools} color="#9b59b6" />
             </div>
             <div className="fade-in delay-6" style={styles.statItem}>
-              <StatsCard title="POS Direct Sales" value={stats.todayCashSales} icon={faDollarSign} color="#27ae60" isCurrency />
+              <StatsCard title="Collected Sales" value={stats.todaySalesProceeds} icon={faDollarSign} color="#27ae60" isCurrency />
             </div>
             <div className="fade-in delay-7" style={styles.statItem}>
-              <StatsCard title="POS Bill Management" value={stats.todayCreditSales} icon={faDollarSign} color="#8e44ad" isCurrency />
+              <StatsCard title="POS DIRECT SALES" value={stats.todayCashSales} icon={faDollarSign} color="#2ecc71" isCurrency />
             </div>
             <div className="fade-in delay-8" style={styles.statItem}>
-              <StatsCard title="Customers" value={stats.totalCustomers} icon={faUsers} color="#1abc9c" />
+              <StatsCard title="POS Bill Management" value={stats.todayCreditSales} icon={faDollarSign} color="#8e44ad" isCurrency />
             </div>
             <div className="fade-in delay-9" style={styles.statItem}>
+              <StatsCard title="Customers" value={stats.totalCustomers} icon={faUsers} color="#1abc9c" />
+            </div>
+            <div className="fade-in delay-10" style={styles.statItem}>
               <StatsCard title="Sales Accounts" value={stats.activeSalesAccounts} icon={faUsers} color="#9b59b6" />
             </div>
           </div>
@@ -428,7 +413,7 @@ const Dashboard = () => {
                   <span style={styles.metricValue}>{totalCustomersServed}</span>
                 </div>
                     <div style={styles.handoverMetric}>
-                  <span style={styles.metricLabel}>POS Direct Sales</span>
+                  <span style={styles.metricLabel}>POS DIRECT SALES</span>
                   <span style={styles.metricValue}>{formatPriceMK(totalImmediateReceipts)}</span>
                 </div>
                 <div style={styles.handoverMetric}>
@@ -436,15 +421,15 @@ const Dashboard = () => {
                   <span style={styles.metricValue}>{formatPriceMK(totalCreditSales)}</span>
                 </div>
                 <div style={styles.handoverMetric}>
-                  <span style={styles.metricLabel}>Outstanding Credit (this period)</span>
+                  <span style={styles.metricLabel}>Outstanding Bills (this period)</span>
                   <span style={styles.metricValue}>{formatPriceMK(outstandingCreditInPeriod)}</span>
                 </div>
                 <div style={styles.handoverMetric}>
-                  <span style={styles.metricLabel}>Total Outstanding Credit</span>
+                  <span style={styles.metricLabel}>Accumulated Bills (All)</span>
                   <span style={styles.metricValue}>{formatPriceMK(totalOutstandingCredit)}</span>
                 </div>
                 <div style={styles.handoverMetric}>
-                  <span style={styles.metricLabel}>Credit Collected (this period)</span>
+                  <span style={styles.metricLabel}>Previous Bills Collected (Paid)</span>
                   <span style={styles.metricValue}>{formatPriceMK(totalCreditCollected)}</span>
                 </div>
                 <div style={styles.handoverMetric}>
@@ -459,30 +444,29 @@ const Dashboard = () => {
             </UnifiedCard>
           </div>
 
+
           <div className="fade-in" style={{ marginBottom: '20px' }}>
-            <UnifiedCard title={`💳 Revenue by Payment Method (${dateRange === 'today' ? 'Today' : 'Custom Range'})`}>
-              {paymentRows.length > 0 ? (
+            <UnifiedCard title="💳 Sales Proceeds by Method">
+              <p style={styles.sectionDescription}>Aggregated from POS receipts, customer settlements, and customer account payments.</p>
+              {paymentMethodProceeds.length > 0 ? (
                 <div style={styles.tableWrapper}>
                   <table style={styles.table}>
                     <thead>
                       <tr>
                         <th>Payment Method</th>
-                        <th>Transactions</th>
-                        <th>Revenue</th>
+                        <th>Amount</th>
                       </tr>
                     </thead>
                     <tbody>
-                      {displayPaymentRows.map((method, index) => (
-                        <tr key={`${method.displayMethod}-${index}`} style={styles.tableRow}>
-                          <td style={styles.orderNumber}>{method.displayMethod}</td>
-                          <td>{method.count}</td>
-                          <td style={styles.amount}>{formatPriceMK(method.displayAmount)}</td>
+                      {paymentMethodProceeds.map((method) => (
+                        <tr key={method.method} style={styles.tableRow}>
+                          <td style={styles.orderNumber}>{method.method}</td>
+                          <td style={styles.amount}>{formatPriceMK(method.totalAmount)}</td>
                         </tr>
                       ))}
                       <tr style={styles.tableRow}>
-                        <td style={styles.orderNumber}><strong>Total Revenue</strong></td>
-                        <td>-</td>
-                        <td style={styles.amount}><strong>{formatPriceMK(totalPaymentRevenue)}</strong></td>
+                        <td style={styles.orderNumber}><strong>Total</strong></td>
+                        <td style={styles.amount}><strong>{formatPriceMK(paymentMethodProceeds.reduce((sum, method) => sum + Number(method.totalAmount || 0), 0))}</strong></td>
                       </tr>
                     </tbody>
                   </table>
@@ -490,15 +474,14 @@ const Dashboard = () => {
               ) : (
                 <div style={styles.emptyState}>
                   <p style={styles.emptyIcon}>💳</p>
-                  <p style={styles.emptyText}>No sales revenue recorded for this period</p>
+                  <p style={styles.emptyText}>No payment proceeds recorded for this period</p>
                 </div>
               )}
             </UnifiedCard>
           </div>
 
-
           <div className="fade-in" style={{ marginBottom: '20px' }}>
-            <UnifiedCard title="📦 Product Sales Summary">
+            <UnifiedCard title="�📦 Product Sales Summary">
               {productSales.length > 0 ? (
                 <div style={styles.tableWrapper}>
                   <table style={styles.table}>
@@ -541,7 +524,7 @@ const Dashboard = () => {
           </div>
 
           <div className="fade-in">
-            <UnifiedCard title="🧾 Customers with Unsettled Credit">
+            <UnifiedCard title="🧾 Customers with Unsettled Bills">
               {outstandingCustomers.length > 0 ? (
                 <div style={styles.tableWrapper}>
                   <table style={styles.table}>
@@ -577,53 +560,7 @@ const Dashboard = () => {
               ) : (
                 <div style={styles.emptyState}>
                   <p style={styles.emptyIcon}>🧾</p>
-                  <p style={styles.emptyText}>No customers with outstanding credit for this period</p>
-                </div>
-              )}
-            </UnifiedCard>
-          </div>
-
-          <div className="fade-in" style={{ marginBottom: '20px' }}>
-            <UnifiedCard title="💰 Sales Proceeds by Payment Method">
-              {paymentMethodProceedsRows.length > 0 ? (
-                <div style={styles.tableWrapper}>
-                  <table style={styles.table}>
-                    <thead>
-                      <tr>
-                        <th>Payment Method</th>
-                        <th>Cash</th>
-                        <th>Credit Settled</th>
-                        <th>Total</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {paymentMethodProceedsRows.map((method, index) => (
-                        <tr key={`${method.method}-${index}`} style={styles.tableRow}>
-                          <td style={styles.orderNumber}>{method.method}</td>
-                          <td style={styles.amount}>{formatPriceMK(method.directAmount)}</td>
-                          <td style={styles.amount}>{formatPriceMK(method.creditAmount)}</td>
-                          <td style={styles.amount}>{formatPriceMK(method.totalAmount)}</td>
-                        </tr>
-                      ))}
-                      <tr style={styles.tableRow}>
-                        <td style={styles.orderNumber}><strong>Outstanding Credit Balance</strong></td>
-                        <td style={styles.amount}>-</td>
-                        <td style={styles.amount}>-</td>
-                        <td style={styles.amount}><strong>{formatPriceMK(totalUnsettledBill)}</strong></td>
-                      </tr>
-                      <tr style={styles.tableRow}>
-                        <td style={styles.orderNumber}><strong>Total Proceeds</strong></td>
-                        <td style={styles.amount}><strong>{formatPriceMK(totalProceedsDirect)}</strong></td>
-                        <td style={styles.amount}><strong>{formatPriceMK(totalProceedsCredit)}</strong></td>
-                        <td style={styles.amount}><strong>{formatPriceMK(totalProceedsAmount)}</strong></td>
-                      </tr>
-                    </tbody>
-                  </table>
-                </div>
-              ) : (
-                <div style={styles.emptyState}>
-                  <p style={styles.emptyIcon}>💰</p>
-                  <p style={styles.emptyText}>No proceeds data available for this period</p>
+                  <p style={styles.emptyText}>No customers with unsettled bills for this period</p>
                 </div>
               )}
             </UnifiedCard>

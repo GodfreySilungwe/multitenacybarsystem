@@ -41,6 +41,7 @@ const Reports = () => {
     categorySales: [],
     dailySales: [],
     paymentMethods: [],
+    paymentMethodProceeds: [],
     creditAccounts: [],
     totalSales: 0,
     totalProfit: 0,
@@ -83,9 +84,9 @@ const Reports = () => {
         categorySales: summaryData.categorySales || [],
         dailySales: summaryData.dailySales || [],
         paymentMethods: summaryData.paymentMethods || [],
+        paymentMethodProceeds: summaryData.paymentMethodProceeds || [],
         creditAccounts: customerSummary.topCreditAccounts || [],
-        totalSales: summaryData.totalSales || 0,
-        totalProfit: summaryData.totalProfit || 0,
+        totalSales: summaryData.totalSales || 0,      totalSalesByMethodProceeds: summaryData.totalSalesByMethodProceeds || 0,        totalProfit: summaryData.totalProfit || 0,
         totalOrders: summaryData.totalOrders || 0,
         averageOrderValue: summaryData.averageOrderValue || 0,
         totalCreditOutstanding: customerSummary.totalCreditOutstanding || 0,
@@ -104,8 +105,6 @@ const Reports = () => {
   };
 
   const salesTotalForPercent = reportData.totalSales || 1;
-  const paymentTotalProceeds = (reportData.paymentMethods || []).reduce((sum, method) => sum + Number(method.amount || 0), 0);
-  const paymentTotalTransactions = (reportData.paymentMethods || []).reduce((sum, method) => sum + Number(method.count || 0), 0);
   const dailySalesChartData = {
     labels: reportData.dailySales.map(d => d.date),
     datasets: [
@@ -315,12 +314,13 @@ const Reports = () => {
       <div style={styles.summaryGrid}>
         {[
           { title: 'Total Sales', value: formatPriceMK(reportData.totalSales), icon: '💰', color: '#e94560', delay: 1 },
-          { title: 'Total Profit', value: formatPriceMK(reportData.totalProfit), icon: '📈', color: '#2ecc71', delay: 2 },
-          { title: 'Gross Margin', value: `${reportData.grossMarginRatio.toFixed(1)}%`, icon: '📐', color: '#1abc9c', delay: 3 },
-          { title: 'Avg Items / Order', value: reportData.averageItemsPerOrder.toFixed(1), icon: '📦', color: '#9b59b6', delay: 4 },
-          { title: 'Total Orders', value: reportData.totalOrders, icon: '🛒', color: '#3498db', delay: 5 },
-          { title: 'Settlements', value: formatPriceMK(reportData.totalSettlementAmount), icon: '💳', color: '#f39c12', delay: 6 },
-          { title: 'Credit Exposure', value: formatPriceMK(reportData.totalCreditOutstanding), icon: '🧾', color: '#7f1d1d', delay: 7 }
+          { title: 'Collected Sales', value: formatPriceMK(reportData.totalSalesByMethodProceeds), icon: '💵', color: '#27ae60', delay: 2 },
+          { title: 'Total Profit', value: formatPriceMK(reportData.totalProfit), icon: '📈', color: '#2ecc71', delay: 3 },
+          { title: 'Gross Margin', value: `${reportData.grossMarginRatio.toFixed(1)}%`, icon: '📐', color: '#1abc9c', delay: 4 },
+          { title: 'Avg Items / Order', value: reportData.averageItemsPerOrder.toFixed(1), icon: '📦', color: '#9b59b6', delay: 5 },
+          { title: 'Total Orders', value: reportData.totalOrders, icon: '🛒', color: '#3498db', delay: 6 },
+          { title: 'Settlements', value: formatPriceMK(reportData.totalSettlementAmount), icon: '💳', color: '#f39c12', delay: 7 },
+          { title: 'Credit Exposure', value: formatPriceMK(reportData.totalCreditOutstanding), icon: '🧾', color: '#7f1d1d', delay: 8 }
         ].map((item, index) => (
           <div 
             key={index}
@@ -349,29 +349,33 @@ const Reports = () => {
       </div>
 
       <div className="fade-in delay-5" style={{ marginBottom: '20px' }}>
-        <UnifiedCard title="💳 Payment Method Proceeds">
-          {reportData.paymentMethods.length > 0 ? (
+        <UnifiedCard title="💳 Sales Proceeds by Method">
+          <p style={styles.sectionDescription}>Aggregated from cash, Airtel Money, Mpamba and bank account receipts in POS sales and customer settlement activity.</p>
+          {reportData.paymentMethodProceeds.length > 0 ? (
             <div style={styles.tableWrapper}>
               <table style={styles.table}>
                 <thead>
                   <tr>
                     <th>Payment Method</th>
-                    <th>Transactions</th>
-                    <th>Proceeds</th>
+                    <th>Direct POS</th>
+                    <th>Customer Settlements</th>
+                    <th>Total</th>
                   </tr>
                 </thead>
                 <tbody>
-                  {reportData.paymentMethods.map((method, index) => (
+                  {reportData.paymentMethodProceeds.map((method, index) => (
                     <tr key={index} style={styles.tableRow}>
                       <td style={styles.productName}>{method.method}</td>
-                      <td>{method.count}</td>
-                      <td style={styles.revenue}>{formatPriceMK(method.amount)}</td>
+                      <td>{formatPriceMK(method.directAmount)}</td>
+                      <td>{formatPriceMK(method.settlementAmount)}</td>
+                      <td style={styles.revenue}>{formatPriceMK(method.totalAmount)}</td>
                     </tr>
                   ))}
                   <tr style={{ ...styles.tableRow, fontWeight: '700', backgroundColor: '#f9fafb' }}>
                     <td style={styles.productName}>Total Proceeds</td>
-                    <td>{reportData.paymentMethods.reduce((sum, method) => sum + (method.count || 0), 0)}</td>
-                    <td style={styles.revenue}>{formatPriceMK(reportData.paymentMethods.reduce((sum, method) => sum + (method.amount || 0), 0))}</td>
+                    <td>{formatPriceMK(reportData.paymentMethodProceeds.reduce((sum, method) => sum + Number(method.directAmount || 0), 0))}</td>
+                    <td>{formatPriceMK(reportData.paymentMethodProceeds.reduce((sum, method) => sum + Number(method.settlementAmount || 0), 0))}</td>
+                    <td style={styles.revenue}>{formatPriceMK(reportData.paymentMethodProceeds.reduce((sum, method) => sum + Number(method.totalAmount || 0), 0))}</td>
                   </tr>
                 </tbody>
               </table>
@@ -379,7 +383,7 @@ const Reports = () => {
           ) : (
             <div style={styles.noData}>
               <p style={styles.noDataIcon}>💳</p>
-              <p>No payment proceeds recorded for this date range</p>
+              <p>No payment proceeds data available for this period</p>
             </div>
           )}
         </UnifiedCard>

@@ -16,9 +16,15 @@ const PaymentHistory = () => {
   const [settlements, setSettlements] = useState([]);
   const [filter, setFilter] = useState('all');
   const [customerFilter, setCustomerFilter] = useState('all');
+  const [currentPage, setCurrentPage] = useState(1);
   const [loading, setLoading] = useState(true);
   const { user } = useAuth();
   const canReverseSettlements = user?.role === 'owner' && Boolean(user?.barId);
+  const PAGE_SIZE = 20;
+
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [filter, customerFilter, settlements]);
 
   useEffect(() => {
     const loadSettlements = async () => {
@@ -49,6 +55,12 @@ const PaymentHistory = () => {
         return matchesType && matchesCustomer;
       });
   }, [customerFilter, filter, settlements]);
+
+  const totalPages = Math.max(1, Math.ceil(filteredSettlements.length / PAGE_SIZE));
+  const paginatedSettlements = useMemo(() => {
+    const startIndex = (currentPage - 1) * PAGE_SIZE;
+    return filteredSettlements.slice(startIndex, startIndex + PAGE_SIZE);
+  }, [currentPage, filteredSettlements]);
 
   const summaryCards = useMemo(() => {
     const totals = {
@@ -147,32 +159,61 @@ const PaymentHistory = () => {
         ) : filteredSettlements.length === 0 ? (
           <p style={styles.empty}>No settlement records found.</p>
         ) : (
-          <div style={styles.list}>
-            {filteredSettlements.map((entry) => (
-              <div key={entry._id} style={styles.item}>
-                <div style={styles.row}>
-                  <div>
-                    <div style={styles.customerName}>{entry.customerName || 'Walk-in customer'}</div>
-                    <div style={styles.meta}>Method: {entry.paymentMethod || 'cash'}</div>
-                  </div>
-                  <div style={styles.amount}>{formatPriceMK(entry.amount || 0)}</div>
-                </div>
-                <div style={styles.row}>
-                  <div style={styles.meta}>Type: {entry.settlementType || 'payment'}</div>
-                  <div style={styles.meta}>Processed by: {entry.processedBy || entry.approvedBy || '—'}</div>
-                </div>
-                <div style={styles.row}>
-                  <div style={styles.meta}>{entry.paymentReference || 'No reference provided'}</div>
-                  <div style={styles.meta}>{entry.createdAt ? new Date(entry.createdAt).toLocaleString() : '—'}</div>
-                </div>
-                {canReverseSettlements && (
+          <>
+            <div style={styles.list}>
+              {paginatedSettlements.map((entry) => (
+                <div key={entry._id} style={styles.item}>
                   <div style={styles.row}>
-                    <button type="button" onClick={() => handleReverseSettlement(entry)} style={styles.reverseBtn}>Reverse payment</button>
+                    <div>
+                      <div style={styles.customerName}>{entry.customerName || 'Walk-in customer'}</div>
+                      <div style={styles.meta}>Method: {entry.paymentMethod || 'cash'}</div>
+                    </div>
+                    <div style={styles.amount}>{formatPriceMK(entry.amount || 0)}</div>
                   </div>
-                )}
-              </div>
-            ))}
-          </div>
+                  <div style={styles.row}>
+                    <div style={styles.meta}>Type: {entry.settlementType || 'payment'}</div>
+                    <div style={styles.meta}>Processed by: {entry.processedBy || entry.approvedBy || '—'}</div>
+                  </div>
+                  <div style={styles.row}>
+                    <div style={styles.meta}>{entry.paymentReference || 'No reference provided'}</div>
+                    <div style={styles.meta}>{entry.createdAt ? new Date(entry.createdAt).toLocaleString() : '—'}</div>
+                  </div>
+                  {canReverseSettlements && (
+                    <div style={styles.row}>
+                      <button type="button" onClick={() => handleReverseSettlement(entry)} style={styles.reverseBtn}>Reverse payment</button>
+                    </div>
+                  )}
+                </div>
+              ))}
+            </div>
+            <div style={styles.pagination}>
+              <button
+                type="button"
+                onClick={() => setCurrentPage((prev) => Math.max(1, prev - 1))}
+                disabled={currentPage === 1}
+                style={{
+                  ...styles.pageBtn,
+                  ...(currentPage === 1 ? styles.pageBtnDisabled : {})
+                }}
+              >
+                Previous
+              </button>
+              <span style={styles.pageInfo}>
+                Page {currentPage} of {totalPages}
+              </span>
+              <button
+                type="button"
+                onClick={() => setCurrentPage((prev) => Math.min(totalPages, prev + 1))}
+                disabled={currentPage === totalPages}
+                style={{
+                  ...styles.pageBtn,
+                  ...(currentPage === totalPages ? styles.pageBtnDisabled : {})
+                }}
+              >
+                Next
+              </button>
+            </div>
+          </>
         )}
       </div>
     </PageContainer>
@@ -297,6 +338,30 @@ const styles = {
   amount: {
     fontWeight: '700',
     color: '#e94560'
+  },
+  pagination: {
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: '10px',
+    marginTop: '18px'
+  },
+  pageBtn: {
+    padding: '10px 14px',
+    borderRadius: '10px',
+    border: '1px solid #d1d5db',
+    backgroundColor: '#ffffff',
+    color: '#111827',
+    cursor: 'pointer',
+    fontWeight: '700'
+  },
+  pageBtnDisabled: {
+    opacity: 0.5,
+    cursor: 'not-allowed'
+  },
+  pageInfo: {
+    fontWeight: '700',
+    color: '#111827'
   }
 };
 

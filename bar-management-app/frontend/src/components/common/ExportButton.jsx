@@ -34,7 +34,7 @@ const ExportButton = ({ type, label, icon = '📤', variant = 'primary' }) => {
       }
 
       const response = await api.get(endpoint, {
-        responseType: 'blob'
+        responseType: 'arraybuffer'
       });
 
       const blob = new Blob([response.data], {
