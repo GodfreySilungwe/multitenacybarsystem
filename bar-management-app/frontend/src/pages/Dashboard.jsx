@@ -49,6 +49,7 @@ const Dashboard = () => {
   const [lowStockProducts, setLowStockProducts] = useState([]);
   const [paymentMethods, setPaymentMethods] = useState([]);
   const [creditSettlementSummary, setCreditSettlementSummary] = useState([]);
+  const [paymentMethodProceeds, setPaymentMethodProceeds] = useState([]);
   const [totalOutstandingCredit, setTotalOutstandingCredit] = useState(0);
   const [outstandingCreditInPeriod, setOutstandingCreditInPeriod] = useState(0);
   const [productSales, setProductSales] = useState([]);
@@ -163,6 +164,7 @@ const Dashboard = () => {
         setLowStockProducts(lowStock);
         setPaymentMethods(summaryData.paymentMethods || []);
         setCreditSettlementSummary(summaryData.creditSettlementSummary || []);
+        setPaymentMethodProceeds(summaryData.paymentMethodProceeds || []);
         setProductSales(summaryData.productSales || []);
         setOutstandingCustomers(summaryData.outstandingCustomers || []);
         setUnpaidCredit(summaryData.unpaidCredit || 0);
@@ -193,6 +195,21 @@ const Dashboard = () => {
     displayAmount: method.amount
   }));
   const totalPaymentRevenue = paymentRows.reduce((sum, method) => sum + Number(method.amount || 0), 0);
+
+  const paymentMethodProceedsRows = paymentMethodProceeds.map((item) => ({
+    ...item,
+    method: item.method,
+    directAmount: Number(item.directAmount || 0),
+    creditAmount: Number(item.creditAmount || 0),
+    totalAmount: Number(item.totalAmount !== undefined ? item.totalAmount : Number(item.directAmount || 0) + Number(item.creditAmount || 0))
+  }));
+  const totalProceedsDirect = paymentMethodProceedsRows.reduce((sum, item) => sum + item.directAmount, 0);
+  const totalProceedsCredit = paymentMethodProceedsRows.reduce((sum, item) => sum + item.creditAmount, 0);
+  const totalProceedsAmount = paymentMethodProceedsRows.reduce((sum, item) => sum + item.totalAmount, 0);
+  const totalUnsettledBill = totalOutstandingCredit;
+  const totalCustomerOutstandingBalance = outstandingCustomers.reduce((sum, customer) => sum + Number(customer.totalOutstandingBalance || 0), 0);
+  const totalCustomerPeriodBalance = outstandingCustomers.reduce((sum, customer) => sum + Number(customer.periodOutstandingBalance || 0), 0);
+  const totalCreditOrderCount = outstandingCustomers.reduce((sum, customer) => sum + Number(customer.ordersCount || 0), 0);
   const totalProductSoldQty = productSales.reduce((sum, item) => sum + Number(item.soldQuantity || 0), 0);
   const totalStartQty = productSales.reduce((sum, item) => sum + (item.startingQty !== null ? Number(item.startingQty || 0) : 0), 0);
   const totalClosingQty = productSales.reduce((sum, item) => sum + Number(item.closingQty || 0), 0);
@@ -547,6 +564,13 @@ const Dashboard = () => {
                           <td>{customer.ordersCount}</td>
                         </tr>
                       ))}
+                      <tr style={styles.tableRow}>
+                        <td style={styles.orderNumber}><strong>Total</strong></td>
+                        <td>-</td>
+                        <td style={styles.amount}><strong>{formatPriceMK(totalCustomerOutstandingBalance)}</strong></td>
+                        <td style={styles.amount}><strong>{formatPriceMK(totalCustomerPeriodBalance)}</strong></td>
+                        <td><strong>{totalCreditOrderCount}</strong></td>
+                      </tr>
                     </tbody>
                   </table>
                 </div>
@@ -558,6 +582,53 @@ const Dashboard = () => {
               )}
             </UnifiedCard>
           </div>
+
+          <div className="fade-in" style={{ marginBottom: '20px' }}>
+            <UnifiedCard title="💰 Sales Proceeds by Payment Method">
+              {paymentMethodProceedsRows.length > 0 ? (
+                <div style={styles.tableWrapper}>
+                  <table style={styles.table}>
+                    <thead>
+                      <tr>
+                        <th>Payment Method</th>
+                        <th>Cash</th>
+                        <th>Credit Settled</th>
+                        <th>Total</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {paymentMethodProceedsRows.map((method, index) => (
+                        <tr key={`${method.method}-${index}`} style={styles.tableRow}>
+                          <td style={styles.orderNumber}>{method.method}</td>
+                          <td style={styles.amount}>{formatPriceMK(method.directAmount)}</td>
+                          <td style={styles.amount}>{formatPriceMK(method.creditAmount)}</td>
+                          <td style={styles.amount}>{formatPriceMK(method.totalAmount)}</td>
+                        </tr>
+                      ))}
+                      <tr style={styles.tableRow}>
+                        <td style={styles.orderNumber}><strong>Outstanding Credit Balance</strong></td>
+                        <td style={styles.amount}>-</td>
+                        <td style={styles.amount}>-</td>
+                        <td style={styles.amount}><strong>{formatPriceMK(totalUnsettledBill)}</strong></td>
+                      </tr>
+                      <tr style={styles.tableRow}>
+                        <td style={styles.orderNumber}><strong>Total Proceeds</strong></td>
+                        <td style={styles.amount}><strong>{formatPriceMK(totalProceedsDirect)}</strong></td>
+                        <td style={styles.amount}><strong>{formatPriceMK(totalProceedsCredit)}</strong></td>
+                        <td style={styles.amount}><strong>{formatPriceMK(totalProceedsAmount)}</strong></td>
+                      </tr>
+                    </tbody>
+                  </table>
+                </div>
+              ) : (
+                <div style={styles.emptyState}>
+                  <p style={styles.emptyIcon}>💰</p>
+                  <p style={styles.emptyText}>No proceeds data available for this period</p>
+                </div>
+              )}
+            </UnifiedCard>
+          </div>
+
 
           {lowStockProducts.length > 0 && (
             <div className="fade-in">
