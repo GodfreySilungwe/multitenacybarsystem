@@ -52,6 +52,10 @@ const POS = () => {
   const [refreshing, setRefreshing] = useState(false);
   const [feedbackMessage, setFeedbackMessage] = useState('');
   const [activeAddedProductId, setActiveAddedProductId] = useState(null);
+  const [passwordModalOpen, setPasswordModalOpen] = useState(false);
+  const [pendingPasswordAction, setPendingPasswordAction] = useState(null);
+  const [passwordInput, setPasswordInput] = useState('');
+  const [passwordSubmitting, setPasswordSubmitting] = useState(false);
 
   useEffect(() => {
     loadData();
@@ -268,46 +272,70 @@ const POS = () => {
     }
   };
 
-  const handleConfirmPayment = async (paymentId) => {
+  const resetPasswordModal = () => {
+    setPasswordModalOpen(false);
+    setPendingPasswordAction(null);
+    setPasswordInput('');
+    setPasswordSubmitting(false);
+  };
+
+  const openPasswordModal = (paymentId, action) => {
+    setPendingPasswordAction({ paymentId, action });
+    setPasswordInput('');
+    setPasswordModalOpen(true);
+  };
+
+  const submitPasswordAction = async () => {
+    if (!pendingPasswordAction) return;
+
+    const password = passwordInput.trim();
+    if (!password) {
+      setError('Password verification is required.');
+      setTimeout(() => setError(''), 4000);
+      return;
+    }
+
     try {
-      setConfirmingPaymentId(paymentId);
-      await api.patch(`/customer-order-requests/payments/${paymentId}/confirm`);
-      // remove the confirmed payment immediately from UI
-      setCustomerPayments((prev) => prev.filter((p) => p._id !== paymentId));
-      await loadData();
-      const nextNotification = { id: Date.now(), message: 'Payment confirmed and applied.', createdAt: new Date().toLocaleTimeString() };
-      setNotificationHistory((prev) => [nextNotification, ...prev].slice(0, 8));
-      setNotification(nextNotification.message);
-      setTimeout(() => setNotification(''), 4000);
-      window.dispatchEvent(new Event('customer-request-updated'));
+      setPasswordSubmitting(true);
+      if (pendingPasswordAction.action === 'confirm') {
+        setConfirmingPaymentId(pendingPasswordAction.paymentId);
+        await api.patch(`/customer-order-requests/payments/${pendingPasswordAction.paymentId}/confirm`, { password });
+        setCustomerPayments((prev) => prev.filter((p) => p._id !== pendingPasswordAction.paymentId));
+        await loadData();
+        const nextNotification = { id: Date.now(), message: 'Payment confirmed and applied.', createdAt: new Date().toLocaleTimeString() };
+        setNotificationHistory((prev) => [nextNotification, ...prev].slice(0, 8));
+        setNotification(nextNotification.message);
+        setTimeout(() => setNotification(''), 4000);
+        window.dispatchEvent(new Event('customer-request-updated'));
+      } else {
+        setRejectingPaymentId(pendingPasswordAction.paymentId);
+        await api.patch(`/customer-order-requests/payments/${pendingPasswordAction.paymentId}/reject`, { password });
+        setCustomerPayments((prev) => prev.filter((p) => p._id !== pendingPasswordAction.paymentId));
+        await loadData();
+        const nextNotification = { id: Date.now(), message: 'Payment request rejected.', createdAt: new Date().toLocaleTimeString() };
+        setNotificationHistory((prev) => [nextNotification, ...prev].slice(0, 8));
+        setNotification(nextNotification.message);
+        setTimeout(() => setNotification(''), 4000);
+        window.dispatchEvent(new Event('customer-request-updated'));
+      }
     } catch (err) {
-      console.error('Failed to confirm payment:', err);
-      setError('Could not confirm payment.');
+      console.error('Failed to process payment action:', err);
+      setError(pendingPasswordAction.action === 'confirm' ? 'Could not confirm payment.' : 'Could not reject the payment.');
       setTimeout(() => setError(''), 4000);
     } finally {
+      setPasswordSubmitting(false);
       setConfirmingPaymentId(null);
+      setRejectingPaymentId(null);
+      resetPasswordModal();
     }
   };
 
+  const handleConfirmPayment = async (paymentId) => {
+    openPasswordModal(paymentId, 'confirm');
+  };
+
   const handleRejectPayment = async (paymentId) => {
-    try {
-      setRejectingPaymentId(paymentId);
-      await api.patch(`/customer-order-requests/payments/${paymentId}/reject`);
-      // remove the rejected payment immediately from UI
-      setCustomerPayments((prev) => prev.filter((p) => p._id !== paymentId));
-      await loadData();
-      const nextNotification = { id: Date.now(), message: 'Payment request rejected.', createdAt: new Date().toLocaleTimeString() };
-      setNotificationHistory((prev) => [nextNotification, ...prev].slice(0, 8));
-      setNotification(nextNotification.message);
-      setTimeout(() => setNotification(''), 4000);
-      window.dispatchEvent(new Event('customer-request-updated'));
-    } catch (err) {
-      console.error('Failed to reject payment:', err);
-      setError('Could not reject the payment.');
-      setTimeout(() => setError(''), 4000);
-    } finally {
-      setRejectingPaymentId(null);
-    }
+    openPasswordModal(paymentId, 'reject');
   };
 
   const handleConfirmRequest = async (requestId) => {
@@ -565,6 +593,39 @@ const POS = () => {
           {refreshing ? 'Refreshing…' : '🔁 Refresh'}
         </button>
       </div>
+
+      {passwordModalOpen && (
+        <div style={styles.modalOverlay} onClick={resetPasswordModal}>
+          <div style={styles.modalCard} onClick={(e) => e.stopPropagation()}>
+            <div style={styles.modalHeader}>Verify payment action</div>
+            <p style={styles.modalText}>
+              Enter the current sales account password to {pendingPasswordAction?.action === 'confirm' ? 'confirm' : 'reject'} this payment.
+            </p>
+            <input
+              type="password"
+              value={passwordInput}
+              onChange={(e) => setPasswordInput(e.target.value)}
+              placeholder="Password"
+              style={styles.modalInput}
+              autoFocus
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') {
+                  e.preventDefault();
+                  submitPasswordAction();
+                }
+              }}
+            />
+            <div style={styles.modalActions}>
+              <button type="button" style={styles.modalCancelBtn} onClick={resetPasswordModal}>
+                Cancel
+              </button>
+              <button type="button" style={styles.modalConfirmBtn} onClick={submitPasswordAction} disabled={passwordSubmitting}>
+                {passwordSubmitting ? 'Processing...' : pendingPasswordAction?.action === 'confirm' ? 'Confirm payment' : 'Reject payment'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       <div style={styles.notificationPanel}>
         <button style={styles.notificationToggle} onClick={() => setShowNotifications((prev) => !prev)}>
@@ -1443,6 +1504,67 @@ productUnit: {
   refreshBtnLoading: {
     opacity: 0.7,
     cursor: 'wait'
+  },
+  modalOverlay: {
+    position: 'fixed',
+    inset: 0,
+    backgroundColor: 'rgba(15, 23, 42, 0.6)',
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    padding: '20px',
+    zIndex: 2000
+  },
+  modalCard: {
+    width: '100%',
+    maxWidth: '420px',
+    backgroundColor: '#fff',
+    borderRadius: '16px',
+    padding: '22px',
+    boxShadow: '0 20px 45px rgba(15, 23, 42, 0.25)'
+  },
+  modalHeader: {
+    fontSize: '20px',
+    fontWeight: '700',
+    color: '#111827',
+    marginBottom: '8px'
+  },
+  modalText: {
+    fontSize: '14px',
+    color: '#6b7280',
+    marginBottom: '14px',
+    lineHeight: 1.5
+  },
+  modalInput: {
+    width: '100%',
+    padding: '10px 12px',
+    borderRadius: '10px',
+    border: '1px solid #d1d5db',
+    fontSize: '14px',
+    marginBottom: '14px'
+  },
+  modalActions: {
+    display: 'flex',
+    justifyContent: 'flex-end',
+    gap: '10px'
+  },
+  modalCancelBtn: {
+    padding: '10px 14px',
+    borderRadius: '10px',
+    border: '1px solid #d1d5db',
+    backgroundColor: '#fff',
+    cursor: 'pointer',
+    fontWeight: '600',
+    color: '#374151'
+  },
+  modalConfirmBtn: {
+    padding: '10px 14px',
+    borderRadius: '10px',
+    border: 'none',
+    backgroundColor: '#e94560',
+    cursor: 'pointer',
+    fontWeight: '700',
+    color: '#fff'
   },
   requestList: {
     display: 'grid',

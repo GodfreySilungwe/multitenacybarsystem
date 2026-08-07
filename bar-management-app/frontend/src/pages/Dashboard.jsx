@@ -68,6 +68,15 @@ const Dashboard = () => {
     fetchDashboardData();
   }, [dateRange, customStartDate, customEndDate]);
 
+  useEffect(() => {
+    const handleRefresh = () => {
+      fetchDashboardData();
+    };
+
+    window.addEventListener('payment-updated', handleRefresh);
+    return () => window.removeEventListener('payment-updated', handleRefresh);
+  }, [dateRange, customStartDate, customEndDate]);
+
   const fetchDashboardData = async () => {
     try {
       setLoading(true);

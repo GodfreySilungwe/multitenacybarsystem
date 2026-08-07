@@ -14,6 +14,7 @@ const Customers = lazy(() => import('./pages/Customers'));
 const Orders = lazy(() => import('./pages/Orders'));
 const CustomerPortal = lazy(() => import('./pages/CustomerPortal'));
 const Reports = lazy(() => import('./pages/Reports'));
+const PaymentHistory = lazy(() => import('./pages/PaymentHistory'));
 const Inventory = lazy(() => import('./pages/Inventory'));
 const Suppliers = lazy(() => import('./pages/Suppliers'));
 const PurchaseOrders = lazy(() => import('./pages/PurchaseOrders'));
@@ -117,6 +118,13 @@ function App() {
               <ProtectedRoute barOwnerOnly>
                 <Layout>
                   <Reports />
+                </Layout>
+              </ProtectedRoute>
+            } />
+            <Route path="/payment-history" element={
+              <ProtectedRoute barOwnerOrSales>
+                <Layout>
+                  <PaymentHistory />
                 </Layout>
               </ProtectedRoute>
             } />

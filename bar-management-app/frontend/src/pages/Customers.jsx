@@ -23,6 +23,8 @@ const Customers = () => {
   const [settleAmounts, setSettleAmounts] = useState({});
   const [settleMethods, setSettleMethods] = useState({});
   const [settleReferences, setSettleReferences] = useState({});
+  const [settlements, setSettlements] = useState([]);
+  const [settlementConfirmation, setSettlementConfirmation] = useState(null);
   const [formData, setFormData] = useState({
     name: '',
     phone: '',
@@ -32,6 +34,15 @@ const Customers = () => {
 
   useEffect(() => {
     loadCustomers({ reset: true });
+  }, []);
+
+  useEffect(() => {
+    const handleRefresh = () => {
+      loadCustomers({ reset: true });
+    };
+
+    window.addEventListener('payment-updated', handleRefresh);
+    return () => window.removeEventListener('payment-updated', handleRefresh);
   }, []);
 
   const loadCustomers = async ({ reset = false, lastKey = null } = {}) => {
@@ -50,9 +61,10 @@ const Customers = () => {
         params.lastKey = lastKey;
       }
 
-      const [customersRes, summaryRes] = await Promise.all([
+      const [customersRes, summaryRes, settlementsRes] = await Promise.all([
         api.get('/customers', { params }),
-        api.get('/customers/summary')
+        api.get('/customers/summary'),
+        api.get('/customer-order-requests/settlements')
       ]);
 
       const customersData = customersRes.data || {};
@@ -62,6 +74,7 @@ const Customers = () => {
       setNextKey(customersData.nextKey || null);
       setHasMore(Boolean(customersData.nextKey));
       setSummary(summaryRes.data || summary);
+      setSettlements(Array.isArray(settlementsRes.data) ? settlementsRes.data : []);
     } catch (err) {
       console.error('Error loading customers:', err);
     } finally {
@@ -136,6 +149,12 @@ const Customers = () => {
       setSettleAmounts(prev => ({ ...prev, [customer._id]: '' }));
       setSettleReferences(prev => ({ ...prev, [customer._id]: '' }));
       setSettleMethods(prev => ({ ...prev, [customer._id]: 'cash' }));
+      setSettlementConfirmation({
+        customerName: customer.name,
+        amount,
+        paymentMethod,
+        paymentReference: paymentReference.trim()
+      });
     } catch (err) {
       console.error('Error settling customer balance:', err);
       alert(err.response?.data?.message || 'Failed to process payment');
@@ -242,6 +261,21 @@ const Customers = () => {
           </UnifiedCard>
         )}
 
+        {settlementConfirmation && (
+          <div style={styles.modalOverlay} onClick={() => setSettlementConfirmation(null)}>
+            <div style={styles.modalCard} onClick={(e) => e.stopPropagation()}>
+              <h3 style={styles.modalTitle}>✅ Settlement confirmed</h3>
+              <p style={styles.modalText}>The payment for {settlementConfirmation.customerName} has been recorded successfully.</p>
+              <div style={styles.modalDetails}>
+                <div>Amount: {formatPriceMK(settlementConfirmation.amount || 0)}</div>
+                <div>Method: {settlementConfirmation.paymentMethod}</div>
+                {settlementConfirmation.paymentReference ? <div>Reference: {settlementConfirmation.paymentReference}</div> : null}
+              </div>
+              <Button onClick={() => setSettlementConfirmation(null)}>Close</Button>
+            </div>
+          </div>
+        )}
+
         <div className="customer-grid">
           {customers.map((customer, index) => (
             <div
@@ -291,6 +325,25 @@ const Customers = () => {
               <div style={styles.balanceBox} className="customer-card__balance">
                 <span style={styles.balanceLabel}>Outstanding Credit</span>
                 <span style={styles.balanceValue}>{formatPriceMK(customer.creditBalance || 0)}</span>
+              </div>
+              <div style={styles.settlementSection} className="customer-card__settlements">
+                <div style={styles.creditHistoryHeader}>Recent settlements</div>
+                {(settlements || []).filter((entry) => entry.customerId === customer._id).slice(0, 3).map((entry) => (
+                  <div key={entry._id} style={styles.creditHistoryItem}>
+                    <div style={styles.creditHistoryTopRow}>
+                      <span style={styles.creditHistoryDate}>{entry.createdAt ? new Date(entry.createdAt).toLocaleString() : '—'}</span>
+                      <span style={styles.creditHistoryOrder}>{entry.paymentMethod || 'cash'}</span>
+                    </div>
+                    <div style={styles.creditHistoryMeta}>
+                      <span>Amount: {formatPriceMK(entry.amount || 0)}</span>
+                      <span style={styles.approverBadge}>Approved by: {entry.approvedBy || '—'}</span>
+                    </div>
+                    {entry.paymentReference ? <div style={styles.creditHistoryProducts}>{entry.paymentReference}</div> : null}
+                  </div>
+                ))}
+                {!(settlements || []).some((entry) => entry.customerId === customer._id) && (
+                  <div style={styles.creditHistoryProducts}>No settlement history yet.</div>
+                )}
               </div>
               {(customer.creditSummary || []).length > 0 && (
                 <div style={styles.creditHistorySection} className="customer-card__credit-history">
@@ -586,6 +639,15 @@ const styles = {
     color: '#b91c1c',
     fontWeight: '700'
   },
+  settlementSection: {
+    border: '1px solid #f3d8df',
+    borderRadius: '12px',
+    padding: '10px 12px',
+    backgroundColor: '#fff9fa',
+    display: 'flex',
+    flexDirection: 'column',
+    gap: '8px'
+  },
   creditHistorySection: {
     border: '1px solid #f3d8df',
     borderRadius: '12px',
@@ -642,6 +704,13 @@ const styles = {
     flexWrap: 'wrap',
     fontSize: '12px',
     color: '#7f1d1d'
+  },
+  approverBadge: {
+    backgroundColor: '#fef2f2',
+    color: '#b91c1c',
+    padding: '2px 8px',
+    borderRadius: '999px',
+    fontWeight: '700'
   },
   paymentSection: {
     display: 'flex',

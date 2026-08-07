@@ -47,6 +47,8 @@ const Reports = () => {
     totalOrders: 0,
     averageOrderValue: 0,
     totalCreditOutstanding: 0,
+    totalSettlementAmount: 0,
+    outstandingCreditBySalesAccount: [],
     totalQuantitySold: 0,
     averageItemsPerOrder: 0,
     grossMarginRatio: 0
@@ -87,6 +89,8 @@ const Reports = () => {
         totalOrders: summaryData.totalOrders || 0,
         averageOrderValue: summaryData.averageOrderValue || 0,
         totalCreditOutstanding: customerSummary.totalCreditOutstanding || 0,
+        totalSettlementAmount: summaryData.totalSettlementAmount || 0,
+        outstandingCreditBySalesAccount: summaryData.outstandingCreditBySalesAccount || [],
         totalQuantitySold: summaryData.totalQuantitySold || 0,
         averageItemsPerOrder: summaryData.averageItemsPerOrder || 0,
         grossMarginRatio: summaryData.grossMarginRatio || 0
@@ -315,7 +319,8 @@ const Reports = () => {
           { title: 'Gross Margin', value: `${reportData.grossMarginRatio.toFixed(1)}%`, icon: '📐', color: '#1abc9c', delay: 3 },
           { title: 'Avg Items / Order', value: reportData.averageItemsPerOrder.toFixed(1), icon: '📦', color: '#9b59b6', delay: 4 },
           { title: 'Total Orders', value: reportData.totalOrders, icon: '🛒', color: '#3498db', delay: 5 },
-          { title: 'Credit Exposure', value: formatPriceMK(reportData.totalCreditOutstanding), icon: '🧾', color: '#f39c12', delay: 6 }
+          { title: 'Settlements', value: formatPriceMK(reportData.totalSettlementAmount), icon: '💳', color: '#f39c12', delay: 6 },
+          { title: 'Credit Exposure', value: formatPriceMK(reportData.totalCreditOutstanding), icon: '🧾', color: '#7f1d1d', delay: 7 }
         ].map((item, index) => (
           <div 
             key={index}
@@ -398,6 +403,33 @@ const Reports = () => {
                       <td style={styles.productName}>{customer.name}</td>
                       <td>{customer.phone}</td>
                       <td style={styles.revenue}>{formatPriceMK(customer.balance)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </UnifiedCard>
+        </div>
+      )}
+
+      {reportData.outstandingCreditBySalesAccount.length > 0 && (
+        <div className="fade-in delay-5" style={{ marginBottom: '20px' }}>
+          <UnifiedCard title="🧑‍💼 Credit Outstanding by Sales Account">
+            <div style={styles.tableWrapper}>
+              <table style={styles.table}>
+                <thead>
+                  <tr>
+                    <th>Sales Account</th>
+                    <th>Orders</th>
+                    <th>Outstanding Balance</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {reportData.outstandingCreditBySalesAccount.map((item, index) => (
+                    <tr key={index} style={styles.tableRow}>
+                      <td style={styles.productName}>{item.salesAccount}</td>
+                      <td>{item.ordersCount}</td>
+                      <td style={styles.revenue}>{formatPriceMK(item.outstandingBalance)}</td>
                     </tr>
                   ))}
                 </tbody>
