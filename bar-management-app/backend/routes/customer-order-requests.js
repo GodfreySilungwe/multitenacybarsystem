@@ -42,6 +42,21 @@ const validateCustomerOrderItems = async (items = [], barId) => {
   };
 };
 
+const enrichPaymentRequest = async (paymentRequest) => {
+  if (!paymentRequest) {
+    return paymentRequest;
+  }
+
+  if (!paymentRequest.customerName && paymentRequest.customerId) {
+    const customer = await Customer.findOne({ _id: paymentRequest.customerId, barId: paymentRequest.barId });
+    if (customer) {
+      paymentRequest.customerName = customer.name || customer.fullName || paymentRequest.customerName || 'Customer';
+    }
+  }
+
+  return paymentRequest;
+};
+
 const normalizeRequestItems = async (items = [], barId) => {
   const normalizedItems = [];
   let totalAmount = 0;
@@ -364,7 +379,8 @@ router.get('/payments', async (req, res) => {
       query.customerId = customerId;
     }
     const payments = await CustomerPaymentRequest.find(query).sort({ createdAt: -1 });
-    res.json(payments);
+    const enrichedPayments = await Promise.all((payments || []).map(enrichPaymentRequest));
+    res.json(enrichedPayments);
   } catch (error) {
     res.status(500).json({ message: error.message });
   }
@@ -452,7 +468,8 @@ router.patch('/payments/:id/confirm', isBarOwnerOrSales, async (req, res) => {
 
     await recomputeCustomerCreditBalance(customerId, req.user.barId);
 
-    res.json({ message: 'Payment confirmed and applied.', paymentRequest, appliedAmount, updatedRequests });
+    const enrichedRequest = await enrichPaymentRequest(paymentRequest.toObject ? paymentRequest.toObject() : paymentRequest);
+    res.json({ message: 'Payment confirmed and applied.', paymentRequest: enrichedRequest, appliedAmount, updatedRequests });
   } catch (error) {
     res.status(400).json({ message: error.message });
   }
@@ -474,7 +491,8 @@ router.patch('/payments/:id/reject', isBarOwnerOrSales, async (req, res) => {
     paymentRequest.rejectedAt = new Date().toISOString();
     await paymentRequest.save();
 
-    res.json({ message: 'Payment request rejected.', paymentRequest });
+    const enrichedRequest = await enrichPaymentRequest(paymentRequest.toObject ? paymentRequest.toObject() : paymentRequest);
+    res.json({ message: 'Payment request rejected.', paymentRequest: enrichedRequest });
   } catch (error) {
     res.status(400).json({ message: error.message });
   }

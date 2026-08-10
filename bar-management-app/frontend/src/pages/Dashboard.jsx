@@ -193,10 +193,11 @@ const Dashboard = () => {
   const totalCustomerPeriodBalance = outstandingCustomers.reduce((sum, customer) => sum + Number(customer.periodOutstandingBalance || 0), 0);
   const totalCreditOrderCount = outstandingCustomers.reduce((sum, customer) => sum + Number(customer.ordersCount || 0), 0);
   const totalProductSoldQty = productSales.reduce((sum, item) => sum + Number(item.soldQuantity || 0), 0);
+  const totalPurchaseOrdersQty = productSales.reduce((sum, item) => sum + Number(item.purchaseOrdersQty || 0), 0);
   const totalStartQty = productSales.reduce((sum, item) => sum + (item.startingQty !== null ? Number(item.startingQty || 0) : 0), 0);
   const totalClosingQty = productSales.reduce((sum, item) => sum + Number(item.closingQty || 0), 0);
   const totalProductSalesAmount = productSales.reduce((sum, item) => sum + Number(item.totalAmount || 0), 0);
-  const expectedHandoverValue = totalImmediateReceipts + totalCreditSales - unpaidCredit + totalCreditCollected;
+  const expectedHandoverValue = Number(stats.todaySales || 0) - Number(outstandingCreditInPeriod || 0) + Number(totalCreditCollected || 0);
   const outstandingCustomerCount = outstandingCustomers.length || 0;
   const totalCustomersServed = stats.customersServed || 0;
   const totalItemsSold = stats.totalItemsSold || totalProductSoldQty;
@@ -510,6 +511,7 @@ const Dashboard = () => {
                       <tr>
                         <th>Product</th>
                         <th>Start Qty</th>
+                        <th>Purchase Qty</th>
                         <th>Sold Qty</th>
                         <th>Closing Qty</th>
                         <th>Total Amount</th>
@@ -520,6 +522,7 @@ const Dashboard = () => {
                         <tr key={item.productId || item.name} style={styles.tableRow}>
                           <td style={styles.orderNumber}>{item.name}</td>
                           <td>{item.startingQty !== null ? item.startingQty : '-'}</td>
+                          <td>{item.purchaseOrdersQty || 0}</td>
                           <td>{item.soldQuantity}</td>
                           <td>{item.closingQty}</td>
                           <td style={styles.amount}>{formatPriceMK(item.totalAmount)}</td>
@@ -528,6 +531,7 @@ const Dashboard = () => {
                       <tr style={styles.tableRow}>
                         <td style={styles.orderNumber}><strong>Total (including unpaid bills)</strong></td>
                         <td>{totalStartQty}</td>
+                        <td>{totalPurchaseOrdersQty}</td>
                         <td>{totalProductSoldQty}</td>
                         <td>{totalClosingQty}</td>
                         <td style={styles.amount}><strong>{formatPriceMK(totalProductSalesAmount)}</strong></td>

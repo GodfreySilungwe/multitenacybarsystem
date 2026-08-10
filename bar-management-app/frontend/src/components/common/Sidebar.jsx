@@ -26,6 +26,7 @@ const Sidebar = ({ isMobileOpen = false, onClose = () => {} }) => {
   const navigate = useNavigate();
   const { logout, user } = useAuth();
   const [pendingApplications, setPendingApplications] = useState(0);
+  const isGlobalOwner = user?.role === 'owner' && !user?.barId;
 
   const handleLogout = () => {
     logout();
@@ -35,6 +36,11 @@ const Sidebar = ({ isMobileOpen = false, onClose = () => {} }) => {
 
   useEffect(() => {
     const loadPendingCount = async () => {
+      if (!isGlobalOwner) {
+        setPendingApplications(0);
+        return;
+      }
+
       try {
         const res = await api.get('/bar-applications');
         const apps = res.data || [];
@@ -46,7 +52,7 @@ const Sidebar = ({ isMobileOpen = false, onClose = () => {} }) => {
     };
 
     loadPendingCount();
-  }, []);
+  }, [isGlobalOwner]);
   
   const navItems = [
     { path: '/', label: 'Dashboard', icon: faChartBar, authOnly: true },

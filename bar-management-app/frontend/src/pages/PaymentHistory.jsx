@@ -6,110 +6,109 @@ import PageContainer from './PageContainer';
 import { formatPriceMK } from '../utils/formatPrice';
 
 const paymentTypeOptions = [
-  { value: 'all', label: 'All payments' },
-  { value: 'credit_payment', label: 'Credit payments' },
-  { value: 'customer_bill_payment', label: 'Customer bill settlements' },
-  { value: 'pos_payment', label: 'POS payments' }
+  { value: 'all', label: 'All requests' },
+  { value: 'pending', label: 'Pending' },
+  { value: 'confirmed', label: 'Confirmed' },
+  { value: 'rejected', label: 'Rejected' }
 ];
 
 const PaymentHistory = () => {
-  const [settlements, setSettlements] = useState([]);
+  const [payments, setPayments] = useState([]);
   const [filter, setFilter] = useState('all');
   const [customerFilter, setCustomerFilter] = useState('all');
   const [currentPage, setCurrentPage] = useState(1);
   const [loading, setLoading] = useState(true);
   const { user } = useAuth();
-  const canReverseSettlements = user?.role === 'owner' && Boolean(user?.barId);
+  const canManagePayments = ['owner', 'sales'].includes(user?.role) && Boolean(user?.barId);
   const PAGE_SIZE = 20;
 
   useEffect(() => {
     setCurrentPage(1);
-  }, [filter, customerFilter, settlements]);
+  }, [filter, customerFilter, payments]);
 
   useEffect(() => {
-    const loadSettlements = async () => {
+    const loadPayments = async () => {
       try {
-        const res = await api.get('/customer-order-requests/settlements');
-        setSettlements(Array.isArray(res.data) ? res.data : []);
+        const res = await api.get('/customer-order-requests/payments');
+        setPayments(Array.isArray(res.data) ? res.data : []);
       } catch (err) {
-        console.error('Failed to load settlements', err);
+        console.error('Failed to load payments', err);
       } finally {
         setLoading(false);
       }
     };
 
-    loadSettlements();
+    loadPayments();
   }, []);
 
   const customerOptions = useMemo(() => {
-    const names = new Set((settlements || []).map((entry) => entry.customerName || 'Walk-in customer'));
+    const names = new Set((payments || []).map((entry) => entry.customerName || 'Walk-in customer'));
     return Array.from(names).sort();
-  }, [settlements]);
+  }, [payments]);
 
-  const filteredSettlements = useMemo(() => {
-    return (settlements || [])
-      .filter((entry) => entry.status !== 'reversed')
+  const filteredPayments = useMemo(() => {
+    return (payments || [])
       .filter((entry) => {
-        const matchesType = filter === 'all' ? true : entry.settlementType === filter;
+        const matchesStatus = filter === 'all' ? true : entry.status === filter;
         const matchesCustomer = customerFilter === 'all' ? true : (entry.customerName || 'Walk-in customer') === customerFilter;
-        return matchesType && matchesCustomer;
+        return matchesStatus && matchesCustomer;
       });
-  }, [customerFilter, filter, settlements]);
+  }, [customerFilter, filter, payments]);
 
-  const totalPages = Math.max(1, Math.ceil(filteredSettlements.length / PAGE_SIZE));
-  const paginatedSettlements = useMemo(() => {
+  const totalPages = Math.max(1, Math.ceil(filteredPayments.length / PAGE_SIZE));
+  const paginatedPayments = useMemo(() => {
     const startIndex = (currentPage - 1) * PAGE_SIZE;
-    return filteredSettlements.slice(startIndex, startIndex + PAGE_SIZE);
-  }, [currentPage, filteredSettlements]);
+    return filteredPayments.slice(startIndex, startIndex + PAGE_SIZE);
+  }, [currentPage, filteredPayments]);
 
   const summaryCards = useMemo(() => {
     const totals = {
-      credit_payment: 0,
-      customer_bill_payment: 0,
-      pos_payment: 0
+      pending: 0,
+      confirmed: 0,
+      rejected: 0
     };
 
-    (filteredSettlements || []).forEach((entry) => {
-      const type = entry.settlementType || 'credit_payment';
-      if (totals[type] !== undefined) {
-        totals[type] += Number(entry.amount || 0);
+    (filteredPayments || []).forEach((entry) => {
+      const status = entry.status || 'pending';
+      if (totals[status] !== undefined) {
+        totals[status] += Number(entry.amountRequested || entry.amountApplied || 0);
       }
     });
 
     return [
-      { label: 'Credit payments', value: totals.credit_payment, color: '#e94560' },
-      { label: 'Customer settlements', value: totals.customer_bill_payment, color: '#3498db' },
-      { label: 'POS payments', value: totals.pos_payment, color: '#2ecc71' }
+      { label: 'Pending requests', value: totals.pending, color: '#e94560' },
+      { label: 'Confirmed payments', value: totals.confirmed, color: '#3498db' },
+      { label: 'Rejected requests', value: totals.rejected, color: '#2ecc71' }
     ];
-  }, [filteredSettlements]);
+  }, [filteredPayments]);
 
-  const handleReverseSettlement = async (entry) => {
-    if (!window.confirm('Reverse this settlement record?')) return;
+  const handlePaymentAction = async (entry, action) => {
+    if (!window.confirm(`Are you sure you want to ${action} this payment request?`)) return;
 
     try {
-      const res = await api.patch(`/customer-order-requests/settlements/${entry._id}/reverse`, { reason: 'Manager reversal' });
-      setSettlements((prev) => prev.map((item) => (item._id === entry._id ? res.data : item)));
+      const res = await api.patch(`/customer-order-requests/payments/${entry._id}/${action}`);
+      setPayments((prev) => prev.map((item) => (item._id === entry._id ? res.data.paymentRequest || res.data : item)));
       window.dispatchEvent(new Event('payment-updated'));
     } catch (err) {
-      console.error('Failed to reverse settlement', err);
-      alert(err.response?.data?.message || 'Failed to reverse settlement');
+      console.error(`Failed to ${action} payment`, err);
+      alert(err.response?.data?.message || `Failed to ${action} payment request`);
     }
   };
 
   const handleExport = () => {
-    const rows = filteredSettlements.map((entry) => ({
+    const rows = filteredPayments.map((entry) => ({
       customer: entry.customerName || 'Walk-in customer',
-      amount: Number(entry.amount || 0),
+      amount: Number(entry.amountRequested || entry.amountApplied || 0),
       paymentMethod: entry.paymentMethod || 'cash',
-      paymentType: entry.settlementType || 'credit_payment',
+      status: entry.status || 'pending',
       reference: entry.paymentReference || '—',
       approvedBy: entry.approvedBy || '—',
       date: entry.createdAt ? new Date(entry.createdAt).toLocaleString() : '—'
     }));
 
     const csv = [
-      ['Customer', 'Amount', 'Payment Method', 'Payment Type', 'Reference', 'Approved By', 'Date'],
-      ...rows.map((row) => [row.customer, row.amount, row.paymentMethod, row.paymentType, row.reference, row.approvedBy, row.date])
+      ['Customer', 'Amount', 'Payment Method', 'Status', 'Reference', 'Approved By', 'Date'],
+      ...rows.map((row) => [row.customer, row.amount, row.paymentMethod, row.status, row.reference, row.approvedBy, row.date])
     ]
       .map((line) => line.map((value) => `"${String(value).replace(/"/g, '""')}"`).join(','))
       .join('\n');
@@ -156,31 +155,32 @@ const PaymentHistory = () => {
 
         {loading ? (
           <p>Loading payments...</p>
-        ) : filteredSettlements.length === 0 ? (
-          <p style={styles.empty}>No settlement records found.</p>
+        ) : filteredPayments.length === 0 ? (
+          <p style={styles.empty}>No payment records found.</p>
         ) : (
           <>
             <div style={styles.list}>
-              {paginatedSettlements.map((entry) => (
+              {paginatedPayments.map((entry) => (
                 <div key={entry._id} style={styles.item}>
                   <div style={styles.row}>
                     <div>
                       <div style={styles.customerName}>{entry.customerName || 'Walk-in customer'}</div>
                       <div style={styles.meta}>Method: {entry.paymentMethod || 'cash'}</div>
                     </div>
-                    <div style={styles.amount}>{formatPriceMK(entry.amount || 0)}</div>
+                    <div style={styles.amount}>{formatPriceMK(entry.amountRequested || entry.amountApplied || 0)}</div>
                   </div>
                   <div style={styles.row}>
-                    <div style={styles.meta}>Type: {entry.settlementType || 'payment'}</div>
-                    <div style={styles.meta}>Processed by: {entry.processedBy || entry.approvedBy || '—'}</div>
+                    <div style={styles.meta}>Status: {entry.status || 'pending'}</div>
+                    <div style={styles.meta}>Processed by: {entry.approvedBy || entry.processedBy || '—'}</div>
                   </div>
                   <div style={styles.row}>
                     <div style={styles.meta}>{entry.paymentReference || 'No reference provided'}</div>
                     <div style={styles.meta}>{entry.createdAt ? new Date(entry.createdAt).toLocaleString() : '—'}</div>
                   </div>
-                  {canReverseSettlements && (
-                    <div style={styles.row}>
-                      <button type="button" onClick={() => handleReverseSettlement(entry)} style={styles.reverseBtn}>Reverse payment</button>
+                  {canManagePayments && entry.status === 'pending' && (
+                    <div style={styles.actionsRow}>
+                      <button type="button" onClick={() => handlePaymentAction(entry, 'confirm')} style={styles.confirmBtn}>Confirm</button>
+                      <button type="button" onClick={() => handlePaymentAction(entry, 'reject')} style={styles.rejectBtn}>Reject</button>
                     </div>
                   )}
                 </div>

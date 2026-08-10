@@ -211,6 +211,44 @@ router.get('/summary', async (req, res) => {
     }
 
     const payments = await CustomerPaymentRequest.find(paymentQuery);
+    const allCreditOrders = await Order.find({ barId: req.user.barId, reversed: { $ne: true }, paymentMethod: 'credit' });
+
+    const paymentOrders = payments
+      .map((payment) => ({
+        amount: Number(payment.amountApplied || 0),
+        confirmedAt: payment.confirmedAt ? new Date(payment.confirmedAt).getTime() : 0
+      }))
+      .filter((payment) => payment.amount > 0)
+      .sort((a, b) => a.confirmedAt - b.confirmedAt);
+
+    const creditOrderStates = (allCreditOrders || [])
+      .map((order) => ({
+        createdAt: new Date(order.createdAt).getTime(),
+        balanceDue: Number(order.balanceDue || 0)
+      }))
+      .sort((a, b) => a.createdAt - b.createdAt);
+
+    let previousBillsCollected = 0;
+    let currentPeriodCreditCollected = 0;
+    const rangeStartTime = startDate ? new Date(startDate).getTime() : 0;
+
+    paymentOrders.forEach((payment) => {
+      let remaining = payment.amount;
+      while (remaining > 0) {
+        const nextOrder = creditOrderStates.find((order) => order.balanceDue > 0);
+        if (!nextOrder) break;
+
+        const applied = Math.min(remaining, nextOrder.balanceDue);
+        if (nextOrder.createdAt < rangeStartTime) {
+          previousBillsCollected += applied;
+        } else {
+          currentPeriodCreditCollected += applied;
+        }
+
+        nextOrder.balanceDue -= applied;
+        remaining -= applied;
+      }
+    });
 
     const settlementMethods = ['cash', 'airtel_money', 'mpamba', 'bank_account'];
     const settlementMap = settlementMethods.reduce((acc, method) => {
@@ -236,15 +274,24 @@ router.get('/summary', async (req, res) => {
     }));
 
     const unpaidCredit = (enrichedOrders || [])
-      .filter((order) => order.paymentMethod === 'credit' && !order.reversed)
+      .filter((order) => !order.reversed && Number(order.balanceDue || 0) > 0 && (order.paymentMethod === 'credit' || order.paymentStatus === 'partial' || order.paymentStatus === 'credit'))
       .reduce((sum, order) => sum + Number(order.balanceDue || 0), 0);
 
-    const totalCreditCollected = Object.values(settlementMap).reduce((sum, amount) => sum + amount, 0);
-    const cashSummary = summary.paymentMethods.find((method) => String(method.method).toLowerCase() === 'cash');
-    const cashAmount = cashSummary?.amount || 0;
-    // Expected handover should represent cash on hand plus credit collected during the period
-    // Collected credit includes payments applied to credit orders (including payments to previous credit bills)
-    const expectedHandoverValue = cashAmount + totalCreditCollected;
+    const totalOutstandingCredit = (allCreditOrders || [])
+      .reduce((sum, order) => sum + Number(order.balanceDue || 0), 0);
+
+    const totalCreditCollected = previousBillsCollected;
+    const totalCreditSales = summary.paymentMethods
+      .filter((method) => String(method.method).toLowerCase() === 'credit')
+      .reduce((sum, method) => sum + Number(method.amount || 0), 0);
+    const totalImmediateReceipts = summary.paymentMethods
+      .filter((method) => String(method.method).toLowerCase() !== 'credit')
+      .reduce((sum, method) => sum + Number(method.amount || 0), 0);
+    const paymentMethodProceeds = (summary.paymentMethods || []).map((method) => ({
+      method: method.method,
+      totalAmount: Number(method.amount || 0)
+    }));
+    const expectedHandoverValue = summary.totalSales - unpaidCredit + totalCreditCollected;
 
     const uniqueCustomerIds = new Set(
       (enrichedOrders || [])
@@ -260,16 +307,23 @@ router.get('/summary', async (req, res) => {
     const startingDate = startDate;
     const hasStartDate = Boolean(startingDate);
 
-    const adjustmentsSinceStart = hasStartDate
-      ? await InventoryAdjustment.find({ barId: req.user.barId, createdAt: { $gte: startingDate } })
+    const adjustmentsInRange = hasStartDate
+      ? await InventoryAdjustment.find({
+          barId: req.user.barId,
+          createdAt: { $gte: startingDate, $lte: queryOptions.endDate }
+        })
       : [];
-    const purchaseReceiptsSinceStart = hasStartDate
-      ? await PurchaseOrder.find({ barId: req.user.barId, status: 'received', receivedDate: { $gte: startingDate } })
+    const purchaseReceiptsInRange = hasStartDate
+      ? await PurchaseOrder.find({
+          barId: req.user.barId,
+          status: 'received',
+          receivedDate: { $gte: startingDate, $lte: queryOptions.endDate }
+        })
       : [];
 
     const stockChangesSinceStart = {};
 
-    adjustmentsSinceStart.forEach((adjustment) => {
+    adjustmentsInRange.forEach((adjustment) => {
       const productId = String(adjustment.product);
       const quantity = Number(adjustment.quantity || 0);
       let delta = 0;
@@ -285,10 +339,11 @@ router.get('/summary', async (req, res) => {
       stockChangesSinceStart[productId] = (stockChangesSinceStart[productId] || 0) + delta;
     });
 
-    purchaseReceiptsSinceStart.forEach((purchaseOrder) => {
+    purchaseReceiptsInRange.forEach((purchaseOrder) => {
       (purchaseOrder.items || []).forEach((item) => {
         const productId = String(item.product);
-        stockChangesSinceStart[productId] = (stockChangesSinceStart[productId] || 0) + Number(item.quantity || 0);
+        const quantity = Number(item.quantity || 0);
+        stockChangesSinceStart[productId] = (stockChangesSinceStart[productId] || 0) + quantity;
       });
     });
 
@@ -309,7 +364,8 @@ router.get('/summary', async (req, res) => {
             totalAmount: 0,
             startingQty: 0,
             closingQty: 0,
-            currentStock: 0
+            currentStock: 0,
+            purchaseOrdersQty: 0
           };
         }
 
@@ -318,15 +374,38 @@ router.get('/summary', async (req, res) => {
       });
     });
 
+    purchaseReceiptsInRange.forEach((purchaseOrder) => {
+      (purchaseOrder.items || []).forEach((item) => {
+        const productId = String(item.product);
+        const purchaseQty = Number(item.quantity || 0);
+
+        if (!productSalesMap[productId]) {
+          productSalesMap[productId] = {
+            productId,
+            name: productMap.get(productId)?.name || item.productName || 'Product',
+            soldQuantity: 0,
+            totalAmount: 0,
+            startingQty: 0,
+            closingQty: 0,
+            currentStock: Number(productMap.get(productId)?.currentStock || 0),
+            purchaseOrdersQty: 0
+          };
+        }
+
+        productSalesMap[productId].purchaseOrdersQty += purchaseQty;
+      });
+    });
+
     Object.keys(productSalesMap).forEach((productId) => {
       const productRecord = productMap.get(productId);
-      const currentStock = Number(productRecord?.currentStock || 0);
+      const currentStock = Number(productRecord?.currentStock || productSalesMap[productId].currentStock || 0);
       const netChangeSinceStart = Number(stockChangesSinceStart[productId] || 0);
       const soldQuantity = Number(productSalesMap[productId].soldQuantity || 0);
 
       productSalesMap[productId].currentStock = currentStock;
       productSalesMap[productId].closingQty = currentStock;
       productSalesMap[productId].startingQty = hasStartDate ? currentStock + soldQuantity - netChangeSinceStart : null;
+      productSalesMap[productId].purchaseOrdersQty = Number(productSalesMap[productId].purchaseOrdersQty || 0);
     });
 
     const productSales = Object.values(productSalesMap)
@@ -334,21 +413,26 @@ router.get('/summary', async (req, res) => {
       .slice(0, 40);
 
     const creditCustomers = {};
-    const creditOrders = (orders || []).filter((order) => order.paymentMethod === 'credit' && !order.reversed && Number(order.balanceDue || 0) > 0);
+    const creditOrders = (orders || []).filter((order) => !order.reversed && Number(order.balanceDue || 0) > 0 && (order.paymentMethod === 'credit' || order.paymentStatus === 'partial' || order.paymentStatus === 'credit'));
     creditOrders.forEach((order) => {
-      const customerId = String(order.customer?._id || order.customer || 'unknown');
+      const orderCustomer = order.customer || order.customerId || {};
+      const customerId = String(orderCustomer?._id || orderCustomer?.id || orderCustomer || '').trim();
       const balanceDue = Number(order.balanceDue || 0);
-      if (!customerId || customerId === 'unknown') return;
+      if (!customerId) return;
       if (!creditCustomers[customerId]) {
         creditCustomers[customerId] = {
           customerId,
-          name: order.customer?.name || 'Unknown customer',
-          phone: order.customer?.phone || '',
+          name: orderCustomer?.name || orderCustomer?.customerName || order.customerName || 'Unknown customer',
+          phone: orderCustomer?.phone || orderCustomer?.phoneNumber || order.customerPhone || '',
           outstandingBalance: 0,
+          totalOutstandingBalance: 0,
+          periodOutstandingBalance: 0,
           ordersCount: 0
         };
       }
       creditCustomers[customerId].outstandingBalance += balanceDue;
+      creditCustomers[customerId].totalOutstandingBalance += balanceDue;
+      creditCustomers[customerId].periodOutstandingBalance += balanceDue;
       creditCustomers[customerId].ordersCount += 1;
     });
 
@@ -365,7 +449,7 @@ router.get('/summary', async (req, res) => {
     }
 
     const outstandingCustomers = Object.values(creditCustomers)
-      .sort((a, b) => b.outstandingBalance - a.outstandingBalance)
+      .sort((a, b) => b.totalOutstandingBalance - a.totalOutstandingBalance)
       .slice(0, 20);
 
     res.json({
@@ -384,6 +468,15 @@ router.get('/summary', async (req, res) => {
       grossMarginRatio: summary.grossMarginRatio,
       customersServedCount,
       totalCreditCollected,
+      customerPreviousBillsPaid: totalCreditCollected,
+      previousBillsCollected: totalCreditCollected,
+      currentPeriodCreditCollected,
+      totalCreditSales,
+      totalImmediateReceipts,
+      directSales: totalImmediateReceipts,
+      paymentMethodProceeds,
+      outstandingCreditInPeriod: unpaidCredit,
+      totalOutstandingCredit,
       expectedHandoverValue,
       creditSettlementSummary,
       unpaidCredit,

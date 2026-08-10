@@ -10,11 +10,33 @@ router.use(protect, isBarOwnerOrSales);
 // Get all purchase orders
 router.get('/', async (req, res) => {
   try {
-    const orders = await PurchaseOrder.find({ barId: req.user.barId })
-      .populate('supplier', 'name')
-      .populate('items.product', 'name')
-      .sort({ createdAt: -1 });
-    res.json(orders);
+    const orders = await PurchaseOrder.find({ barId: req.user.barId }).sort({ createdAt: -1 });
+    const productIds = Array.from(
+      new Set(
+        orders.flatMap((order) =>
+          (order.items || []).map((item) => String(item.product?._id || item.product || item.productId || item._id || item.id || ''))
+        ).filter(Boolean)
+      )
+    );
+    const products = productIds.length > 0
+      ? await Product.find({ _id: { $in: productIds }, barId: req.user.barId })
+      : [];
+    const productMap = new Map((products || []).map((product) => [String(product._id || product.id), product]));
+
+    const hydratedOrders = orders.map((order) => ({
+      ...order,
+      items: (order.items || []).map((item) => {
+        const productId = String(item.product?._id || item.product || item.productId || item._id || item.id || '');
+        const product = productMap.get(productId);
+        return {
+          ...item,
+          product: product ? { _id: product._id || product.id, name: product.name, category: product.category } : (item.product || null),
+          productName: item.productName || (product ? product.name : item.productName)
+        };
+      })
+    }));
+
+    res.json(hydratedOrders);
   } catch (error) {
     console.error('Error fetching purchase orders:', error);
     res.status(500).json({ message: error.message });
@@ -24,13 +46,35 @@ router.get('/', async (req, res) => {
 // Get single purchase order
 router.get('/:id', async (req, res) => {
   try {
-    const order = await PurchaseOrder.findOne({ _id: req.params.id, barId: req.user.barId })
-      .populate('supplier', 'name phone email')
-      .populate('items.product', 'name');
+    const order = await PurchaseOrder.findOne({ _id: req.params.id, barId: req.user.barId });
     if (!order) {
       return res.status(404).json({ message: 'Purchase order not found' });
     }
-    res.json(order);
+
+    const productIds = Array.from(
+      new Set(
+        (order.items || []).map((item) => String(item.product?._id || item.product || item.productId || item._id || item.id || '')).filter(Boolean)
+      )
+    );
+    const products = productIds.length > 0
+      ? await Product.find({ _id: { $in: productIds }, barId: req.user.barId })
+      : [];
+    const productMap = new Map((products || []).map((product) => [String(product._id || product.id), product]));
+
+    const hydratedOrder = {
+      ...order,
+      items: (order.items || []).map((item) => {
+        const productId = String(item.product?._id || item.product || item.productId || item._id || item.id || '');
+        const product = productMap.get(productId);
+        return {
+          ...item,
+          product: product ? { _id: product._id || product.id, name: product.name, category: product.category } : (item.product || null),
+          productName: item.productName || (product ? product.name : item.productName)
+        };
+      })
+    };
+
+    res.json(hydratedOrder);
   } catch (error) {
     console.error('Error fetching purchase order:', error);
     res.status(500).json({ message: error.message });

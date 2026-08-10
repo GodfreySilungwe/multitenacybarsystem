@@ -158,22 +158,42 @@ router.get('/', isBarOwnerOrSales, async (req, res) => {
 
 router.get('/summary', isBarOwnerOrSales, async (req, res) => {
   try {
-    const { items: customers = [] } = await queryEntities('customer', { barId: req.user.barId });
-    const creditAccounts = (customers || [])
-      .filter((customer) => Number(customer.creditBalance || 0) > 0)
-      .map((customer) => ({
-        _id: customer._id,
-        name: customer.name,
-        phone: customer.phone,
-        balance: Number(customer.creditBalance || 0)
-      }))
+    const outstandingOrders = await Order.find({
+      barId: req.user.barId,
+      reversed: { $ne: true },
+      paymentMethod: 'credit',
+      balanceDue: { $gt: 0 }
+    });
+
+    const customerBalances = (outstandingOrders || []).reduce((acc, order) => {
+      const customerId = String(order.customer || order.customerId || '').trim();
+      const balanceDue = Number(order.balanceDue || 0);
+      if (!customerId || balanceDue <= 0) return acc;
+      acc[customerId] = (acc[customerId] || 0) + balanceDue;
+      return acc;
+    }, {});
+
+    const customerIds = Object.keys(customerBalances);
+    const customerRecords = customerIds.length > 0
+      ? await Customer.find({ _id: { $in: customerIds }, barId: req.user.barId })
+      : [];
+
+    const creditAccounts = customerIds.map((id) => {
+      const customer = customerRecords.find((record) => String(record._id || record.id) === id);
+      return {
+        _id: id,
+        name: customer?.name || 'Unknown customer',
+        phone: customer?.phone || '',
+        balance: customerBalances[id]
+      };
+    })
       .sort((a, b) => b.balance - a.balance)
       .slice(0, 10);
 
     const totalCreditOutstanding = creditAccounts.reduce((sum, customer) => sum + customer.balance, 0);
 
     res.json({
-      totalCustomers: customers.length,
+      totalCustomers: customerIds.length,
       customersWithCredit: creditAccounts.length,
       totalCreditOutstanding,
       topCreditAccounts: creditAccounts

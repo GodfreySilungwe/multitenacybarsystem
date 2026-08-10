@@ -61,10 +61,9 @@ const Customers = () => {
         params.lastKey = lastKey;
       }
 
-      const [customersRes, summaryRes, settlementsRes] = await Promise.all([
+      const [customersRes, summaryRes] = await Promise.all([
         api.get('/customers', { params }),
-        api.get('/customers/summary'),
-        api.get('/customer-order-requests/settlements')
+        api.get('/customers/summary')
       ]);
 
       const customersData = customersRes.data || {};
@@ -74,7 +73,7 @@ const Customers = () => {
       setNextKey(customersData.nextKey || null);
       setHasMore(Boolean(customersData.nextKey));
       setSummary(summaryRes.data || summary);
-      setSettlements(Array.isArray(settlementsRes.data) ? settlementsRes.data : []);
+      setSettlements([]);
     } catch (err) {
       console.error('Error loading customers:', err);
     } finally {

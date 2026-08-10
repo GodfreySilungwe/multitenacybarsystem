@@ -1,0 +1,55 @@
+{
+  "sales": [],
+  "topProducts": [],
+  "categorySales": [],
+  "dailySales": [],
+  "paymentMethods": [],
+  "totalSales": 1542000,
+  "totalProfit": 771000,
+  "totalOrders": 16,
+  "reversedOrders": 0,
+  "averageOrderValue": 96375,
+  "totalQuantitySold": 263,
+  "averageItemsPerOrder": 16.4375,
+  "grossMarginRatio": 50,
+  "totalCreditSales": 1489000,
+  "totalImmediateReceipts": 53000,
+  "directSales": 53000,
+  "customersServedCount": 3,
+  "totalCreditCollected": 1108000,
+  "customerPreviousBillsPaid": 873000,
+  "creditRecoveredFromPreviousBills": 873000,
+  "totalSettlementAmount": 1108000,
+  "totalSalesByMethodProceeds": 1161000,
+  "totalOutstandingCredit": 427000,
+  "outstandingCreditInPeriod": 407000,
+  "expectedHandoverValue": 2243000,
+  "creditSettlementSummary": [
+    { "method": "Cash", "amount": 1098000 },
+    { "method": "Airtel Money", "amount": 10000 },
+    { "method": "Mpamba", "amount": 0 },
+    { "method": "Bank Account", "amount": 0 }
+  ],
+  "paymentMethodProceeds": [
+    { "method": "Cash", "directAmount": 37000, "settlementAmount": 1098000, "totalAmount": 1135000 },
+    { "method": "Airtel Money", "directAmount": 0, "settlementAmount": 10000, "totalAmount": 10000 },
+    { "method": "Mpamba", "directAmount": 10000, "settlementAmount": 0, "totalAmount": 10000 },
+    { "method": "Bank Account", "directAmount": 6000, "settlementAmount": 0, "totalAmount": 6000 }
+  ],
+  "unpaidCredit": 407000,
+  "productSales": [
+    { "productId": "04a51452-175e-4d26-8961-9e25bb3c3e8d", "name": "Green", "soldQuantity": 185, "totalAmount": 925000, "startingQty": 39, "closingQty": 9944, "currentStock": 9944 },
+    { "productId": "9ac9b349-019c-43ef-a4a6-b6323357b351", "name": "Hunters", "soldQuantity": 31, "totalAmount": 279000, "startingQty": 47, "closingQty": 16, "currentStock": 16 },
+    { "productId": "9abbc1bb-d523-45b3-855e-553fc6766cbc", "name": "Savana", "soldQuantity": 20, "totalAmount": 180000, "startingQty": 46, "closingQty": 26, "currentStock": 26 },
+    { "productId": "5ac826e9-66c4-44d2-b4c9-19fd798b3bd8", "name": "Grants Shots", "soldQuantity": 14, "totalAmount": 84000, "startingQty": 44, "closingQty": 30, "currentStock": 30 },
+    { "productId": "6efb7ce9-b113-4b1b-b926-f5c8234fafde", "name": "Special", "soldQuantity": 9, "totalAmount": 45000, "startingQty": 44, "closingQty": 35, "currentStock": 35 },
+    { "productId": "[object Object]", "name": "Grants Shots", "soldQuantity": 4, "totalAmount": 29000, "startingQty": 4, "closingQty": 0, "currentStock": 0 }
+  ],
+  "outstandingCustomers": [
+    { "customerId": "bf9bac2b-8949-4fb0-91b3-b29a14b7c125", "name": "Cus2", "phone": "654", "totalOutstandingBalance": 340000, "periodOutstandingBalance": 320000, "ordersCount": 5 },
+    { "customerId": "83e3a36d-9628-4478-bd45-67754a4731fb", "name": "Customer1", "phone": "099", "totalOutstandingBalance": 87000, "periodOutstandingBalance": 87000, "ordersCount": 2 }
+  ],
+  "outstandingCreditBySalesAccount": [
+    { "salesAccount": "public2", "outstandingBalance": 407000, "ordersCount": 7, "customerCount": 2 }
+  ]
+}
