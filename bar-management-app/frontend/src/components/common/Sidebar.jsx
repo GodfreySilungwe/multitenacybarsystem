@@ -69,6 +69,7 @@ const Sidebar = ({ isMobileOpen = false, onClose = () => {} }) => {
     { path: '/settings', label: 'Settings', icon: faCog, ownerOnly: true },
     { path: '/bars', label: 'Bars', icon: faBuilding, globalOnly: true },
     { path: '/bar-applications', label: 'Applications', icon: faClipboardList, globalOnly: true }
+    ,{ path: '/audit-log', label: 'Audit Log', icon: faTools, barOwnerOnly: true }
   ];
 
   const role = user?.role;

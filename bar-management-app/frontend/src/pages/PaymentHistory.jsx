@@ -14,6 +14,7 @@ const paymentTypeOptions = [
 
 const PaymentHistory = () => {
   const [payments, setPayments] = useState([]);
+  const [summary, setSummary] = useState({ totalsByMethod: [], totalAmount: 0 });
   const [filter, setFilter] = useState('all');
   const [customerFilter, setCustomerFilter] = useState('all');
   const [currentPage, setCurrentPage] = useState(1);
@@ -29,8 +30,10 @@ const PaymentHistory = () => {
   useEffect(() => {
     const loadPayments = async () => {
       try {
-        const res = await api.get('/customer-order-requests/payments');
-        setPayments(Array.isArray(res.data) ? res.data : []);
+        const res = await api.get('/customer-order-requests/payments', { params: { summary: true } });
+        const data = res.data || {};
+        setPayments(Array.isArray(data.payments) ? data.payments : []);
+        setSummary(data.summary || { totalsByMethod: [], totalAmount: 0 });
       } catch (err) {
         console.error('Failed to load payments', err);
       } finally {
@@ -71,7 +74,7 @@ const PaymentHistory = () => {
     (filteredPayments || []).forEach((entry) => {
       const status = entry.status || 'pending';
       if (totals[status] !== undefined) {
-        totals[status] += Number(entry.amountRequested || entry.amountApplied || 0);
+        totals[status] += Number(entry.amount || entry.amountRequested || entry.amountApplied || 0);
       }
     });
 
@@ -98,11 +101,12 @@ const PaymentHistory = () => {
   const handleExport = () => {
     const rows = filteredPayments.map((entry) => ({
       customer: entry.customerName || 'Walk-in customer',
-      amount: Number(entry.amountRequested || entry.amountApplied || 0),
+      source: entry.source || (entry.recordType === 'order_payment' ? 'POS sale' : 'Bill settlement'),
+      amount: Number(entry.amount || entry.amountRequested || entry.amountApplied || 0),
       paymentMethod: entry.paymentMethod || 'cash',
       status: entry.status || 'pending',
-      reference: entry.paymentReference || '—',
-      approvedBy: entry.approvedBy || '—',
+      reference: entry.reference || entry.paymentReference || '—',
+      approvedBy: entry.approvedBy || entry.processedByName || entry.approvedByName || '—',
       date: entry.createdAt ? new Date(entry.createdAt).toLocaleString() : '—'
     }));
 
@@ -152,7 +156,24 @@ const PaymentHistory = () => {
             </div>
           ))}
         </div>
-
+        <div style={styles.methodSummaryCard}>
+          <div style={styles.methodSummaryHeader}>
+            <div style={styles.methodSummaryTitle}>💳 Sales Proceeds by Method</div>
+            <div style={styles.methodSummarySub}>Aggregated from POS receipts, customer settlements, and customer account payments.</div>
+          </div>
+          <div style={styles.methodSummaryBody}>
+            {summary.totalsByMethod.map((item) => (
+              <div key={item.method} style={styles.methodSummaryRow}>
+                <span>{item.method}</span>
+                <strong>{formatPriceMK(item.amount)}</strong>
+              </div>
+            ))}
+            <div style={styles.methodSummaryFooter}>
+              <span style={styles.methodSummaryTotalLabel}>Total</span>
+              <strong style={styles.methodSummaryTotalValue}>{formatPriceMK(summary.totalAmount)}</strong>
+            </div>
+          </div>
+        </div>
         {loading ? (
           <p>Loading payments...</p>
         ) : filteredPayments.length === 0 ? (
@@ -167,17 +188,17 @@ const PaymentHistory = () => {
                       <div style={styles.customerName}>{entry.customerName || 'Walk-in customer'}</div>
                       <div style={styles.meta}>Method: {entry.paymentMethod || 'cash'}</div>
                     </div>
-                    <div style={styles.amount}>{formatPriceMK(entry.amountRequested || entry.amountApplied || 0)}</div>
+                    <div style={styles.amount}>{formatPriceMK(entry.amount || entry.amountRequested || entry.amountApplied || 0)}</div>
                   </div>
                   <div style={styles.row}>
-                    <div style={styles.meta}>Status: {entry.status || 'pending'}</div>
-                    <div style={styles.meta}>Processed by: {entry.approvedBy || entry.processedBy || '—'}</div>
+                    <div style={styles.meta}>Type: {entry.source === 'pos_sale' ? 'POS sale' : entry.source === 'bill_settlement' ? 'Bill settlement' : 'Account payment'}</div>
+                    <div style={styles.meta}>Processed by: {entry.approvedBy || entry.processedByName || entry.approvedByName || '—'}</div>
                   </div>
                   <div style={styles.row}>
-                    <div style={styles.meta}>{entry.paymentReference || 'No reference provided'}</div>
+                    <div style={styles.meta}>{entry.reference || 'No reference provided'}</div>
                     <div style={styles.meta}>{entry.createdAt ? new Date(entry.createdAt).toLocaleString() : '—'}</div>
                   </div>
-                  {canManagePayments && entry.status === 'pending' && (
+                  {canManagePayments && entry.status === 'pending' && entry.source === 'bill_settlement' && (
                     <div style={styles.actionsRow}>
                       <button type="button" onClick={() => handlePaymentAction(entry, 'confirm')} style={styles.confirmBtn}>Confirm</button>
                       <button type="button" onClick={() => handlePaymentAction(entry, 'reject')} style={styles.rejectBtn}>Reject</button>
@@ -303,6 +324,83 @@ const styles = {
     fontSize: '15px',
     fontWeight: '700',
     color: '#111827'
+  },
+  methodSummaryCard: {
+    border: '1px solid #e5e7eb',
+    borderRadius: '14px',
+    padding: '16px',
+    backgroundColor: '#ffffff',
+    marginBottom: '16px'
+  },
+  methodSummaryHeader: {
+    display: 'flex',
+    justifyContent: 'space-between',
+    alignItems: 'flex-start',
+    gap: '12px',
+    marginBottom: '12px'
+  },
+  methodSummaryTitle: {
+    fontSize: '16px',
+    fontWeight: '700',
+    color: '#111827'
+  },
+  methodSummarySub: {
+    fontSize: '13px',
+    color: '#6b7280',
+    lineHeight: 1.4
+  },
+  methodSummaryBody: {
+    display: 'flex',
+    flexDirection: 'column',
+    gap: '10px'
+  },
+  methodSummaryRow: {
+    display: 'flex',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    padding: '10px 12px',
+    borderRadius: '10px',
+    backgroundColor: '#f8fafc'
+  },
+  methodSummaryFooter: {
+    display: 'flex',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginTop: '10px',
+    paddingTop: '10px',
+    borderTop: '1px solid #e5e7eb'
+  },
+  methodSummaryTotalLabel: {
+    fontSize: '14px',
+    color: '#6b7280'
+  },
+  methodSummaryTotalValue: {
+    fontSize: '16px',
+    fontWeight: '700',
+    color: '#111827'
+  },
+  actionsRow: {
+    display: 'flex',
+    gap: '10px',
+    marginTop: '12px'
+  },
+  confirmBtn: {
+    padding: '8px 14px',
+    borderRadius: '10px',
+    border: 'none',
+    backgroundColor: '#2ecc71',
+    color: 'white',
+    cursor: 'pointer',
+    fontWeight: '700'
+  },
+  rejectBtn: {
+    padding: '8px 14px',
+    borderRadius: '10px',
+    border: 'none',
+    backgroundColor: '#e94560',
+    color: 'white',
+    cursor: 'pointer',
+    fontWeight: '700'
   },
   empty: {
     color: '#6b7280',

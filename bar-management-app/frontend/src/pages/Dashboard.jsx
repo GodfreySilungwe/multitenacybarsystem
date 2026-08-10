@@ -21,7 +21,8 @@ import PageContainer from './PageContainer';
 import { formatPriceMK } from '../utils/formatPrice';
 
 const Dashboard = () => {
-  const { isGlobalOwner, isSales, isBarOwner, isOwner } = useAuth();
+  const { isGlobalOwner, isSales, isBarOwner, isOwner, user } = useAuth();
+  const isManager = user?.role === 'manager';
   const [stats, setStats] = useState({
     todaySales: 0,
     todaySalesProceeds: 0,
@@ -53,6 +54,7 @@ const Dashboard = () => {
   const [totalOutstandingCredit, setTotalOutstandingCredit] = useState(0);
   const [outstandingCreditInPeriod, setOutstandingCreditInPeriod] = useState(0);
   const [productSales, setProductSales] = useState([]);
+  const [productsList, setProductsList] = useState([]);
   const [outstandingCustomers, setOutstandingCustomers] = useState([]);
   const [unpaidCredit, setUnpaidCredit] = useState(0);
   const [totalCreditSales, setTotalCreditSales] = useState(0);
@@ -162,6 +164,7 @@ const Dashboard = () => {
           pendingApplications: 0
         });
         setRecentOrders(recent);
+        setProductsList(products);
         setLowStockProducts(lowStock);
         setCreditSettlementSummary(summaryData.creditSettlementSummary || []);
         setPaymentMethodProceeds(summaryData.paymentMethodProceeds || []);
@@ -197,6 +200,17 @@ const Dashboard = () => {
   const totalStartQty = productSales.reduce((sum, item) => sum + (item.startingQty !== null ? Number(item.startingQty || 0) : 0), 0);
   const totalClosingQty = productSales.reduce((sum, item) => sum + Number(item.closingQty || 0), 0);
   const totalProductSalesAmount = productSales.reduce((sum, item) => sum + Number(item.totalAmount || 0), 0);
+  const inventoryValueAtCost = (productsList || []).reduce((sum, p) => {
+    const qty = Number(p.currentStock || 0);
+    const cost = Number(p.costPrice || p.purchasePrice || 0);
+    return sum + qty * cost;
+  }, 0);
+
+  const inventoryValueAtSelling = (productsList || []).reduce((sum, p) => {
+    const qty = Number(p.currentStock || 0);
+    const sell = Number(p.sellingPrice || p.price || 0);
+    return sum + qty * sell;
+  }, 0);
   const expectedHandoverValue = Number(stats.todaySales || 0) - Number(outstandingCreditInPeriod || 0) + Number(totalCreditCollected || 0);
   const outstandingCustomerCount = outstandingCustomers.length || 0;
   const totalCustomersServed = stats.customersServed || 0;
@@ -316,6 +330,16 @@ const Dashboard = () => {
         </>
       ) : (
         <>
+          {isManager && (
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: 12, marginBottom: 14 }}>
+              <div className="fade-in delay-0" style={styles.statItem}>
+                <StatsCard title="Inventory Value (Cost)" value={inventoryValueAtCost} icon={faBox} color="#6c757d" isCurrency />
+              </div>
+              <div className="fade-in delay-0" style={styles.statItem}>
+                <StatsCard title="Inventory Value (Selling)" value={inventoryValueAtSelling} icon={faBox} color="#28a745" isCurrency />
+              </div>
+            </div>
+          )}
           <div style={styles.dateFilterRow}>
             <div style={styles.filters}>
               {['today', 'custom'].map((option) => (
