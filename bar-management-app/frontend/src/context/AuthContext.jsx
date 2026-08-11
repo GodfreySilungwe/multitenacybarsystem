@@ -91,7 +91,8 @@ export const AuthProvider = ({ children }) => {
       isOwner: user?.role === 'owner',
       isBarOwner: user?.role === 'owner' && !!user?.barId,
       isGlobalOwner: user?.role === 'owner' && !user?.barId,
-      isSales: user?.role === 'sales'
+      isSales: user?.role === 'sales',
+      isManager: user?.role === 'manager'
     }}>
       {children}
     </AuthContext.Provider>

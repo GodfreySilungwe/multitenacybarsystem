@@ -82,7 +82,7 @@ const Sidebar = ({ isMobileOpen = false, onClose = () => {} }) => {
       return item.customerOnly === true || item.path === '/customer-portal';
     }
 
-    if (role === 'sales') {
+    if (role === 'sales' || role === 'manager') {
       return item.salesOnly === true || item.salesAndOwnerOnly === true || item.barOwnerOrSales === true || item.path === '/';
     }
 

@@ -38,7 +38,14 @@ const Orders = () => {
   }, [filter, customStartDate, customEndDate]);
 
   const getLocalDateString = (date = new Date()) => {
-    return date.toLocaleDateString('en-CA');
+    const MALAWI_OFFSET_MINUTES = 120;
+    const utcMs = date.getTime();
+    const localMs = utcMs + MALAWI_OFFSET_MINUTES * 60000;
+    const localDate = new Date(localMs);
+    const year = localDate.getUTCFullYear();
+    const month = String(localDate.getUTCMonth() + 1).padStart(2, '0');
+    const day = String(localDate.getUTCDate()).padStart(2, '0');
+    return `${year}-${month}-${day}`;
   };
 
   const buildOrderParams = (options = {}) => {
@@ -304,7 +311,7 @@ const Orders = () => {
                         }}
                       >
                         <td style={styles.orderNumber}>{order.orderNumber}</td>
-                        <td>{order.customer?.name || 'Walk-in'}</td>
+                        <td>{order.customerName || order.customer?.name || 'Walk-in'}</td>
                         <td>
                           <span style={styles.itemCount}>
                             {order.items.length} item{order.items.length > 1 ? 's' : ''}

@@ -22,7 +22,7 @@ import { formatPriceMK } from '../utils/formatPrice';
 
 const Dashboard = () => {
   const { isGlobalOwner, isSales, isBarOwner, isOwner, user } = useAuth();
-  const isManager = user?.role === 'manager';
+  const showInventoryCards = isBarOwner || user?.role === 'manager';
   const [stats, setStats] = useState({
     todaySales: 0,
     todaySalesProceeds: 0,
@@ -216,6 +216,20 @@ const Dashboard = () => {
   const totalCustomersServed = stats.customersServed || 0;
   const totalItemsSold = stats.totalItemsSold || totalProductSoldQty;
 
+  const directPaymentMethodProceeds = paymentMethodProceeds.filter(
+    (method) => String(method.method).toLowerCase() !== 'credit'
+  );
+  const creditByMethodProceeds = creditSettlementSummary || [];
+  const totalDirectPaymentProceeds = directPaymentMethodProceeds.reduce(
+    (sum, method) => sum + Number(method.totalAmount || 0),
+    0
+  );
+  const totalCreditPaidByMethod = creditByMethodProceeds.reduce(
+    (sum, method) => sum + Number(method.amount || 0),
+    0
+  );
+  const outstandingCreditValue = Number(outstandingCreditInPeriod || 0);
+
   if (loading) {
     return (
       <PageContainer title="📊 Dashboard">
@@ -330,16 +344,6 @@ const Dashboard = () => {
         </>
       ) : (
         <>
-          {isManager && (
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: 12, marginBottom: 14 }}>
-              <div className="fade-in delay-0" style={styles.statItem}>
-                <StatsCard title="Inventory Value (Cost)" value={inventoryValueAtCost} icon={faBox} color="#6c757d" isCurrency />
-              </div>
-              <div className="fade-in delay-0" style={styles.statItem}>
-                <StatsCard title="Inventory Value (Selling)" value={inventoryValueAtSelling} icon={faBox} color="#28a745" isCurrency />
-              </div>
-            </div>
-          )}
           <div style={styles.dateFilterRow}>
             <div style={styles.filters}>
               {['today', 'custom'].map((option) => (
@@ -379,9 +383,20 @@ const Dashboard = () => {
             )}
           </div>
 
+          {showInventoryCards && (
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: 12, marginBottom: 14 }}>
+              <div className="fade-in delay-0" style={styles.statItem}>
+                <StatsCard title="Inventory Value (Cost)" value={inventoryValueAtCost} icon={faBox} color="#6c757d" isCurrency />
+              </div>
+              <div className="fade-in delay-0" style={styles.statItem}>
+                <StatsCard title="Inventory Value (Selling)" value={inventoryValueAtSelling} icon={faBox} color="#28a745" isCurrency />
+              </div>
+            </div>
+          )}
+
           <div style={styles.statsGrid}>
             <div className="fade-in delay-1" style={styles.statItem}>
-              <StatsCard title="Sales" value={stats.todaySales} icon={faDollarSign} color="#e94560" isCurrency />
+              <StatsCard title="Total Sales" value={stats.todaySales} icon={faDollarSign} color="#e94560" isCurrency />
             </div>
             <div className="fade-in delay-2" style={styles.statItem}>
               <StatsCard title="Orders" value={stats.totalOrders} icon={faShoppingCart} color="#3498db" />
@@ -492,31 +507,77 @@ const Dashboard = () => {
 
 
           <div className="fade-in" style={{ marginBottom: '20px' }}>
-            <UnifiedCard title="💳 Sales Proceeds by Method">
-              <p style={styles.sectionDescription}>Aggregated from POS receipts, customer settlements, and customer account payments.</p>
-              {paymentMethodProceeds.length > 0 ? (
-                <div style={styles.tableWrapper}>
-                  <table style={styles.table}>
-                    <thead>
-                      <tr>
-                        <th>Payment Method</th>
-                        <th>Amount</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {paymentMethodProceeds.map((method) => (
-                        <tr key={method.method} style={styles.tableRow}>
-                          <td style={styles.orderNumber}>{method.method}</td>
-                          <td style={styles.amount}>{formatPriceMK(method.totalAmount)}</td>
-                        </tr>
-                      ))}
-                      <tr style={styles.tableRow}>
-                        <td style={styles.orderNumber}><strong>Total</strong></td>
-                        <td style={styles.amount}><strong>{formatPriceMK(paymentMethodProceeds.reduce((sum, method) => sum + Number(method.totalAmount || 0), 0))}</strong></td>
-                      </tr>
-                    </tbody>
-                  </table>
-                </div>
+            <UnifiedCard title="💳 Payment Summary & Credit Breakdown">
+              <p style={styles.sectionDescription}>This section separates direct receipt proceeds by method, outstanding customer credit, and bill repayment by credit payment method. Older credit payments without a recorded method are counted as Cash.</p>
+              {(paymentMethodProceeds.length > 0 || creditByMethodProceeds.length > 0) ? (
+                <>
+                  <div style={styles.sectionTitleRow}>
+                    <div style={styles.sectionTitle}>Direct Receipt Proceeds by Method</div>
+                  </div>
+                  {directPaymentMethodProceeds.length > 0 ? (
+                    <div style={styles.tableWrapper}>
+                      <table style={styles.table}>
+                        <thead>
+                          <tr>
+                            <th>Payment Method</th>
+                            <th>Amount</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {directPaymentMethodProceeds.map((method) => (
+                            <tr key={method.method} style={styles.tableRow}>
+                              <td style={styles.orderNumber}>{method.method}</td>
+                              <td style={styles.amount}>{formatPriceMK(method.totalAmount)}</td>
+                            </tr>
+                          ))}
+                          <tr style={styles.tableRow}>
+                            <td style={styles.orderNumber}><strong>Total</strong></td>
+                            <td style={styles.amount}><strong>{formatPriceMK(totalDirectPaymentProceeds)}</strong></td>
+                          </tr>
+                        </tbody>
+                      </table>
+                    </div>
+                  ) : (
+                    <div style={styles.emptyState}>
+                      <p style={styles.emptyIcon}>💳</p>
+                      <p style={styles.emptyText}>No direct payment proceeds recorded for this period</p>
+                    </div>
+                  )}
+
+                  <div style={styles.creditSummaryRow}>
+                    <div style={styles.creditSummaryLabel}>Outstanding Credit</div>
+                    <div style={styles.creditSummaryValue}>{formatPriceMK(outstandingCreditValue)}</div>
+                  </div>
+
+                  {creditByMethodProceeds.length > 0 && (
+                    <div style={{ marginTop: '18px' }}>
+                      <div style={styles.sectionTitle}>Bill Repayment</div>
+                      <div style={styles.disclaimerText}>Only payments that were applied to credit orders are included here. Older payments with no method recorded are counted as Cash.</div>
+                      <div style={styles.tableWrapper}>
+                        <table style={styles.table}>
+                          <thead>
+                            <tr>
+                              <th>Payment Method</th>
+                              <th>Amount</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {creditByMethodProceeds.map((method) => (
+                              <tr key={method.method} style={styles.tableRow}>
+                                <td style={styles.orderNumber}>{method.method}</td>
+                                <td style={styles.amount}>{formatPriceMK(method.amount)}</td>
+                              </tr>
+                            ))}
+                            <tr style={styles.tableRow}>
+                              <td style={styles.orderNumber}><strong>Total</strong></td>
+                              <td style={styles.amount}><strong>{formatPriceMK(totalCreditPaidByMethod)}</strong></td>
+                            </tr>
+                          </tbody>
+                        </table>
+                      </div>
+                    </div>
+                  )}
+                </>
               ) : (
                 <div style={styles.emptyState}>
                   <p style={styles.emptyIcon}>💳</p>
@@ -535,7 +596,7 @@ const Dashboard = () => {
                       <tr>
                         <th>Product</th>
                         <th>Start Qty</th>
-                        <th>Purchase Qty</th>
+                        <th>Purchase Order Qty</th>
                         <th>Sold Qty</th>
                         <th>Closing Qty</th>
                         <th>Total Amount</th>
@@ -546,16 +607,16 @@ const Dashboard = () => {
                         <tr key={item.productId || item.name} style={styles.tableRow}>
                           <td style={styles.orderNumber}>{item.name}</td>
                           <td>{item.startingQty !== null ? item.startingQty : '-'}</td>
-                          <td>{item.purchaseOrdersQty || 0}</td>
+                          <td>{item.purchaseOrdersQty ? item.purchaseOrdersQty : '-'}</td>
                           <td>{item.soldQuantity}</td>
                           <td>{item.closingQty}</td>
                           <td style={styles.amount}>{formatPriceMK(item.totalAmount)}</td>
                         </tr>
                       ))}
                       <tr style={styles.tableRow}>
-                        <td style={styles.orderNumber}><strong>Total (including unpaid bills)</strong></td>
+                        <td style={styles.orderNumber}><strong>Total (including unpaid bills) — Purchase Order Qty</strong></td>
                         <td>{totalStartQty}</td>
-                        <td>{totalPurchaseOrdersQty}</td>
+                        <td>{totalPurchaseOrdersQty ? totalPurchaseOrdersQty : '-'}</td>
                         <td>{totalProductSoldQty}</td>
                         <td>{totalClosingQty}</td>
                         <td style={styles.amount}><strong>{formatPriceMK(totalProductSalesAmount)}</strong></td>
@@ -745,6 +806,26 @@ const styles = {
     display: 'grid',
     gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))',
     gap: '16px'
+  },
+  creditSummaryRow: {
+    display: 'flex',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    padding: '14px 18px',
+    borderRadius: '12px',
+    border: '1px solid #e6e8ed',
+    backgroundColor: '#fff',
+    marginTop: '18px'
+  },
+  creditSummaryLabel: {
+    fontSize: '14px',
+    color: '#374151',
+    fontWeight: '600'
+  },
+  creditSummaryValue: {
+    fontSize: '16px',
+    color: '#1f2937',
+    fontWeight: '700'
   },
   handoverMetric: {
     padding: '18px 16px',
@@ -1056,6 +1137,20 @@ const styles = {
     fontWeight: '600',
     textTransform: 'capitalize',
     display: 'inline-block'
+  },
+  sectionTitleRow: {
+    marginBottom: '12px'
+  },
+  sectionTitle: {
+    fontSize: '16px',
+    fontWeight: '700',
+    color: '#111827'
+  },
+  disclaimerText: {
+    marginTop: '8px',
+    marginBottom: '12px',
+    fontSize: '13px',
+    color: '#555'
   },
   cash: {
     backgroundColor: '#d5f5e3',

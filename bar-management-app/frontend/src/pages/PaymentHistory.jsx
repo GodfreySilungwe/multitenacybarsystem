@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { saveAs } from 'file-saver';
 import api from '../api/api';
 import { useAuth } from '../context/AuthContext';
@@ -9,18 +9,26 @@ const paymentTypeOptions = [
   { value: 'all', label: 'All requests' },
   { value: 'pending', label: 'Pending' },
   { value: 'confirmed', label: 'Confirmed' },
-  { value: 'rejected', label: 'Rejected' }
+  { value: 'rejected', label: 'Rejected' },
+  { value: 'reversed', label: 'Reversed' }
 ];
+
+const paymentMethodLabels = {
+  cash: 'Cash',
+  airtel_money: 'Airtel Money',
+  mpamba: 'Mpamba',
+  bank_account: 'Bank Account',
+  credit: 'Credit'
+};
 
 const PaymentHistory = () => {
   const [payments, setPayments] = useState([]);
-  const [summary, setSummary] = useState({ totalsByMethod: [], totalAmount: 0 });
   const [filter, setFilter] = useState('all');
   const [customerFilter, setCustomerFilter] = useState('all');
   const [currentPage, setCurrentPage] = useState(1);
   const [loading, setLoading] = useState(true);
   const { user } = useAuth();
-  const canManagePayments = ['owner', 'sales'].includes(user?.role) && Boolean(user?.barId);
+  const canManagePayments = ['owner', 'sales', 'manager'].includes(user?.role) && Boolean(user?.barId);
   const PAGE_SIZE = 20;
 
   useEffect(() => {
@@ -33,7 +41,6 @@ const PaymentHistory = () => {
         const res = await api.get('/customer-order-requests/payments', { params: { summary: true } });
         const data = res.data || {};
         setPayments(Array.isArray(data.payments) ? data.payments : []);
-        setSummary(data.summary || { totalsByMethod: [], totalAmount: 0 });
       } catch (err) {
         console.error('Failed to load payments', err);
       } finally {
@@ -64,11 +71,31 @@ const PaymentHistory = () => {
     return filteredPayments.slice(startIndex, startIndex + PAGE_SIZE);
   }, [currentPage, filteredPayments]);
 
+  const formatMethodLabel = useCallback((method) => {
+    const key = String(method || 'cash').toLowerCase();
+    return paymentMethodLabels[key] || key.replace(/_/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase());
+  }, []);
+
+  const groupPaymentsByMethod = useCallback((paymentItems = []) => {
+    const aggregates = paymentItems.reduce((acc, payment) => {
+      const amount = Number(payment.amount || 0);
+      if (amount <= 0) return acc;
+      const method = formatMethodLabel(payment.paymentMethod || 'cash');
+      acc[method] = (acc[method] || 0) + amount;
+      return acc;
+    }, {});
+
+    return Object.keys(aggregates)
+      .map((method) => ({ method, amount: aggregates[method] }))
+      .sort((a, b) => b.amount - a.amount);
+  }, [formatMethodLabel]);
+
   const summaryCards = useMemo(() => {
     const totals = {
       pending: 0,
       confirmed: 0,
-      rejected: 0
+      rejected: 0,
+      reversed: 0
     };
 
     (filteredPayments || []).forEach((entry) => {
@@ -81,15 +108,39 @@ const PaymentHistory = () => {
     return [
       { label: 'Pending requests', value: totals.pending, color: '#e94560' },
       { label: 'Confirmed payments', value: totals.confirmed, color: '#3498db' },
-      { label: 'Rejected requests', value: totals.rejected, color: '#2ecc71' }
+      { label: 'Rejected requests', value: totals.rejected, color: '#2ecc71' },
+      { label: 'Reversed payments', value: totals.reversed, color: '#f39c12' }
     ];
   }, [filteredPayments]);
+
+  const directSalesByMethod = useMemo(() => {
+    return groupPaymentsByMethod(payments.filter((entry) => entry.source === 'pos_sale'));
+  }, [payments, groupPaymentsByMethod]);
+
+  const billManagementPaidByMethod = useMemo(() => {
+    return groupPaymentsByMethod(payments.filter((entry) => entry.source === 'bill_settlement' && entry.status === 'confirmed'));
+  }, [payments, groupPaymentsByMethod]);
+
+  const outstandingCreditAmount = useMemo(() => {
+    return payments
+      .filter((entry) => entry.source === 'bill_settlement' && entry.status === 'pending')
+      .reduce((sum, entry) => sum + Number(entry.amount || 0), 0);
+  }, [payments]);
 
   const handlePaymentAction = async (entry, action) => {
     if (!window.confirm(`Are you sure you want to ${action} this payment request?`)) return;
 
+    let payload = {};
+    if (['confirm', 'reject', 'reverse'].includes(action)) {
+      const password = window.prompt('Enter the current sales account password to continue:');
+      if (!password) {
+        return;
+      }
+      payload.password = password;
+    }
+
     try {
-      const res = await api.patch(`/customer-order-requests/payments/${entry._id}/${action}`);
+      const res = await api.patch(`/customer-order-requests/payments/${entry._id}/${action}`, payload);
       setPayments((prev) => prev.map((item) => (item._id === entry._id ? res.data.paymentRequest || res.data : item)));
       window.dispatchEvent(new Event('payment-updated'));
     } catch (err) {
@@ -158,19 +209,36 @@ const PaymentHistory = () => {
         </div>
         <div style={styles.methodSummaryCard}>
           <div style={styles.methodSummaryHeader}>
-            <div style={styles.methodSummaryTitle}>💳 Sales Proceeds by Method</div>
-            <div style={styles.methodSummarySub}>Aggregated from POS receipts, customer settlements, and customer account payments.</div>
+            <div style={styles.methodSummaryTitle}>💳 Sales Proceeds Summary</div>
+            <div style={styles.methodSummarySub}>Direct sales, confirmed bill settlements, and outstanding credit balances.</div>
           </div>
           <div style={styles.methodSummaryBody}>
-            {summary.totalsByMethod.map((item) => (
-              <div key={item.method} style={styles.methodSummaryRow}>
-                <span>{item.method}</span>
-                <strong>{formatPriceMK(item.amount)}</strong>
+            <div style={styles.methodSummarySection}>
+              <div style={styles.methodSummarySectionTitle}>Direct sales by method</div>
+              {(directSalesByMethod.length > 0 ? directSalesByMethod : [{ method: 'No direct sales yet', amount: 0 }]).map((item) => (
+                <div key={item.method} style={styles.methodSummaryRow}>
+                  <span>{item.method}</span>
+                  <strong>{formatPriceMK(item.amount)}</strong>
+                </div>
+              ))}
+            </div>
+
+            <div style={styles.methodSummarySection}>
+              <div style={styles.methodSummarySectionTitle}>Bill management paid by method</div>
+              {(billManagementPaidByMethod.length > 0 ? billManagementPaidByMethod : [{ method: 'No paid settlements yet', amount: 0 }]).map((item) => (
+                <div key={item.method} style={styles.methodSummaryRow}>
+                  <span>{item.method}</span>
+                  <strong>{formatPriceMK(item.amount)}</strong>
+                </div>
+              ))}
+            </div>
+
+            <div style={styles.methodSummarySection}>
+              <div style={styles.methodSummarySectionTitle}>Outstanding credit</div>
+              <div style={styles.methodSummaryRow}>
+                <span>Total pending bill amount</span>
+                <strong>{formatPriceMK(outstandingCreditAmount)}</strong>
               </div>
-            ))}
-            <div style={styles.methodSummaryFooter}>
-              <span style={styles.methodSummaryTotalLabel}>Total</span>
-              <strong style={styles.methodSummaryTotalValue}>{formatPriceMK(summary.totalAmount)}</strong>
             </div>
           </div>
         </div>
@@ -198,10 +266,15 @@ const PaymentHistory = () => {
                     <div style={styles.meta}>{entry.reference || 'No reference provided'}</div>
                     <div style={styles.meta}>{entry.createdAt ? new Date(entry.createdAt).toLocaleString() : '—'}</div>
                   </div>
-                  {canManagePayments && entry.status === 'pending' && entry.source === 'bill_settlement' && (
+                  {canManagePayments && entry.source === 'bill_settlement' && entry.status === 'pending' && (
                     <div style={styles.actionsRow}>
                       <button type="button" onClick={() => handlePaymentAction(entry, 'confirm')} style={styles.confirmBtn}>Confirm</button>
                       <button type="button" onClick={() => handlePaymentAction(entry, 'reject')} style={styles.rejectBtn}>Reject</button>
+                    </div>
+                  )}
+                  {canManagePayments && entry.source === 'bill_settlement' && entry.status === 'confirmed' && (
+                    <div style={styles.actionsRow}>
+                      <button type="button" onClick={() => handlePaymentAction(entry, 'reverse')} style={styles.reverseBtn}>Reverse</button>
                     </div>
                   )}
                 </div>
@@ -352,7 +425,17 @@ const styles = {
   methodSummaryBody: {
     display: 'flex',
     flexDirection: 'column',
+    gap: '18px'
+  },
+  methodSummarySection: {
+    display: 'grid',
     gap: '10px'
+  },
+  methodSummarySectionTitle: {
+    fontSize: '14px',
+    fontWeight: '700',
+    color: '#111827',
+    marginBottom: '8px'
   },
   methodSummaryRow: {
     display: 'flex',

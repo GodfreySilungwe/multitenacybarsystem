@@ -25,7 +25,7 @@ const ProtectedRoute = ({ children, ownerOnly = false, barOwnerOnly = false, glo
     return <Navigate to="/" replace />;
   }
 
-  if (barOwnerOrSales && !(isSales || isBarOwner)) {
+  if (barOwnerOrSales && !(isSales || isBarOwner || user?.role === 'manager')) {
     return <Navigate to="/" replace />;
   }
 
