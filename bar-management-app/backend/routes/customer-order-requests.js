@@ -7,6 +7,7 @@ const Product = require('../models/Product');
 const Customer = require('../models/Customer');
 const Order = require('../models/Order');
 const { recomputeCustomerCreditBalance } = require('../lib/credit');
+const { createAuditEntry } = require('../lib/audit');
 
 router.use(protect);
 
@@ -55,6 +56,56 @@ const enrichPaymentRequest = async (paymentRequest) => {
   }
 
   return paymentRequest;
+};
+
+const buildPaymentRecordFromRequest = (paymentRequest) => {
+    const amount = Number(paymentRequest.amountApplied || paymentRequest.amountRequested || paymentRequest.amount || 0);
+  const validMethods = ['cash', 'airtel_money', 'mpamba', 'bank_account', 'credit'];
+  const rawMethod = String(paymentRequest.paymentMethod || 'cash').toLowerCase();
+  const normalizedMethod = validMethods.includes(rawMethod) ? rawMethod : 'cash';
+
+  return {
+    _id: paymentRequest._id,
+    source: 'bill_settlement',
+    recordType: 'payment_request',
+    customerName: paymentRequest.customerName || 'Walk-in customer',
+    amount,
+    paymentMethod: normalizedMethod,
+    status: paymentRequest.status === 'pending'
+      ? 'pending'
+      : paymentRequest.status === 'rejected'
+        ? 'rejected'
+        : 'confirmed',
+    reference: paymentRequest.paymentReference || '',
+    approvedBy: paymentRequest.approvedByName || paymentRequest.approvedBy || '',
+    createdAt: paymentRequest.createdAt,
+    confirmedAt: paymentRequest.confirmedAt,
+    description: paymentRequest.status === 'pending'
+      ? 'Pending bill settlement'
+      : paymentRequest.status === 'rejected'
+        ? 'Rejected bill settlement'
+        : 'Confirmed bill settlement'
+  };
+};
+
+const buildPaymentRecordFromOrder = (order) => {
+  const amount = Number(order.amountPaid || 0);
+  const status = order.paymentStatus === 'paid' ? 'confirmed' : 'partial';
+  return {
+    _id: `order-${order._id}`,
+    source: 'pos_sale',
+    recordType: 'order_payment',
+    orderId: order._id,
+    orderNumber: order.orderNumber || '',
+    customerName: order.customerName || 'Walk-in customer',
+    amount,
+    paymentMethod: order.paymentMethod || 'cash',
+    status,
+    reference: order.paymentReference || '',
+    approvedBy: order.processedByName || order.processedBy || '',
+    createdAt: order.createdAt,
+    description: order.paymentStatus === 'paid' ? 'POS receipt' : 'Partial POS payment'
+  };
 };
 
 const normalizeRequestItems = async (items = [], barId) => {
@@ -339,7 +390,8 @@ router.post('/pay-bill', async (req, res) => {
       return res.status(400).json({ message: 'Payment amount must be greater than zero.' });
     }
 
-    const normalizedPaymentMethod = ['cash', 'airtel_money', 'mpamba', 'bank_account'].includes(paymentMethod) ? paymentMethod : 'cash';
+    const allowedPaymentMethods = ['cash', 'airtel_money', 'mpamba', 'bank_account'];
+    const normalizedPaymentMethod = allowedPaymentMethods.includes(paymentMethod) ? paymentMethod : 'cash';
     const trimmedReference = String(paymentReference || '').trim();
 
     if (normalizedPaymentMethod !== 'cash' && !trimmedReference) {
@@ -351,14 +403,17 @@ router.post('/pay-bill', async (req, res) => {
       return res.status(404).json({ message: 'Customer not found.' });
     }
 
+    const creditPaymentMethod = `credit_${normalizedPaymentMethod}`;
     const paymentRequest = new CustomerPaymentRequest({
       barId: req.user.barId,
       customerId,
       customerName: customer.name || customer.fullName || '',
       amountRequested: paymentAmount,
       amountApplied: 0,
-      paymentMethod: normalizedPaymentMethod,
+      paymentMethod: normalizedPaymentMethod || 'cash',
+      creditPaymentMethod,
       paymentReference: trimmedReference,
+      source: 'credit_settlement',
       status: 'pending',
       createdAt: new Date().toISOString()
     });
@@ -373,14 +428,63 @@ router.post('/pay-bill', async (req, res) => {
 
 router.get('/payments', async (req, res) => {
   try {
-    const { customerId } = req.query;
-    const query = { barId: req.user.barId };
+    const { customerId, summary } = req.query;
+    const requestQuery = { barId: req.user.barId };
     if (customerId) {
-      query.customerId = customerId;
+      requestQuery.customerId = customerId;
     }
-    const payments = await CustomerPaymentRequest.find(query).sort({ createdAt: -1 });
-    const enrichedPayments = await Promise.all((payments || []).map(enrichPaymentRequest));
-    res.json(enrichedPayments);
+
+    const paymentRequests = await CustomerPaymentRequest.find(requestQuery).sort({ createdAt: -1 });
+    const enrichedPaymentRequests = await Promise.all((paymentRequests || []).map(enrichPaymentRequest));
+    const requestRecords = (enrichedPaymentRequests || []).map(buildPaymentRecordFromRequest);
+
+    const orderQuery = {
+      barId: req.user.barId,
+      reversed: { $ne: true },
+      amountPaid: { $gt: 0 }
+    };
+    if (customerId) {
+      orderQuery.customer = customerId;
+    }
+
+    const paidOrders = await Order.find(orderQuery).sort({ createdAt: -1 });
+    const orderRecords = (paidOrders || []).map(buildPaymentRecordFromOrder);
+
+    const payments = [...requestRecords, ...orderRecords].sort((a, b) => {
+      const first = new Date(a.createdAt).getTime() || 0;
+      const second = new Date(b.createdAt).getTime() || 0;
+      return second - first;
+    });
+
+    if (summary === 'true' || summary === '1') {
+      const methodLabels = {
+        cash: 'Cash',
+        airtel_money: 'Airtel Money',
+        mpamba: 'Mpamba',
+        bank_account: 'Bank Account',
+        credit: 'Credit'
+      };
+
+      const totalsByMethod = payments.reduce((acc, payment) => {
+        const amount = Number(payment.amount || 0);
+        if (amount <= 0) {
+          return acc;
+        }
+        const methodKey = String(payment.paymentMethod || 'cash').toLowerCase();
+        const label = methodLabels[methodKey] || methodKey.replace(/_/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase());
+        acc[label] = (acc[label] || 0) + amount;
+        return acc;
+      }, {});
+
+      const totalsList = Object.keys(totalsByMethod)
+        .map((label) => ({ method: label, amount: totalsByMethod[label] }))
+        .sort((a, b) => b.amount - a.amount);
+      const totalAmount = totalsList.reduce((sum, item) => sum + item.amount, 0);
+
+      return res.json({ payments, summary: { totalsByMethod: totalsList, totalAmount } });
+    }
+
+    res.json(payments);
   } catch (error) {
     res.status(500).json({ message: error.message });
   }
@@ -450,10 +554,14 @@ router.patch('/payments/:id/confirm', isBarOwnerOrSales, async (req, res) => {
           continue;
         }
 
+        const rawMethod = String(paymentRequest.paymentMethod || 'cash').toLowerCase();
+        const allowedPaymentMethods = ['cash', 'airtel_money', 'mpamba', 'bank_account'];
+        const normalizedMethod = allowedPaymentMethods.includes(rawMethod) ? rawMethod : 'cash';
+
         requestDoc.amountPaid = toNumber(requestDoc.amountPaid, 0) + paymentApplied;
         requestDoc.paymentStatus = order.balanceDue > 0 ? 'partial' : 'paid';
-        requestDoc.paymentMethod = paymentRequest.paymentMethod;
-        requestDoc.paymentReference = paymentRequest.paymentReference;
+        requestDoc.paymentMethod = normalizedMethod;
+        requestDoc.paymentReference = paymentRequest.paymentReference || '';
         requestDoc.paidAt = new Date().toISOString();
         await requestDoc.save();
         updatedRequests.push(requestDoc);
@@ -464,7 +572,22 @@ router.patch('/payments/:id/confirm', isBarOwnerOrSales, async (req, res) => {
     paymentRequest.status = 'confirmed';
     paymentRequest.amountApplied = appliedAmount;
     paymentRequest.confirmedAt = new Date().toISOString();
+    paymentRequest.approvedBy = req.user._id;
+    paymentRequest.approvedByName = req.user.fullName || req.user.username || req.user.email || 'Sales account';
+    paymentRequest.approvedAt = new Date().toISOString();
     await paymentRequest.save();
+
+    await createAuditEntry({
+      action: 'confirm_payment',
+      entityType: 'CustomerPaymentRequest',
+      entityId: paymentRequest._id,
+      details: {
+        amountRequested: paymentRequest.amountRequested,
+        amountApplied: appliedAmount,
+        customerId,
+        updatedRequests: updatedRequests.map((item) => item._id || item.id)
+      }
+    });
 
     await recomputeCustomerCreditBalance(customerId, req.user.barId);
 
@@ -489,7 +612,20 @@ router.patch('/payments/:id/reject', isBarOwnerOrSales, async (req, res) => {
     paymentRequest.status = 'rejected';
     paymentRequest.amountApplied = 0;
     paymentRequest.rejectedAt = new Date().toISOString();
+    paymentRequest.approvedBy = req.user._id;
+    paymentRequest.approvedByName = req.user.fullName || req.user.username || req.user.email || 'Sales account';
+    paymentRequest.approvedAt = new Date().toISOString();
     await paymentRequest.save();
+
+    await createAuditEntry({
+      action: 'reject_payment',
+      entityType: 'CustomerPaymentRequest',
+      entityId: paymentRequest._id,
+      details: {
+        amountRequested: paymentRequest.amountRequested,
+        customerId: paymentRequest.customerId
+      }
+    });
 
     const enrichedRequest = await enrichPaymentRequest(paymentRequest.toObject ? paymentRequest.toObject() : paymentRequest);
     res.json({ message: 'Payment request rejected.', paymentRequest: enrichedRequest });

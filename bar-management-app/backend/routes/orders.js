@@ -11,6 +11,7 @@ const CustomerPaymentRequest = require('../models/CustomerPaymentRequest');
 const { recomputeCustomerCreditBalance } = require('../lib/credit');
 const { queryEntities, decodeLastEvaluatedKey } = require('../lib/dynamodb');
 const { buildOrderSummary } = require('../lib/orderSummary');
+const { createAuditEntry } = require('../lib/audit');
 
 router.use(protect, isBarOwnerOrSales);
 
@@ -195,27 +196,34 @@ router.get('/summary', async (req, res) => {
     const { items: allOrdersInRange = [] } = await queryEntities('order', reversedQueryOptions);
     const reversedOrders = (allOrdersInRange || []).filter((order) => order.reversed).length;
 
-    const paymentQuery = {
-      barId: req.user.barId,
-      status: 'confirmed'
-    };
+    const paymentQuery = { barId: req.user.barId };
 
-    if (startDate) {
-      paymentQuery.confirmedAt = { $gte: startDate };
-    }
-    if (queryOptions.endDate) {
-      paymentQuery.confirmedAt = {
-        ...(paymentQuery.confirmedAt || {}),
-        $lte: queryOptions.endDate
-      };
-    }
-
-    const payments = await CustomerPaymentRequest.find(paymentQuery);
+    const allPayments = await CustomerPaymentRequest.find(paymentQuery);
+    const payments = (allPayments || []).filter((payment) => {
+      if (!startDate && !queryOptions.endDate) {
+        return true;
+      }
+      const paymentDate = payment.confirmedAt || payment.createdAt;
+      if (!paymentDate) {
+        return true;
+      }
+      const timestamp = new Date(paymentDate).getTime();
+      if (Number.isNaN(timestamp)) {
+        return true;
+      }
+      if (startDate && timestamp < new Date(startDate).getTime()) {
+        return false;
+      }
+      if (queryOptions.endDate && timestamp > new Date(queryOptions.endDate).getTime()) {
+        return false;
+      }
+      return true;
+    });
     const allCreditOrders = await Order.find({ barId: req.user.barId, reversed: { $ne: true }, paymentMethod: 'credit' });
 
     const paymentOrders = payments
       .map((payment) => ({
-        amount: Number(payment.amountApplied || 0),
+        amount: Number(payment.amountApplied || payment.amountRequested || payment.amount || 0),
         confirmedAt: payment.confirmedAt ? new Date(payment.confirmedAt).getTime() : 0
       }))
       .filter((payment) => payment.amount > 0)
@@ -250,26 +258,27 @@ router.get('/summary', async (req, res) => {
       }
     });
 
-    const settlementMethods = ['cash', 'airtel_money', 'mpamba', 'bank_account'];
+    const settlementMethods = ['credit_cash', 'credit_airtel_money', 'credit_mpamba', 'credit_bank_account'];
     const settlementMap = settlementMethods.reduce((acc, method) => {
       acc[method] = 0;
       return acc;
     }, {});
 
     payments.forEach((payment) => {
-      const method = settlementMethods.includes(payment.paymentMethod) ? payment.paymentMethod : 'cash';
-      settlementMap[method] += Number(payment.amountApplied || 0);
+      const methodKey = String(payment.creditPaymentMethod || '').toLowerCase();
+      const method = settlementMethods.includes(methodKey) ? methodKey : 'credit_cash';
+      settlementMap[method] += Number(payment.amountApplied || payment.amountRequested || payment.amount || 0);
     });
 
     const settlementLabels = {
-      cash: 'Cash',
-      airtel_money: 'Airtel money',
-      mpamba: 'Mpamba',
-      bank_account: 'Banks'
+      credit_cash: 'Credit Cash',
+      credit_airtel_money: 'Credit Airtel Money',
+      credit_mpamba: 'Credit Mpamba',
+      credit_bank_account: 'Credit Bank Account'
     };
 
     const creditSettlementSummary = settlementMethods.map((method) => ({
-      method: settlementLabels[method] || method.replace(/_/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase()),
+      method: settlementLabels[method],
       amount: settlementMap[method] || 0
     }));
 
@@ -644,10 +653,27 @@ router.post('/', async (req, res) => {
       amountPaid: paymentMethod === 'credit' ? Math.min(paidAmount, totalAmount) : totalAmount,
       balanceDue: paymentMethod === 'credit' ? remainingBalance : 0,
       paymentStatus,
-      status: paymentStatus === 'paid' ? 'completed' : 'partial'
+      status: paymentStatus === 'paid' ? 'completed' : 'partial',
+      processedBy: req.user._id,
+      processedByName: req.user.fullName || req.user.username || req.user.email || 'Sales account'
     });
 
     const savedOrder = await order.save();
+
+    await createAuditEntry({
+      action: 'create_order',
+      entityType: 'Order',
+      entityId: savedOrder._id,
+      details: {
+        orderNumber: savedOrder.orderNumber,
+        totalAmount: savedOrder.totalAmount,
+        paymentMethod: savedOrder.paymentMethod,
+        amountPaid: savedOrder.amountPaid,
+        balanceDue: savedOrder.balanceDue,
+        paymentStatus: savedOrder.paymentStatus,
+        customer: savedOrder.customer
+      }
+    });
 
     // Recompute and persist customer's creditBalance from outstanding credit orders
     if (customerDoc) {
@@ -728,6 +754,17 @@ router.post('/:id/reverse', async (req, res) => {
     order.status = 'reversed';
     await order.save();
 
+    await createAuditEntry({
+      action: 'reverse_order',
+      entityType: 'Order',
+      entityId: order._id,
+      details: {
+        orderNumber: order.orderNumber,
+        totalAmount: order.totalAmount,
+        reversalReason: order.reversalReason
+      }
+    });
+
     // Recompute customer's credit balance excluding reversed orders
     if (customerDoc) {
       const customerOrders = await Order.find({ customer: customerDoc._id, barId: req.user.barId });
@@ -767,6 +804,8 @@ router.post('/:id/pay', async (req, res) => {
     order.paymentStatus = updatedBalance > 0 ? 'partial' : 'paid';
     order.amountPaid = toNumber(order.amountPaid, 0) + safeAmount;
     order.paymentMethod = order.paymentMethod || 'credit';
+    order.paymentProcessedBy = req.user._id;
+    order.paymentProcessedByName = req.user.fullName || req.user.username || req.user.email || 'Sales account';
 
     if (order.customer) {
       const customerDocLocal = await Customer.findOne({ _id: order.customer, barId: req.user.barId });
@@ -774,6 +813,19 @@ router.post('/:id/pay', async (req, res) => {
         await recomputeCustomerCreditBalance(customerDocLocal._id, req.user.barId);
       }
     }
+
+    await createAuditEntry({
+      action: 'record_order_payment',
+      entityType: 'Order',
+      entityId: order._id,
+      details: {
+        paymentAmount: safeAmount,
+        paymentMethod: order.paymentMethod,
+        paymentProcessedBy: order.paymentProcessedByName,
+        balanceDue: order.balanceDue,
+        paymentStatus: order.paymentStatus
+      }
+    });
 
     await order.save();
     res.json(order);

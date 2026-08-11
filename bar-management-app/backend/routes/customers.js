@@ -383,6 +383,25 @@ router.post('/:id/pay', isBarOwnerOrSales, async (req, res) => {
       }
     }
 
+    const paymentRecord = new CustomerPaymentRequest({
+      barId: req.user.barId,
+      customerId: req.params.id,
+      customerName: customer.name || customer.fullName || customer.username || '',
+      amountRequested: paymentAmount,
+      amountApplied: paymentAmount,
+      paymentMethod,
+      creditPaymentMethod: `credit_${paymentMethod}`,
+      paymentReference,
+      source: 'staff_credit_payment',
+      status: 'confirmed',
+      createdAt: new Date().toISOString(),
+      confirmedAt: new Date().toISOString(),
+      approvedBy: req.user._id,
+      approvedByName: req.user.fullName || req.user.username || req.user.email || 'Sales account',
+      approvedAt: new Date().toISOString()
+    });
+    await paymentRecord.save();
+
     const updatedCustomer = await Customer.findOne({ _id: req.params.id, barId: req.user.barId });
     if (updatedCustomer) {
       const creditSummary = await buildCustomerCreditSummary(req.params.id, req.user.barId);
