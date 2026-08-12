@@ -107,21 +107,22 @@ const cleanProductName = (value) => {
 // Get all orders
 router.get('/', async (req, res) => {
   try {
-    const limit = req.query.limit ? Number(req.query.limit) : null;
+    const limit = req.query.limit ? Number(req.query.limit) : 20;
     const lastKey = req.query.lastKey ? decodeLastEvaluatedKey(req.query.lastKey) : null;
     const startDate = req.query.startDate ? parseLocalDateBoundary(req.query.startDate, false) : null;
-    const endDate = req.query.endDate ? parseLocalDateBoundary(req.query.endDate, true) : null;
+    const endDate = req.query.endDate ? parseLocalDateBoundary(req.query.endDate, true) : new Date().toISOString();
     const includeReversed = req.query.includeReversed !== 'false';
 
     const queryOptions = {
       barId: req.user.barId,
       limit,
-      lastEvaluatedKey: lastKey
+      lastEvaluatedKey: lastKey,
+      startDate,
+      endDate,
+      includeReversed: includeReversed ? undefined : false
     };
 
-    if (startDate) queryOptions.startDate = startDate;
-    if (endDate) queryOptions.endDate = endDate;
-    if (!includeReversed) queryOptions.includeReversed = false;
+    console.debug('DEBUG /orders -> queryOptions:', queryOptions);
 
     const orderQuery = await queryEntities('order', queryOptions);
     const orders = (orderQuery.items || []).sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
@@ -133,21 +134,12 @@ router.get('/', async (req, res) => {
       }))
     }));
 
-    if (limit || lastKey || startDate || endDate || req.query.includeReversed === 'false') {
-      if (startDate || endDate) {
-        try {
-          console.debug('DEBUG /orders with date filter -> count:', enrichedOrders.length, 'sample:', (enrichedOrders[0] && { id: enrichedOrders[0]._id || enrichedOrders[0].id, orderNumber: enrichedOrders[0].orderNumber }) || null);
-        } catch (err) {
-          // ignore
-        }
-      }
-      return res.json({
-        items: enrichedOrders,
-        nextKey: orderQuery.lastEvaluatedKey
-      });
-    }
+    console.debug('DEBUG /orders -> returned:', enrichedOrders.length, 'orders, nextKey:', Boolean(orderQuery.lastEvaluatedKey));
 
-    res.json(enrichedOrders);
+    return res.json({
+      items: enrichedOrders,
+      nextKey: orderQuery.lastEvaluatedKey
+    });
   } catch (error) {
     console.error('Error fetching orders:', error);
     res.status(500).json({ message: error.message });
@@ -910,6 +902,8 @@ router.post('/:id/reverse', async (req, res) => {
     order.reversedAt = new Date().toISOString();
     order.reversalReason = req.body?.reason || 'Sale reversed';
     order.status = 'reversed';
+    order.reversedBy = req.user._id;
+    order.reversedByName = req.user.fullName || req.user.username || req.user.email || 'Sales account';
     await order.save();
 
     await createAuditEntry({

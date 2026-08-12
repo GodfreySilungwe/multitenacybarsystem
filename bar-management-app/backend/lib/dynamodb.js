@@ -164,8 +164,24 @@ async function queryEntities(entityType, options = {}) {
     params.FilterExpression = filterExpressions.join(' AND ');
   }
 
+  console.debug(`queryEntities(${entityType}):`, {
+    barId: options.barId,
+    limit: options.limit,
+    startDate: options.startDate,
+    endDate: options.endDate,
+    includeReversed: options.includeReversed,
+    filterExpressions,
+    hasFilter: filterExpressions.length > 0
+  });
+
   const result = await docClient.send(new QueryCommand(params));
   const items = (result.Items || []).map(fromDynamoItem);
+
+  console.debug(`queryEntities(${entityType}) result:`, {
+    itemsCount: items.length,
+    scannedCount: result.ScannedCount,
+    hasMoreData: Boolean(result.LastEvaluatedKey)
+  });
 
   return {
     items,

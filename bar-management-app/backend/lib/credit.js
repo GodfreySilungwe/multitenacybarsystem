@@ -35,32 +35,59 @@ function getOrderSalesAccount(order = {}) {
   return candidate || 'Sales account';
 }
 
+function isManagerOrOwnerUser(currentUser = {}) {
+  return ['owner', 'manager'].includes(String(currentUser?.role || '').toLowerCase());
+}
+
+function isOrderOwnedByUser(order = {}, currentUser = {}) {
+  const currentSalesAccountId = String(currentUser?._id || currentUser?.id || '').trim();
+  const currentSalesAccountName = String(currentUser?.fullName || currentUser?.username || currentUser?.email || '').trim();
+
+  if (!currentSalesAccountId && !currentSalesAccountName) {
+    return true;
+  }
+
+  const orderSalesAccountId = String(order.processedBy || order.paymentProcessedBy || '').trim();
+  const orderSalesAccountName = getOrderSalesAccount(order);
+
+  const sameId = !currentSalesAccountId || orderSalesAccountId === currentSalesAccountId;
+  const sameName = !currentSalesAccountName || orderSalesAccountName === currentSalesAccountName || orderSalesAccountName === 'Sales account';
+  return sameId && sameName;
+}
+
+function getSalesAccountMismatchMessage(orders = [], currentUser = {}) {
+  if (isManagerOrOwnerUser(currentUser)) {
+    return null;
+  }
+
+  const mismatchedOrder = (orders || [])
+    .filter((order) => !order.reversed && Number(order.balanceDue || 0) > 0 && (order.paymentMethod === 'credit' || order.paymentStatus === 'partial' || order.paymentStatus === 'credit'))
+    .find((order) => !isOrderOwnedByUser(order, currentUser));
+
+  if (!mismatchedOrder) {
+    return null;
+  }
+
+  return `This bill can only be settled by ${getOrderSalesAccount(mismatchedOrder)}.`;
+}
+
 function selectCreditOrdersForSettlement(orders = [], currentUser = {}) {
   if (!Array.isArray(orders) || orders.length === 0) {
     return [];
   }
 
-  const currentSalesAccountId = String(currentUser?._id || currentUser?.id || '').trim();
-  const currentSalesAccountName = String(currentUser?.fullName || currentUser?.username || currentUser?.email || '').trim();
-
-  const eligibleOrders = orders
+  const activeOrders = orders
     .filter((order) => !order.reversed && Number(order.balanceDue || 0) > 0 && (order.paymentMethod === 'credit' || order.paymentStatus === 'partial' || order.paymentStatus === 'credit'))
-    .filter((order) => {
-      const orderSalesAccountId = String(order.processedBy || order.paymentProcessedBy || '').trim();
-      const orderSalesAccountName = getOrderSalesAccount(order);
-
-      if (!currentSalesAccountId && !currentSalesAccountName) {
-        return true;
-      }
-
-      return (
-        (!currentSalesAccountId || orderSalesAccountId === currentSalesAccountId) &&
-        (!currentSalesAccountName || orderSalesAccountName === currentSalesAccountName || orderSalesAccountName === 'Sales account')
-      );
-    })
     .sort((a, b) => new Date(a.createdAt || 0) - new Date(b.createdAt || 0));
 
-  return eligibleOrders;
+  if (isManagerOrOwnerUser(currentUser)) {
+    console.debug('selectCreditOrdersForSettlement - manager/owner, returning all active orders in FIFO order:', activeOrders.map(o => ({ orderNumber: o.orderNumber, createdAt: o.createdAt })));
+    return activeOrders;
+  }
+
+  const filtered = activeOrders.filter((order) => isOrderOwnedByUser(order, currentUser));
+  console.debug('selectCreditOrdersForSettlement - sales user, returning owned orders in FIFO order:', filtered.map(o => ({ orderNumber: o.orderNumber, createdAt: o.createdAt })));
+  return filtered;
 }
 
 async function recomputeCustomerCreditBalance(customerId, barId) {
@@ -93,6 +120,8 @@ module.exports = {
   normalizePaymentAmount,
   calculateCreditBalance,
   getOrderSalesAccount,
+  isOrderOwnedByUser,
+  getSalesAccountMismatchMessage,
   selectCreditOrdersForSettlement,
   recomputeCustomerCreditBalance
 };

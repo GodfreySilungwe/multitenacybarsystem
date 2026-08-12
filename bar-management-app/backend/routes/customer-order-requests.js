@@ -1,7 +1,7 @@
 const express = require('express');
 const bcrypt = require('bcryptjs');
 const router = express.Router();
-const { protect, isBarOwnerOrSales } = require('../middleware/auth');
+const { protect, isBarOwnerOrSales, isManagerOrOwner } = require('../middleware/auth');
 const CustomerOrderRequest = require('../models/CustomerOrderRequest');
 const CustomerPaymentRequest = require('../models/CustomerPaymentRequest');
 const Product = require('../models/Product');
@@ -378,7 +378,11 @@ const product = await Product.findOne({ _id: item.productId || item.product || i
         balanceDue: totalAmount,
         paymentStatus: 'partial',
         status: 'partial',
-        sourceRequestId: request._id
+        sourceRequestId: request._id,
+        processedBy: req.user._id,
+        processedByName: req.user.fullName || req.user.username || req.user.email || 'Sales account',
+        paymentProcessedBy: req.user._id,
+        paymentProcessedByName: req.user.fullName || req.user.username || req.user.email || 'Sales account'
       });
 
       await creditOrder.save();
@@ -697,7 +701,7 @@ router.patch('/payments/:id/reject', isBarOwnerOrSales, async (req, res) => {
   }
 });
 
-router.patch('/payments/:id/reverse', isBarOwnerOrSales, async (req, res) => {
+router.patch('/payments/:id/reverse', isManagerOrOwner, async (req, res) => {
   try {
     if (!(await requireValidCurrentUserPassword(req, res))) {
       return;
@@ -765,7 +769,9 @@ router.patch('/payments/:id/reverse', isBarOwnerOrSales, async (req, res) => {
     }
 
     paymentRequest.status = 'reversed';
+    paymentRequest.reversed = true;
     paymentRequest.reversedAt = new Date().toISOString();
+    paymentRequest.reversalReason = req.body?.reason || 'Payment request reversed';
     paymentRequest.approvedBy = req.user._id;
     paymentRequest.approvedByName = req.user.fullName || req.user.username || req.user.email || 'Sales account';
     paymentRequest.approvedAt = new Date().toISOString();

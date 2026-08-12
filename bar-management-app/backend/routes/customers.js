@@ -10,7 +10,7 @@ const User = require('../models/User');
 const Bar = require('../models/Bar');
 const CustomerOrderRequest = require('../models/CustomerOrderRequest');
 const CustomerPaymentRequest = require('../models/CustomerPaymentRequest');
-const { selectCreditOrdersForSettlement } = require('../lib/credit');
+const { selectCreditOrdersForSettlement, getSalesAccountMismatchMessage } = require('../lib/credit');
 
 router.use(protect);
 
@@ -343,16 +343,34 @@ router.post('/:id/pay', isBarOwnerOrSales, async (req, res) => {
       .populate('items.product', 'name')
       .sort({ createdAt: 1 });
 
+    console.debug('DEBUG /customers/:id/pay -> unpaidOrders fetched:', unpaidOrders.length, 'orders. FIFO order (oldest first):', unpaidOrders.map(o => ({ orderNumber: o.orderNumber, createdAt: o.createdAt, balanceDue: o.balanceDue })));
+
     const outstandingBalance = (unpaidOrders || []).reduce((sum, order) => sum + Number(order.balanceDue || 0), 0);
     const paymentAmount = Math.min(requestedAmount, outstandingBalance);
     let remainingPayment = paymentAmount;
 
     const eligibleOrders = selectCreditOrdersForSettlement(unpaidOrders || [], req.user);
 
+    console.debug('DEBUG /customers/:id/pay -> eligible orders after filtering by user:', eligibleOrders.length, 'orders. FIFO order:', eligibleOrders.map(o => ({ orderNumber: o.orderNumber, createdAt: o.createdAt, balanceDue: o.balanceDue })));
+
+    // Only check for mismatch if user has NO eligible orders but is trying to settle
     if (eligibleOrders.length === 0 && (req.user?._id || req.user?.fullName || req.user?.username || req.user?.email)) {
-      return res.status(403).json({
-        message: 'This sales account can only settle bills it processed. Older customer credit from another sales account must be settled by that responsible account first.'
-      });
+      const currentUnpaid = (unpaidOrders || []).filter((order) => {
+        const orderSalesAccountId = String(order.processedBy || order.paymentProcessedBy || '').trim();
+        const orderSalesAccountName = String(order.processedByName || order.paymentProcessedByName || 'Sales account').trim() || 'Sales account';
+        const sameId = !req.user?._id || orderSalesAccountId === String(req.user._id || '').trim();
+        const sameName = !req.user?.fullName && !req.user?.username && !req.user?.email
+          || orderSalesAccountName === String(req.user?.fullName || req.user?.username || req.user?.email || '').trim()
+          || orderSalesAccountName === 'Sales account';
+        return !(sameId && sameName);
+      }).length;
+
+      if (currentUnpaid > 0) {
+        return res.status(400).json({
+          message: 'This bill can only be settled by the sales account that created it.',
+          skipped: true
+        });
+      }
     }
 
     const updatedRequests = [];
@@ -365,6 +383,8 @@ router.post('/:id/pay', isBarOwnerOrSales, async (req, res) => {
       const currentBalance = toNumber(order.balanceDue, 0);
       const appliedAmount = Math.min(remainingPayment, currentBalance);
       remainingPayment -= appliedAmount;
+
+      console.debug(`FIFO settlement: Order ${order.orderNumber} (created: ${order.createdAt}), balance: ${currentBalance}, applied: ${appliedAmount}, remaining payment: ${remainingPayment}`);
 
       order.balanceDue = Math.max(0, currentBalance - appliedAmount);
       order.amountPaid = toNumber(order.amountPaid, 0) + appliedAmount;
