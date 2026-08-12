@@ -171,7 +171,9 @@ async function queryEntities(entityType, options = {}) {
     endDate: options.endDate,
     includeReversed: options.includeReversed,
     filterExpressions,
-    hasFilter: filterExpressions.length > 0
+    hasFilter: filterExpressions.length > 0,
+    FilterExpression: params.FilterExpression,
+    ExpressionAttributeValues: values
   });
 
   const result = await docClient.send(new QueryCommand(params));

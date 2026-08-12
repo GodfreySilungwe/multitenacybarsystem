@@ -109,23 +109,41 @@ router.get('/', async (req, res) => {
   try {
     const limit = req.query.limit ? Number(req.query.limit) : 20;
     const lastKey = req.query.lastKey ? decodeLastEvaluatedKey(req.query.lastKey) : null;
-    const startDate = req.query.startDate ? parseLocalDateBoundary(req.query.startDate, false) : null;
-    const endDate = req.query.endDate ? parseLocalDateBoundary(req.query.endDate, true) : new Date().toISOString();
+    // Get raw dates but don't pass to DynamoDB filter - will filter in app instead
+    const startDateStr = req.query.startDate ? parseLocalDateBoundary(req.query.startDate, false) : null;
+    const endDateStr = req.query.endDate ? parseLocalDateBoundary(req.query.endDate, true) : null;
     const includeReversed = req.query.includeReversed !== 'false';
 
     const queryOptions = {
       barId: req.user.barId,
-      limit,
+      limit: limit * 3, // Fetch more items since we'll filter on app level
       lastEvaluatedKey: lastKey,
-      startDate,
-      endDate,
+      // Don't send dates to DynamoDB - will filter in app
+      startDate: null,
+      endDate: null,
       includeReversed: includeReversed ? undefined : false
     };
 
-    console.debug('DEBUG /orders -> queryOptions:', queryOptions);
+    console.debug('DEBUG /orders -> queryOptions (will filter in app):', queryOptions);
 
-    const orderQuery = await queryEntities('order', queryOptions);
-    const orders = (orderQuery.items || []).sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
+    let orderQuery = await queryEntities('order', queryOptions);
+    let orders = (orderQuery.items || []);
+    
+    // Filter by date in application layer
+    if (startDateStr || endDateStr) {
+      orders = orders.filter((order) => {
+        const orderDate = order.createdAt;
+        if (startDateStr && orderDate < startDateStr) return false;
+        if (endDateStr && orderDate > endDateStr) return false;
+        return true;
+      });
+      console.debug('DEBUG /orders -> after date filter:', orders.length, 'orders');
+    }
+    
+    // Apply limit after filtering
+    orders = orders.slice(0, limit);
+    
+    orders = orders.sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
     const enrichedOrders = orders.map((order) => ({
       ...order,
       items: (order.items || []).map((item) => ({
