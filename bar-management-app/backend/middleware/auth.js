@@ -105,7 +105,7 @@ const isBarOwner = (req, res, next) => {
 
 // Check if user is a bar-level owner or sales user
 const isBarOwnerOrSales = (req, res, next) => {
-  if (req.user && ((req.user.role === 'owner' && req.user.barId) || req.user.role === 'sales')) {
+  if (req.user && ((req.user.role === 'owner' && req.user.barId) || req.user.role === 'sales' || req.user.role === 'manager')) {
     next();
   } else {
     res.status(403).json({ message: 'Bar user access required' });

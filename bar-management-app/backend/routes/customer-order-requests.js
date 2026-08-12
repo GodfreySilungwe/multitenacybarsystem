@@ -1,4 +1,5 @@
 const express = require('express');
+const bcrypt = require('bcryptjs');
 const router = express.Router();
 const { protect, isBarOwnerOrSales } = require('../middleware/auth');
 const CustomerOrderRequest = require('../models/CustomerOrderRequest');
@@ -6,6 +7,7 @@ const CustomerPaymentRequest = require('../models/CustomerPaymentRequest');
 const Product = require('../models/Product');
 const Customer = require('../models/Customer');
 const Order = require('../models/Order');
+const User = require('../models/User');
 const { recomputeCustomerCreditBalance } = require('../lib/credit');
 const { createAuditEntry } = require('../lib/audit');
 
@@ -58,6 +60,42 @@ const enrichPaymentRequest = async (paymentRequest) => {
   return paymentRequest;
 };
 
+const requireValidCurrentUserPassword = async (req, res) => {
+  if (!['sales', 'manager'].includes(req.user.role)) {
+    return true;
+  }
+
+  const password = String(req.body.password || '');
+  if (!password) {
+    res.status(400).json({ message: 'Password is required to confirm or reject this payment.' });
+    return false;
+  }
+
+  const user = await User.findById(req.user._id);
+  if (!user) {
+    res.status(401).json({ message: 'Invalid credentials.' });
+    return false;
+  }
+
+  let isMatch = false;
+  try {
+    isMatch = await bcrypt.compare(password, user.password);
+  } catch (err) {
+    console.error('Password compare error:', err);
+  }
+
+  if (!isMatch && user.password === password) {
+    isMatch = true;
+  }
+
+  if (!isMatch) {
+    res.status(401).json({ message: 'Invalid password.' });
+    return false;
+  }
+
+  return true;
+};
+
 const buildPaymentRecordFromRequest = (paymentRequest) => {
     const amount = Number(paymentRequest.amountApplied || paymentRequest.amountRequested || paymentRequest.amount || 0);
   const validMethods = ['cash', 'airtel_money', 'mpamba', 'bank_account', 'credit'];
@@ -75,7 +113,11 @@ const buildPaymentRecordFromRequest = (paymentRequest) => {
       ? 'pending'
       : paymentRequest.status === 'rejected'
         ? 'rejected'
-        : 'confirmed',
+        : paymentRequest.status === 'reversed'
+          ? 'reversed'
+          : paymentRequest.status === 'cancelled'
+            ? 'cancelled'
+            : 'confirmed',
     reference: paymentRequest.paymentReference || '',
     approvedBy: paymentRequest.approvedByName || paymentRequest.approvedBy || '',
     createdAt: paymentRequest.createdAt,
@@ -84,7 +126,11 @@ const buildPaymentRecordFromRequest = (paymentRequest) => {
       ? 'Pending bill settlement'
       : paymentRequest.status === 'rejected'
         ? 'Rejected bill settlement'
-        : 'Confirmed bill settlement'
+        : paymentRequest.status === 'reversed'
+          ? 'Reversed bill settlement'
+          : paymentRequest.status === 'cancelled'
+            ? 'Cancelled bill settlement'
+            : 'Confirmed bill settlement'
   };
 };
 
@@ -466,6 +512,9 @@ router.get('/payments', async (req, res) => {
       };
 
       const totalsByMethod = payments.reduce((acc, payment) => {
+        if (payment.status !== 'confirmed') {
+          return acc;
+        }
         const amount = Number(payment.amount || 0);
         if (amount <= 0) {
           return acc;
@@ -492,6 +541,10 @@ router.get('/payments', async (req, res) => {
 
 router.patch('/payments/:id/confirm', isBarOwnerOrSales, async (req, res) => {
   try {
+    if (!(await requireValidCurrentUserPassword(req, res))) {
+      return;
+    }
+
     const paymentRequest = await CustomerPaymentRequest.findOne({ _id: req.params.id, barId: req.user.barId });
     if (!paymentRequest) {
       return res.status(404).json({ message: 'Payment request not found.' });
@@ -600,6 +653,10 @@ router.patch('/payments/:id/confirm', isBarOwnerOrSales, async (req, res) => {
 
 router.patch('/payments/:id/reject', isBarOwnerOrSales, async (req, res) => {
   try {
+    if (!(await requireValidCurrentUserPassword(req, res))) {
+      return;
+    }
+
     const paymentRequest = await CustomerPaymentRequest.findOne({ _id: req.params.id, barId: req.user.barId });
     if (!paymentRequest) {
       return res.status(404).json({ message: 'Payment request not found.' });
@@ -629,6 +686,99 @@ router.patch('/payments/:id/reject', isBarOwnerOrSales, async (req, res) => {
 
     const enrichedRequest = await enrichPaymentRequest(paymentRequest.toObject ? paymentRequest.toObject() : paymentRequest);
     res.json({ message: 'Payment request rejected.', paymentRequest: enrichedRequest });
+  } catch (error) {
+    res.status(400).json({ message: error.message });
+  }
+});
+
+router.patch('/payments/:id/reverse', isBarOwnerOrSales, async (req, res) => {
+  try {
+    if (!(await requireValidCurrentUserPassword(req, res))) {
+      return;
+    }
+
+    const paymentRequest = await CustomerPaymentRequest.findOne({ _id: req.params.id, barId: req.user.barId });
+    if (!paymentRequest) {
+      return res.status(404).json({ message: 'Payment request not found.' });
+    }
+
+    if (paymentRequest.status !== 'confirmed') {
+      return res.status(400).json({ message: 'Only confirmed payments can be reversed.' });
+    }
+
+    const customerId = paymentRequest.customerId;
+    let remainingReversal = toNumber(paymentRequest.amountApplied || paymentRequest.amountRequested || 0);
+    const creditOrders = await Order.find({
+      barId: req.user.barId,
+      customer: customerId,
+      reversed: { $ne: true },
+      paymentMethod: 'credit'
+    }).sort({ createdAt: 1 });
+
+    for (const order of creditOrders) {
+      if (remainingReversal <= 0) {
+        break;
+      }
+
+      const paidAmount = toNumber(order.amountPaid, 0);
+      const revertAmount = Math.min(remainingReversal, paidAmount);
+      if (revertAmount <= 0) {
+        continue;
+      }
+
+      order.amountPaid = Math.max(0, paidAmount - revertAmount);
+      const totalAmount = toNumber(order.totalAmount, 0);
+      order.balanceDue = Math.max(0, totalAmount - order.amountPaid);
+      order.paymentStatus = order.balanceDue > 0 ? 'partial' : 'paid';
+      await order.save();
+
+      let remainingOrderRevert = revertAmount;
+      const linkedRequests = await CustomerOrderRequest.find({
+        barId: req.user.barId,
+        $or: [
+          { linkedOrderId: order._id },
+          { _id: order.sourceRequestId }
+        ]
+      }).sort({ createdAt: 1 });
+
+      for (const requestDoc of linkedRequests) {
+        if (remainingOrderRevert <= 0) {
+          break;
+        }
+
+        const currentPaid = toNumber(requestDoc.amountPaid, 0);
+        const requestRevert = Math.min(remainingOrderRevert, currentPaid);
+        requestDoc.amountPaid = Math.max(0, currentPaid - requestRevert);
+        requestDoc.paymentStatus = requestDoc.amountPaid > 0 ? 'partial' : 'pending';
+        requestDoc.paidAt = requestDoc.amountPaid > 0 ? requestDoc.paidAt : null;
+        await requestDoc.save();
+        remainingOrderRevert -= requestRevert;
+      }
+
+      remainingReversal -= revertAmount;
+    }
+
+    paymentRequest.status = 'reversed';
+    paymentRequest.reversedAt = new Date().toISOString();
+    paymentRequest.approvedBy = req.user._id;
+    paymentRequest.approvedByName = req.user.fullName || req.user.username || req.user.email || 'Sales account';
+    paymentRequest.approvedAt = new Date().toISOString();
+    await paymentRequest.save();
+
+    await createAuditEntry({
+      action: 'reverse_payment',
+      entityType: 'CustomerPaymentRequest',
+      entityId: paymentRequest._id,
+      details: {
+        amountReversed: toNumber(paymentRequest.amountApplied || paymentRequest.amountRequested || 0),
+        customerId
+      }
+    });
+
+    await recomputeCustomerCreditBalance(customerId, req.user.barId);
+
+    const enrichedRequest = await enrichPaymentRequest(paymentRequest.toObject ? paymentRequest.toObject() : paymentRequest);
+    res.json({ message: 'Payment request reversed.', paymentRequest: enrichedRequest });
   } catch (error) {
     res.status(400).json({ message: error.message });
   }

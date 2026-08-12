@@ -9,10 +9,22 @@ router.use(protect, isBarOwnerOrSales);
 // Get all adjustments
 router.get('/', async (req, res) => {
   try {
-    const adjustments = await InventoryAdjustment.find({ barId: req.user.barId })
-      .populate('product', 'name')
-      .sort({ createdAt: -1 });
-    res.json(adjustments);
+    const adjustments = await InventoryAdjustment.find({ barId: req.user.barId }).sort({ createdAt: -1 });
+    const productIds = Array.from(new Set((adjustments || []).map((adjustment) => String(adjustment.product || '')).filter(Boolean)));
+    const products = productIds.length > 0 ? await Product.find({ _id: { $in: productIds }, barId: req.user.barId }) : [];
+    const productMap = new Map((products || []).map((product) => [String(product._id || product.id), product]));
+
+    const hydratedAdjustments = (adjustments || []).map((adjustment) => {
+      const productId = String(adjustment.product || '');
+      const product = productMap.get(productId);
+      return {
+        ...adjustment,
+        product: product ? { _id: product._id || product.id, name: product.name } : null,
+        productName: product ? product.name : adjustment.productName || 'Unknown'
+      };
+    });
+
+    res.json(hydratedAdjustments);
   } catch (error) {
     console.error('Error fetching adjustments:', error);
     res.status(500).json({ message: error.message });
@@ -51,12 +63,15 @@ router.post('/', async (req, res) => {
 
     // Create adjustment record
     const adjustment = new InventoryAdjustment({
+      barId: req.user.barId,
       product,
+      productName: productData.name,
       type,
       quantity,
       reason,
       previousStock: productData.currentStock,
-      newStock
+      newStock,
+      createdAt: new Date().toISOString()
     });
 
     await adjustment.save();

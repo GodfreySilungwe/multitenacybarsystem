@@ -8,6 +8,7 @@ const InventoryAdjustment = require('../models/InventoryAdjustment');
 const PurchaseOrder = require('../models/PurchaseOrder');
 const CustomerOrderRequest = require('../models/CustomerOrderRequest');
 const CustomerPaymentRequest = require('../models/CustomerPaymentRequest');
+const StockSnapshot = require('../models/StockSnapshot');
 const { recomputeCustomerCreditBalance } = require('../lib/credit');
 const { queryEntities, decodeLastEvaluatedKey } = require('../lib/dynamodb');
 const { buildOrderSummary } = require('../lib/orderSummary');
@@ -53,6 +54,44 @@ const getLocalTodayStartUtc = (offsetMinutes = MALAWI_OFFSET_MINUTES) => {
   const localMidnightUtcMs = Date.UTC(year, month, day, 0, 0, 0, 0);
   // adjust back by offset to produce the UTC timestamp representing local midnight
   return new Date(localMidnightUtcMs - offsetMinutes * 60000);
+};
+
+const getLocalDateKey = (dateValue, offsetMinutes = MALAWI_OFFSET_MINUTES) => {
+  const value = dateValue ? new Date(dateValue) : new Date();
+  const localMs = value.getTime() + offsetMinutes * 60000;
+  const localDate = new Date(localMs);
+  return localDate.toISOString().slice(0, 10);
+};
+
+const ensureOpeningStockSnapshot = async (barId, productId, productRecord, snapshotDate, source = 'daily_snapshot', recordedBy = 'system') => {
+  if (!barId || !productId) {
+    return null;
+  }
+
+  const existingSnapshot = await StockSnapshot.findOne({
+    barId,
+    productId,
+    snapshotDate,
+    source
+  });
+
+  if (existingSnapshot) {
+    return existingSnapshot;
+  }
+
+  const openingQty = Number(productRecord?.currentStock || 0);
+  const snapshot = new StockSnapshot({
+    barId,
+    productId,
+    snapshotDate,
+    openingQty,
+    source,
+    recordedBy,
+    createdAt: new Date().toISOString()
+  });
+
+  await snapshot.save();
+  return snapshot;
 };
 
 const cleanProductName = (value) => {
@@ -200,6 +239,9 @@ router.get('/summary', async (req, res) => {
 
     const allPayments = await CustomerPaymentRequest.find(paymentQuery);
     const payments = (allPayments || []).filter((payment) => {
+      if (payment.status !== 'confirmed') {
+        return false;
+      }
       if (!startDate && !queryOptions.endDate) {
         return true;
       }
@@ -221,6 +263,38 @@ router.get('/summary', async (req, res) => {
     });
     const allCreditOrders = await Order.find({ barId: req.user.barId, reversed: { $ne: true }, paymentMethod: 'credit' });
 
+    const legacyCreditOrders = await Order.find({
+      barId: req.user.barId,
+      reversed: { $ne: true },
+      paymentMethod: 'credit',
+      amountPaid: { $gt: 0 }
+    });
+
+    const legacyCreditOrderPayments = (legacyCreditOrders || []).filter((order) => {
+      if (!startDate && !queryOptions.endDate) {
+        return true;
+      }
+      const paymentDate = order.createdAt;
+      if (!paymentDate) {
+        return true;
+      }
+      const timestamp = new Date(paymentDate).getTime();
+      if (Number.isNaN(timestamp)) {
+        return true;
+      }
+      if (startDate && timestamp < new Date(startDate).getTime()) {
+        return false;
+      }
+      if (queryOptions.endDate && timestamp > new Date(queryOptions.endDate).getTime()) {
+        return false;
+      }
+      return true;
+    }).map((order) => ({
+      amount: Number(order.amountPaid || 0),
+      confirmedAt: order.createdAt ? new Date(order.createdAt).getTime() : 0,
+      isLegacyCreditOrderPayment: true
+    }));
+
     const paymentOrders = payments
       .map((payment) => ({
         amount: Number(payment.amountApplied || payment.amountRequested || payment.amount || 0),
@@ -241,6 +315,10 @@ router.get('/summary', async (req, res) => {
     const rangeStartTime = startDate ? new Date(startDate).getTime() : 0;
 
     paymentOrders.forEach((payment) => {
+      if (payment.isLegacyCreditOrderPayment) {
+        return;
+      }
+
       let remaining = payment.amount;
       while (remaining > 0) {
         const nextOrder = creditOrderStates.find((order) => order.balanceDue > 0);
@@ -268,6 +346,10 @@ router.get('/summary', async (req, res) => {
       const methodKey = String(payment.creditPaymentMethod || '').toLowerCase();
       const method = settlementMethods.includes(methodKey) ? methodKey : 'credit_cash';
       settlementMap[method] += Number(payment.amountApplied || payment.amountRequested || payment.amount || 0);
+    });
+
+    legacyCreditOrderPayments.forEach((payment) => {
+      settlementMap.credit_cash += Number(payment.amount || 0);
     });
 
     const settlementLabels = {
@@ -357,6 +439,38 @@ router.get('/summary', async (req, res) => {
     });
 
     const productSalesMap = {};
+    const openingStockSnapshots = {};
+
+    for (const product of products || []) {
+      const productId = String(product._id || product.id || '');
+      if (!productId) continue;
+
+      const snapshotDate = getLocalDateKey(startDate || new Date(), MALAWI_OFFSET_MINUTES);
+      const snapshot = await StockSnapshot.findOne({
+        barId: req.user.barId,
+        productId,
+        snapshotDate,
+        source: 'daily_snapshot'
+      });
+
+      const resolvedSnapshot = snapshot || await ensureOpeningStockSnapshot(req.user.barId, productId, product, snapshotDate, 'daily_snapshot', 'system');
+      openingStockSnapshots[productId] = resolvedSnapshot;
+
+      if (productId && !productSalesMap[productId]) {
+        productSalesMap[productId] = {
+          productId,
+          name: product.name || 'Product',
+          soldQuantity: 0,
+          totalAmount: 0,
+          startingQty: 0,
+          closingQty: 0,
+          currentStock: Number(product.currentStock || 0),
+          purchaseOrdersQty: 0,
+          snapshotOpeningQty: resolvedSnapshot ? Number(resolvedSnapshot.openingQty || 0) : null
+        };
+      }
+    }
+
     enrichedOrders.forEach((order) => {
       if (order.reversed) return;
       (order.items || []).forEach((item) => {
@@ -374,7 +488,8 @@ router.get('/summary', async (req, res) => {
             startingQty: 0,
             closingQty: 0,
             currentStock: 0,
-            purchaseOrdersQty: 0
+            purchaseOrdersQty: 0,
+            snapshotOpeningQty: null
           };
         }
 
@@ -410,10 +525,13 @@ router.get('/summary', async (req, res) => {
       const currentStock = Number(productRecord?.currentStock || productSalesMap[productId].currentStock || 0);
       const netChangeSinceStart = Number(stockChangesSinceStart[productId] || 0);
       const soldQuantity = Number(productSalesMap[productId].soldQuantity || 0);
+      const snapshot = openingStockSnapshots[productId];
 
       productSalesMap[productId].currentStock = currentStock;
       productSalesMap[productId].closingQty = currentStock;
-      productSalesMap[productId].startingQty = hasStartDate ? currentStock + soldQuantity - netChangeSinceStart : null;
+      productSalesMap[productId].startingQty = hasStartDate
+        ? (snapshot ? Number(snapshot.openingQty || 0) : currentStock + soldQuantity - netChangeSinceStart)
+        : (snapshot ? Number(snapshot.openingQty || 0) : null);
       productSalesMap[productId].purchaseOrdersQty = Number(productSalesMap[productId].purchaseOrdersQty || 0);
     });
 
@@ -461,6 +579,45 @@ router.get('/summary', async (req, res) => {
       .sort((a, b) => b.totalOutstandingBalance - a.totalOutstandingBalance)
       .slice(0, 20);
 
+    const salesAccountOutstandingMap = {};
+    (enrichedOrders || [])
+      .filter((order) => !order.reversed && Number(order.balanceDue || 0) > 0 && (order.paymentMethod === 'credit' || order.paymentStatus === 'partial' || order.paymentStatus === 'credit'))
+      .forEach((order) => {
+        const salesAccount = String(
+          order.processedByName ||
+          order.paymentProcessedByName ||
+          order.processedBy ||
+          order.paymentProcessedBy ||
+          'Sales account'
+        ).trim() || 'Sales account';
+
+        if (!salesAccountOutstandingMap[salesAccount]) {
+          salesAccountOutstandingMap[salesAccount] = {
+            salesAccount,
+            outstandingBalance: 0,
+            ordersCount: 0,
+            customerIds: new Set()
+          };
+        }
+
+        const customerId = order.customer ? String(order.customer?._id || order.customer || '').trim() : '';
+        if (customerId) {
+          salesAccountOutstandingMap[salesAccount].customerIds.add(customerId);
+        }
+
+        salesAccountOutstandingMap[salesAccount].outstandingBalance += Number(order.balanceDue || 0);
+        salesAccountOutstandingMap[salesAccount].ordersCount += 1;
+      });
+
+    const outstandingCreditBySalesAccount = Object.values(salesAccountOutstandingMap)
+      .map((item) => ({
+        salesAccount: item.salesAccount,
+        outstandingBalance: Number(item.outstandingBalance || 0),
+        ordersCount: Number(item.ordersCount || 0),
+        customerCount: item.customerIds.size
+      }))
+      .sort((a, b) => b.outstandingBalance - a.outstandingBalance);
+
     res.json({
       sales: summary.sales,
       topProducts: summary.topProducts,
@@ -490,7 +647,8 @@ router.get('/summary', async (req, res) => {
       creditSettlementSummary,
       unpaidCredit,
       productSales,
-      outstandingCustomers
+      outstandingCustomers,
+      outstandingCreditBySalesAccount
     });
   } catch (error) {
     console.error('Error fetching orders summary:', error);

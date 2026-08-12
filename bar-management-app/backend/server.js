@@ -133,6 +133,7 @@ const uploadRoutes = require('./routes/uploads');
 const customerOrderRequestRoutes = require('./routes/customer-order-requests');
 const userRoutes = require('./routes/users');
 const auditRoutes = require('./routes/audit');
+const StockSnapshot = require('./models/StockSnapshot');
 
 // Use routes
 app.use(['/api/auth', '/auth'], authRoutes);

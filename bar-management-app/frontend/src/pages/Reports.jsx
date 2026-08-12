@@ -105,6 +105,9 @@ const Reports = () => {
   };
 
   const salesTotalForPercent = reportData.totalSales || 1;
+  const totalCustomerCreditBalance = (reportData.creditAccounts || []).reduce((sum, customer) => sum + Number(customer.balance || 0), 0);
+  const totalOutstandingBySalesAccount = (reportData.outstandingCreditBySalesAccount || []).reduce((sum, item) => sum + Number(item.outstandingBalance || 0), 0);
+
   const dailySalesChartData = {
     labels: reportData.dailySales.map(d => d.date),
     datasets: [
@@ -409,6 +412,11 @@ const Reports = () => {
                       <td style={styles.revenue}>{formatPriceMK(customer.balance)}</td>
                     </tr>
                   ))}
+                  <tr style={{ ...styles.tableRow, fontWeight: '700', backgroundColor: '#f9fafb' }}>
+                    <td style={styles.productName}>Total</td>
+                    <td>{reportData.creditAccounts.length}</td>
+                    <td style={styles.revenue}>{formatPriceMK(totalCustomerCreditBalance)}</td>
+                  </tr>
                 </tbody>
               </table>
             </div>
@@ -418,13 +426,14 @@ const Reports = () => {
 
       {reportData.outstandingCreditBySalesAccount.length > 0 && (
         <div className="fade-in delay-5" style={{ marginBottom: '20px' }}>
-          <UnifiedCard title="🧑‍💼 Credit Outstanding by Sales Account">
+          <UnifiedCard title="🧑‍💼 Outstanding Bills by Sales Account">
             <div style={styles.tableWrapper}>
               <table style={styles.table}>
                 <thead>
                   <tr>
                     <th>Sales Account</th>
                     <th>Orders</th>
+                    <th>Customers</th>
                     <th>Outstanding Balance</th>
                   </tr>
                 </thead>
@@ -433,9 +442,16 @@ const Reports = () => {
                     <tr key={index} style={styles.tableRow}>
                       <td style={styles.productName}>{item.salesAccount}</td>
                       <td>{item.ordersCount}</td>
+                      <td>{item.customerCount || 0}</td>
                       <td style={styles.revenue}>{formatPriceMK(item.outstandingBalance)}</td>
                     </tr>
                   ))}
+                  <tr style={{ ...styles.tableRow, fontWeight: '700', backgroundColor: '#f9fafb' }}>
+                    <td style={styles.productName}>Total</td>
+                    <td>{reportData.outstandingCreditBySalesAccount.reduce((sum, item) => sum + Number(item.ordersCount || 0), 0)}</td>
+                    <td>{reportData.outstandingCreditBySalesAccount.reduce((sum, item) => sum + Number(item.customerCount || 0), 0)}</td>
+                    <td style={styles.revenue}>{formatPriceMK(totalOutstandingBySalesAccount)}</td>
+                  </tr>
                 </tbody>
               </table>
             </div>
