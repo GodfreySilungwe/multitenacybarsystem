@@ -22,6 +22,47 @@ function calculateCreditBalance(currentBalance, totalAmount, amountPaidNow = 0) 
   };
 }
 
+function getOrderSalesAccount(order = {}) {
+  const candidate = String(
+    order.processedByName ||
+    order.paymentProcessedByName ||
+    order.processedBy ||
+    order.paymentProcessedBy ||
+    order.salesAccount ||
+    'Sales account'
+  ).trim();
+
+  return candidate || 'Sales account';
+}
+
+function selectCreditOrdersForSettlement(orders = [], currentUser = {}) {
+  if (!Array.isArray(orders) || orders.length === 0) {
+    return [];
+  }
+
+  const currentSalesAccountId = String(currentUser?._id || currentUser?.id || '').trim();
+  const currentSalesAccountName = String(currentUser?.fullName || currentUser?.username || currentUser?.email || '').trim();
+
+  const eligibleOrders = orders
+    .filter((order) => !order.reversed && Number(order.balanceDue || 0) > 0 && (order.paymentMethod === 'credit' || order.paymentStatus === 'partial' || order.paymentStatus === 'credit'))
+    .filter((order) => {
+      const orderSalesAccountId = String(order.processedBy || order.paymentProcessedBy || '').trim();
+      const orderSalesAccountName = getOrderSalesAccount(order);
+
+      if (!currentSalesAccountId && !currentSalesAccountName) {
+        return true;
+      }
+
+      return (
+        (!currentSalesAccountId || orderSalesAccountId === currentSalesAccountId) &&
+        (!currentSalesAccountName || orderSalesAccountName === currentSalesAccountName || orderSalesAccountName === 'Sales account')
+      );
+    })
+    .sort((a, b) => new Date(a.createdAt || 0) - new Date(b.createdAt || 0));
+
+  return eligibleOrders;
+}
+
 async function recomputeCustomerCreditBalance(customerId, barId) {
   if (!customerId) {
     return 0;
@@ -51,5 +92,7 @@ async function recomputeCustomerCreditBalance(customerId, barId) {
 module.exports = {
   normalizePaymentAmount,
   calculateCreditBalance,
+  getOrderSalesAccount,
+  selectCreditOrdersForSettlement,
   recomputeCustomerCreditBalance
 };

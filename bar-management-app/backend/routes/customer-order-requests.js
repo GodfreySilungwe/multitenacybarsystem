@@ -104,6 +104,7 @@ const buildPaymentRecordFromRequest = (paymentRequest) => {
 
   return {
     _id: paymentRequest._id,
+    customerId: paymentRequest.customerId,
     source: 'bill_settlement',
     recordType: 'payment_request',
     customerName: paymentRequest.customerName || 'Walk-in customer',
@@ -120,6 +121,8 @@ const buildPaymentRecordFromRequest = (paymentRequest) => {
             : 'confirmed',
     reference: paymentRequest.paymentReference || '',
     approvedBy: paymentRequest.approvedByName || paymentRequest.approvedBy || '',
+    processedByName: paymentRequest.approvedByName || paymentRequest.approvedBy || 'Sales account',
+    salesAccount: paymentRequest.approvedByName || paymentRequest.approvedBy || 'Sales account',
     createdAt: paymentRequest.createdAt,
     confirmedAt: paymentRequest.confirmedAt,
     description: paymentRequest.status === 'pending'
@@ -139,6 +142,7 @@ const buildPaymentRecordFromOrder = (order) => {
   const status = order.paymentStatus === 'paid' ? 'confirmed' : 'partial';
   return {
     _id: `order-${order._id}`,
+    customerId: order.customer || order.customerId || '',
     source: 'pos_sale',
     recordType: 'order_payment',
     orderId: order._id,
@@ -149,6 +153,8 @@ const buildPaymentRecordFromOrder = (order) => {
     status,
     reference: order.paymentReference || '',
     approvedBy: order.processedByName || order.processedBy || '',
+    processedByName: order.processedByName || order.processedBy || 'Sales account',
+    salesAccount: order.processedByName || order.processedBy || 'Sales account',
     createdAt: order.createdAt,
     description: order.paymentStatus === 'paid' ? 'POS receipt' : 'Partial POS payment'
   };

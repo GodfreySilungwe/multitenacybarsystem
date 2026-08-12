@@ -23,6 +23,7 @@ const Customers = () => {
   const [settleAmounts, setSettleAmounts] = useState({});
   const [settleMethods, setSettleMethods] = useState({});
   const [settleReferences, setSettleReferences] = useState({});
+  const [settleLoading, setSettleLoading] = useState({});
   const [settlements, setSettlements] = useState([]);
   const [settlementConfirmation, setSettlementConfirmation] = useState(null);
   const [formData, setFormData] = useState({
@@ -61,19 +62,22 @@ const Customers = () => {
         params.lastKey = lastKey;
       }
 
-      const [customersRes, summaryRes] = await Promise.all([
+      const [customersRes, summaryRes, paymentsRes] = await Promise.all([
         api.get('/customers', { params }),
-        api.get('/customers/summary')
+        api.get('/customers/summary'),
+        api.get('/customer-order-requests/payments')
       ]);
 
       const customersData = customersRes.data || {};
       const items = Array.isArray(customersData) ? customersData : customersData.items || [];
+      const paymentsData = paymentsRes.data || [];
+      const paymentRecords = Array.isArray(paymentsData) ? paymentsData : (paymentsData.payments || []);
 
       setCustomers((prev) => (reset ? items : [...prev, ...items]));
       setNextKey(customersData.nextKey || null);
       setHasMore(Boolean(customersData.nextKey));
       setSummary(summaryRes.data || summary);
-      setSettlements([]);
+      setSettlements(paymentRecords);
     } catch (err) {
       console.error('Error loading customers:', err);
     } finally {
@@ -139,6 +143,7 @@ const Customers = () => {
     }
 
     try {
+      setSettleLoading(prev => ({ ...prev, [customer._id]: true }));
       const res = await api.post(`/customers/${customer._id}/pay`, {
         amount,
         paymentMethod,
@@ -157,6 +162,8 @@ const Customers = () => {
     } catch (err) {
       console.error('Error settling customer balance:', err);
       alert(err.response?.data?.message || 'Failed to process payment');
+    } finally {
+      setSettleLoading(prev => ({ ...prev, [customer._id]: false }));
     }
   };
 
@@ -327,7 +334,7 @@ const Customers = () => {
               </div>
               <div style={styles.settlementSection} className="customer-card__settlements">
                 <div style={styles.creditHistoryHeader}>Recent settlements</div>
-                {(settlements || []).filter((entry) => entry.customerId === customer._id).slice(0, 3).map((entry) => (
+                {(settlements || []).filter((entry) => String(entry.customerId || '') === String(customer._id)).slice(0, 5).map((entry) => (
                   <div key={entry._id} style={styles.creditHistoryItem}>
                     <div style={styles.creditHistoryTopRow}>
                       <span style={styles.creditHistoryDate}>{entry.createdAt ? new Date(entry.createdAt).toLocaleString() : '—'}</span>
@@ -335,12 +342,15 @@ const Customers = () => {
                     </div>
                     <div style={styles.creditHistoryMeta}>
                       <span>Amount: {formatPriceMK(entry.amount || 0)}</span>
-                      <span style={styles.approverBadge}>Approved by: {entry.approvedBy || '—'}</span>
+                      <span style={styles.approverBadge}>Sales: {entry.approvedBy || entry.processedByName || entry.salesAccount || '—'}</span>
                     </div>
-                    {entry.paymentReference ? <div style={styles.creditHistoryProducts}>{entry.paymentReference}</div> : null}
+                    <div style={styles.creditHistoryMeta}>
+                      <span>Status: {entry.status || 'confirmed'}</span>
+                    </div>
+                    {entry.reference || entry.paymentReference ? <div style={styles.creditHistoryProducts}>{entry.reference || entry.paymentReference}</div> : null}
                   </div>
                 ))}
-                {!(settlements || []).some((entry) => entry.customerId === customer._id) && (
+                {!(settlements || []).some((entry) => String(entry.customerId || '') === String(customer._id)) && (
                   <div style={styles.creditHistoryProducts}>No settlement history yet.</div>
                 )}
               </div>
@@ -364,6 +374,9 @@ const Customers = () => {
                       <div style={styles.creditHistoryMeta}>
                         <span>Balance: {formatPriceMK(entry.balanceDue || 0)}</span>
                         <span>Paid: {formatPriceMK(entry.amountPaid || 0)}</span>
+                      </div>
+                      <div style={styles.creditHistoryMeta}>
+                        <span>Sales account: {entry.processedByName || entry.salesAccount || 'Sales account'}</span>
                       </div>
                     </div>
                   ))}
@@ -413,8 +426,15 @@ const Customers = () => {
                     onChange={(e) => setSettleAmounts(prev => ({ ...prev, [customer._id]: e.target.value }))}
                     placeholder="Amount to pay"
                   />
-                  <button style={styles.settleBtn} onClick={() => handleSettleBill(customer)}>
-                    Settle bill
+                  <button
+                    style={{
+                      ...styles.settleBtn,
+                      ...(settleLoading[customer._id] ? styles.settleBtnLoading : {})
+                    }}
+                    onClick={() => handleSettleBill(customer)}
+                    disabled={Boolean(settleLoading[customer._id])}
+                  >
+                    {settleLoading[customer._id] ? 'Clearing Bill' : 'Settle bill'}
                   </button>
                 </div>
               )}

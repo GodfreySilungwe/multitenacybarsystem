@@ -10,6 +10,7 @@ const User = require('../models/User');
 const Bar = require('../models/Bar');
 const CustomerOrderRequest = require('../models/CustomerOrderRequest');
 const CustomerPaymentRequest = require('../models/CustomerPaymentRequest');
+const { selectCreditOrdersForSettlement } = require('../lib/credit');
 
 router.use(protect);
 
@@ -66,6 +67,8 @@ const buildCustomerCreditSummary = async (customerId, barId) => {
             amountPaid: Number(order.amountPaid || 0),
             balanceDue,
             paymentStatus: order.paymentStatus || 'partial',
+            processedByName: order.processedByName || order.paymentProcessedByName || order.processedBy || order.paymentProcessedBy || 'Sales account',
+            salesAccount: order.processedByName || order.paymentProcessedByName || order.processedBy || order.paymentProcessedBy || 'Sales account',
             products
           };
         })
@@ -122,7 +125,6 @@ const enrichCustomer = async (customer, barId) => {
 
   return {
     ...customer,
-    // always derive creditBalance from outstanding credit orders to avoid drift
     creditBalance: outstandingBalance,
     creditSummary,
     accountUsername: customer.accountUsername || customer.username || '',
@@ -341,15 +343,21 @@ router.post('/:id/pay', isBarOwnerOrSales, async (req, res) => {
       .populate('items.product', 'name')
       .sort({ createdAt: 1 });
 
-    const outstandingBalance = (unpaidOrders || [])
-      .reduce((sum, order) => sum + Number(order.balanceDue || 0), 0);
-
+    const outstandingBalance = (unpaidOrders || []).reduce((sum, order) => sum + Number(order.balanceDue || 0), 0);
     const paymentAmount = Math.min(requestedAmount, outstandingBalance);
     let remainingPayment = paymentAmount;
 
+    const eligibleOrders = selectCreditOrdersForSettlement(unpaidOrders || [], req.user);
+
+    if (eligibleOrders.length === 0 && (req.user?._id || req.user?.fullName || req.user?.username || req.user?.email)) {
+      return res.status(403).json({
+        message: 'This sales account can only settle bills it processed. Older customer credit from another sales account must be settled by that responsible account first.'
+      });
+    }
+
     const updatedRequests = [];
 
-    for (const order of unpaidOrders || []) {
+    for (const order of eligibleOrders) {
       if (order.paymentMethod !== 'credit' || Number(order.balanceDue || 0) <= 0 || remainingPayment <= 0) {
         continue;
       }
@@ -361,6 +369,8 @@ router.post('/:id/pay', isBarOwnerOrSales, async (req, res) => {
       order.balanceDue = Math.max(0, currentBalance - appliedAmount);
       order.amountPaid = toNumber(order.amountPaid, 0) + appliedAmount;
       order.paymentStatus = order.balanceDue > 0 ? 'partial' : 'paid';
+      order.paymentProcessedBy = order.paymentProcessedBy || req.user._id;
+      order.paymentProcessedByName = order.paymentProcessedByName || req.user.fullName || req.user.username || req.user.email || 'Sales account';
       order.paymentMethod = order.paymentMethod || 'credit';
       await order.save();
 
