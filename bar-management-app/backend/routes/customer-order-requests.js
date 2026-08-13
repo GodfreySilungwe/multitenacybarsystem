@@ -8,7 +8,7 @@ const Product = require('../models/Product');
 const Customer = require('../models/Customer');
 const Order = require('../models/Order');
 const User = require('../models/User');
-const { recomputeCustomerCreditBalance } = require('../lib/credit');
+const { recomputeCustomerCreditBalance, selectCreditOrdersForSettlement } = require('../lib/credit');
 const { createAuditEntry } = require('../lib/audit');
 
 router.use(protect);
@@ -94,6 +94,13 @@ const requireValidCurrentUserPassword = async (req, res) => {
   }
 
   return true;
+};
+
+const getOrderOutstandingBalance = (order) => {
+  const totalAmount = toNumber(order?.totalAmount, 0);
+  const amountPaid = toNumber(order?.amountPaid, 0);
+  const recordedBalance = toNumber(order?.balanceDue, totalAmount - amountPaid);
+  return Math.max(0, recordedBalance);
 };
 
 const buildPaymentRecordFromRequest = (paymentRequest) => {
@@ -579,12 +586,43 @@ router.patch('/payments/:id/confirm', isBarOwnerOrSales, async (req, res) => {
       return res.status(400).json({ message: 'No outstanding credit orders to apply this payment.' });
     }
 
+    // Validate maximum settlement amount based on sales account
+    const requestedAmount = toNumber(paymentRequest.amountRequested, 0);
+    const outstandingBalance = (creditOrders || []).reduce((sum, order) => sum + getOrderOutstandingBalance(order), 0);
+    
+    const eligibleOrders = selectCreditOrdersForSettlement(creditOrders || [], req.user);
+    
+    // For non-manager/owner users, restrict settlement to their own sales account credit
+    let maxSettleableAmount = outstandingBalance;
+    if (!['owner', 'manager'].includes(req.user.role)) {
+      maxSettleableAmount = (eligibleOrders || []).reduce((sum, order) => sum + getOrderOutstandingBalance(order), 0);
+      
+      if (maxSettleableAmount <= 0) {
+        paymentRequest.status = 'cancelled';
+        await paymentRequest.save();
+        return res.status(400).json({
+          message: 'No outstanding credit from your sales account to settle. Contact your manager to settle bills from other sales accounts.'
+        });
+      }
+
+      if (requestedAmount > maxSettleableAmount) {
+        return res.status(400).json({
+          message: `Maximum amount you can settle is ${maxSettleableAmount} MK (credit tied to your sales account only). You requested ${requestedAmount} MK.`,
+          maxAmount: maxSettleableAmount,
+          requestedAmount
+        });
+      }
+    }
+
     let remainingPayment = toNumber(paymentRequest.amountRequested, 0);
     let appliedAmount = 0;
     const updatedRequests = [];
     const updatedRequestIds = new Set();
 
-    for (const order of creditOrders) {
+    // For non-owner/manager users, use only their eligible orders
+    const ordersToProcess = ['owner', 'manager'].includes(req.user.role) ? creditOrders : eligibleOrders;
+
+    for (const order of ordersToProcess) {
       if (remainingPayment <= 0) {
         break;
       }

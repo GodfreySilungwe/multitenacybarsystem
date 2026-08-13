@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react';
 import api from '../api/api';
+import { useAuth } from '../context/AuthContext';
 import PageContainer from './PageContainer';
 import Button from '../components/common/Button';
 import UnifiedCard from '../components/common/UnifiedCard';
@@ -7,6 +8,7 @@ import { formatPriceMK } from '../utils/formatPrice';
 import { confirmTypedDelete } from '../utils/confirmation';
 
 const Customers = () => {
+  const { user: currentUser } = useAuth();
   const [customers, setCustomers] = useState([]);
   const [loading, setLoading] = useState(true);
   const [loadingMore, setLoadingMore] = useState(false);
@@ -26,6 +28,7 @@ const Customers = () => {
   const [settleLoading, setSettleLoading] = useState({});
   const [settlements, setSettlements] = useState([]);
   const [settlementConfirmation, setSettlementConfirmation] = useState(null);
+  const [successMessage, setSuccessMessage] = useState(null);
   const [formData, setFormData] = useState({
     name: '',
     phone: '',
@@ -149,19 +152,37 @@ const Customers = () => {
         paymentMethod,
         paymentReference: paymentReference.trim()
       });
-      setCustomers(prev => prev.map(item => (item._id === customer._id ? res.data : item)));
+
+      // Check if settlement was denied (skipped because of wrong sales account)
+      if (res.data?.skipped) {
+        alert(res.data?.message || 'This bill can only be settled by the sales account that created it.');
+        return;
+      }
+
+      // Check if amount exceeded max settleable amount for this user's sales account
+      if (res.data?.maxAmount !== undefined && res.data?.maxAmount < amount) {
+        alert(`You can only settle up to ${formatPriceMK(res.data.maxAmount)} MK from your sales account.\n\nOther amounts must be settled by the sales accounts that created them.`);
+        return;
+      }
+
+      const updatedCustomer = res.data;
+      setCustomers(prev => prev.map(item => (item._id === customer._id ? updatedCustomer : item)));
       setSettleAmounts(prev => ({ ...prev, [customer._id]: '' }));
       setSettleReferences(prev => ({ ...prev, [customer._id]: '' }));
       setSettleMethods(prev => ({ ...prev, [customer._id]: 'cash' }));
-      setSettlementConfirmation({
-        customerName: customer.name,
-        amount,
-        paymentMethod,
-        paymentReference: paymentReference.trim()
-      });
+      setSuccessMessage(`✓ Settlement successful for ${customer.name} • ${formatPriceMK(amount)}`);
+      setTimeout(() => setSuccessMessage(null), 4000);
+      window.dispatchEvent(new Event('payment-updated'));
     } catch (err) {
       console.error('Error settling customer balance:', err);
-      alert(err.response?.data?.message || 'Failed to process payment');
+      const errorMsg = err.response?.data?.message || 'Failed to process payment';
+      const maxAmount = err.response?.data?.maxAmount;
+      
+      if (maxAmount !== undefined) {
+        alert(`${errorMsg}\n\nMax amount you can settle: ${formatPriceMK(maxAmount)} MK`);
+      } else {
+        alert(errorMsg);
+      }
     } finally {
       setSettleLoading(prev => ({ ...prev, [customer._id]: false }));
     }
@@ -267,18 +288,9 @@ const Customers = () => {
           </UnifiedCard>
         )}
 
-        {settlementConfirmation && (
-          <div style={styles.modalOverlay} onClick={() => setSettlementConfirmation(null)}>
-            <div style={styles.modalCard} onClick={(e) => e.stopPropagation()}>
-              <h3 style={styles.modalTitle}>✅ Settlement confirmed</h3>
-              <p style={styles.modalText}>The payment for {settlementConfirmation.customerName} has been recorded successfully.</p>
-              <div style={styles.modalDetails}>
-                <div>Amount: {formatPriceMK(settlementConfirmation.amount || 0)}</div>
-                <div>Method: {settlementConfirmation.paymentMethod}</div>
-                {settlementConfirmation.paymentReference ? <div>Reference: {settlementConfirmation.paymentReference}</div> : null}
-              </div>
-              <Button onClick={() => setSettlementConfirmation(null)}>Close</Button>
-            </div>
+        {successMessage && (
+          <div style={styles.successBanner}>
+            {successMessage}
           </div>
         )}
 
@@ -357,6 +369,27 @@ const Customers = () => {
               {(customer.creditSummary || []).length > 0 && (
                 <div style={styles.creditHistorySection} className="customer-card__credit-history">
                   <div style={styles.creditHistoryHeader}>Unpaid credit purchases</div>
+                  {/* Per-account breakdown summary */}
+                  <div style={styles.accountBreakdownSection}>
+                    <div style={styles.accountBreakdownTitle}>Credit by sales account:</div>
+                    {(() => {
+                      const byAccount = {};
+                      (customer.creditSummary || []).forEach((entry) => {
+                        const account = entry.processedByName || entry.salesAccount || 'Sales account';
+                        if (!byAccount[account]) {
+                          byAccount[account] = { total: 0, count: 0 };
+                        }
+                        byAccount[account].total += Number(entry.balanceDue || 0);
+                        byAccount[account].count += 1;
+                      });
+                      return Object.entries(byAccount).map(([account, data]) => (
+                        <div key={account} style={styles.accountBreakdownRow}>
+                          <span style={styles.accountName}>{account}</span>
+                          <span style={styles.accountAmount}>{formatPriceMK(data.total)} ({data.count} bill{data.count !== 1 ? 's' : ''})</span>
+                        </div>
+                      ));
+                    })()}
+                  </div>
                   {customer.creditSummary.map((entry) => (
                     <div key={entry._id} style={styles.creditHistoryItem}>
                       <div style={styles.creditHistoryTopRow}>
@@ -434,7 +467,14 @@ const Customers = () => {
                     onClick={() => handleSettleBill(customer)}
                     disabled={Boolean(settleLoading[customer._id])}
                   >
-                    {settleLoading[customer._id] ? 'Clearing Bill' : 'Settle bill'}
+                    {settleLoading[customer._id] ? (
+                      <>
+                        <span style={styles.spinner}></span>
+                        {'Settling...'}
+                      </>
+                    ) : (
+                      'Settle bill'
+                    )}
                   </button>
                 </div>
               )}
@@ -731,6 +771,40 @@ const styles = {
     borderRadius: '999px',
     fontWeight: '700'
   },
+  accountBreakdownSection: {
+    paddingTop: '8px',
+    paddingBottom: '8px',
+    borderBottom: '1px solid #f6dce2',
+    display: 'flex',
+    flexDirection: 'column',
+    gap: '6px'
+  },
+  accountBreakdownTitle: {
+    fontSize: '12px',
+    fontWeight: '700',
+    color: '#7f1d1d',
+    marginBottom: '4px'
+  },
+  accountBreakdownRow: {
+    display: 'flex',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    gap: '8px',
+    padding: '6px 8px',
+    borderRadius: '6px',
+    backgroundColor: '#fef2f2',
+    fontSize: '12px'
+  },
+  accountName: {
+    fontWeight: '600',
+    color: '#4b5563',
+    flex: 1
+  },
+  accountAmount: {
+    fontWeight: '700',
+    color: '#b91c1c',
+    textAlign: 'right'
+  },
   paymentSection: {
     display: 'flex',
     flexDirection: 'column',
@@ -798,7 +872,57 @@ const styles = {
     cursor: 'pointer',
     fontWeight: '700',
     transition: 'all 0.2s ease'
+  },
+  spinner: {
+    display: 'inline-block',
+    width: '10px',
+    height: '10px',
+    borderRadius: '50%',
+    border: '2px solid rgba(255,255,255,0.3)',
+    borderTop: '2px solid white',
+    animation: 'spin 0.6s linear infinite',
+    marginRight: '4px',
+    verticalAlign: 'middle'
+  },
+  successBanner: {
+    position: 'fixed',
+    top: '20px',
+    right: '20px',
+    backgroundColor: '#10b981',
+    color: 'white',
+    padding: '14px 18px',
+    borderRadius: '8px',
+    boxShadow: '0 4px 12px rgba(16, 185, 129, 0.4)',
+    fontSize: '14px',
+    fontWeight: '600',
+    zIndex: 9999,
+    animation: 'slideIn 0.3s ease'
   }
 };
+
+const spinKeyframes = `
+  @keyframes spin {
+    to { transform: rotate(360deg); }
+  }
+  @keyframes slideIn {
+    from {
+      transform: translateX(400px);
+      opacity: 0;
+    }
+    to {
+      transform: translateX(0);
+      opacity: 1;
+    }
+  }
+`;
+
+if (typeof document !== 'undefined') {
+  const styleEl = document.createElement('style');
+  styleEl.setAttribute('data-customers-keyframes', 'true');
+  styleEl.textContent = spinKeyframes;
+  if (!document.querySelector('style[data-customers-keyframes]')) {
+    document.head.appendChild(styleEl);
+  }
+}
 
 export default Customers;

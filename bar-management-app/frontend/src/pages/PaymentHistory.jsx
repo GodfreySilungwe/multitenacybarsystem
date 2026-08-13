@@ -29,6 +29,7 @@ const PaymentHistory = () => {
   const [loading, setLoading] = useState(true);
   const { user } = useAuth();
   const canManagePayments = ['owner', 'sales', 'manager'].includes(user?.role) && Boolean(user?.barId);
+  const canReversePayments = ['owner', 'manager'].includes(user?.role) && Boolean(user?.barId);
   const PAGE_SIZE = 20;
 
   useEffect(() => {
@@ -272,7 +273,7 @@ const PaymentHistory = () => {
                       <button type="button" onClick={() => handlePaymentAction(entry, 'reject')} style={styles.rejectBtn}>Reject</button>
                     </div>
                   )}
-                  {canManagePayments && entry.source === 'bill_settlement' && entry.status === 'confirmed' && (
+                  {canReversePayments && entry.source === 'bill_settlement' && entry.status === 'confirmed' && (
                     <div style={styles.actionsRow}>
                       <button type="button" onClick={() => handlePaymentAction(entry, 'reverse')} style={styles.reverseBtn}>Reverse</button>
                     </div>

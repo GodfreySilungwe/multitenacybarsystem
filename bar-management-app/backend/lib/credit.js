@@ -50,9 +50,20 @@ function isOrderOwnedByUser(order = {}, currentUser = {}) {
   const orderSalesAccountId = String(order.processedBy || order.paymentProcessedBy || '').trim();
   const orderSalesAccountName = getOrderSalesAccount(order);
 
-  const sameId = !currentSalesAccountId || orderSalesAccountId === currentSalesAccountId;
-  const sameName = !currentSalesAccountName || orderSalesAccountName === currentSalesAccountName || orderSalesAccountName === 'Sales account';
-  return sameId && sameName;
+  // Match by ID if available
+  if (currentSalesAccountId && orderSalesAccountId) {
+    return orderSalesAccountId === currentSalesAccountId;
+  }
+
+  // Fallback to name matching for old bills that may not have processedBy ID
+  if (currentSalesAccountName && orderSalesAccountName && orderSalesAccountName !== 'Sales account') {
+    const currentNameNormalized = currentSalesAccountName.toLowerCase().trim();
+    const orderNameNormalized = orderSalesAccountName.toLowerCase().trim();
+    return orderNameNormalized === currentNameNormalized;
+  }
+
+  // If no ID or clear name match, allow if current user has no specific account
+  return !currentSalesAccountId;
 }
 
 function getSalesAccountMismatchMessage(orders = [], currentUser = {}) {
@@ -60,8 +71,19 @@ function getSalesAccountMismatchMessage(orders = [], currentUser = {}) {
     return null;
   }
 
+  // Helper to calculate outstanding balance
+  const getOutstandingBalance = (order) => {
+    let balance = Number(order.balanceDue || 0);
+    if (balance <= 0) {
+      const totalAmount = Number(order.totalAmount || 0);
+      const amountPaid = Number(order.amountPaid || 0);
+      balance = Math.max(0, totalAmount - amountPaid);
+    }
+    return balance;
+  };
+
   const mismatchedOrder = (orders || [])
-    .filter((order) => !order.reversed && Number(order.balanceDue || 0) > 0 && (order.paymentMethod === 'credit' || order.paymentStatus === 'partial' || order.paymentStatus === 'credit'))
+    .filter((order) => !order.reversed && getOutstandingBalance(order) > 0 && (order.paymentMethod === 'credit' || order.status === 'partial' || order.paymentStatus === 'partial' || order.status === 'credit' || order.paymentStatus === 'credit'))
     .find((order) => !isOrderOwnedByUser(order, currentUser));
 
   if (!mismatchedOrder) {
@@ -76,8 +98,29 @@ function selectCreditOrdersForSettlement(orders = [], currentUser = {}) {
     return [];
   }
 
+  // Helper to determine if order has outstanding balance
+  const hasOutstandingBalance = (order) => {
+    let balance = Number(order.balanceDue || 0);
+    // For old bills that might not have balanceDue, calculate it
+    if (balance <= 0) {
+      const totalAmount = Number(order.totalAmount || 0);
+      const amountPaid = Number(order.amountPaid || 0);
+      balance = Math.max(0, totalAmount - amountPaid);
+    }
+    return balance > 0;
+  };
+
+  // Helper to check if order is credit type
+  const isCreditOrder = (order) => {
+    return order.paymentMethod === 'credit' || 
+           order.status === 'partial' || 
+           order.paymentStatus === 'partial' || 
+           order.status === 'credit' || 
+           order.paymentStatus === 'credit';
+  };
+
   const activeOrders = orders
-    .filter((order) => !order.reversed && Number(order.balanceDue || 0) > 0 && (order.paymentMethod === 'credit' || order.paymentStatus === 'partial' || order.paymentStatus === 'credit'))
+    .filter((order) => !order.reversed && hasOutstandingBalance(order) && isCreditOrder(order))
     .sort((a, b) => new Date(a.createdAt || 0) - new Date(b.createdAt || 0));
 
   if (isManagerOrOwnerUser(currentUser)) {

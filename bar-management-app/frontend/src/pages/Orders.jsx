@@ -56,6 +56,7 @@ const Orders = () => {
 
     if (filter === 'today') {
       params.startDate = getLocalDateString();
+      params.endDate = getLocalDateString(); // Same day for end date
     }
 
     if (filter === 'custom' && customStartDate) {
@@ -97,6 +98,21 @@ const Orders = () => {
       const items = Array.isArray(responseData) ? responseData : responseData.items || [];
       const next = responseData.nextKey || null;
       const summaryData = summaryRes.data || {};
+
+      // Debug logging
+      console.log('Orders API Response:', {
+        isArray: Array.isArray(responseData),
+        hasItems: Boolean(responseData.items),
+        itemsCount: items.length,
+        hasNextKey: Boolean(next),
+        params,
+        itemsSample: items.length > 0 ? items[0] : null,
+        fullResponse: responseData
+      });
+
+      if (items.length === 0) {
+        console.warn('No orders returned. Query params:', params, 'Response structure:', Object.keys(responseData));
+      }
 
       setOrders((prev) => (reset ? items : [...prev, ...items]));
       setSummary({

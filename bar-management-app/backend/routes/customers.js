@@ -28,12 +28,12 @@ const getOrderOutstandingBalance = (order) => {
 
 const buildCustomerCreditSummary = async (customerId, barId) => {
   try {
+    // Query for credit orders - include those with missing or zero balanceDue since old bills might not have it
     const orders = await Order.find({
       barId,
       customer: customerId,
       reversed: { $ne: true },
-      paymentMethod: 'credit',
-      balanceDue: { $gt: 0 }
+      paymentMethod: 'credit'
     })
       .populate('items.product', 'name')
       .sort({ createdAt: 1 });
@@ -43,6 +43,7 @@ const buildCustomerCreditSummary = async (customerId, barId) => {
         .filter((order) => order?.paymentMethod === 'credit')
         .map(async (order) => {
           const balanceDue = getOrderOutstandingBalance(order);
+          // Only include orders with actual outstanding balance
           if (balanceDue <= 0) {
             return null;
           }
@@ -337,21 +338,57 @@ router.post('/:id/pay', isBarOwnerOrSales, async (req, res) => {
       barId: req.user.barId,
       customer: req.params.id,
       reversed: { $ne: true },
-      paymentMethod: 'credit',
-      balanceDue: { $gt: 0 }
+      paymentMethod: 'credit'
     })
       .populate('items.product', 'name')
       .sort({ createdAt: 1 });
 
-    console.debug('DEBUG /customers/:id/pay -> unpaidOrders fetched:', unpaidOrders.length, 'orders. FIFO order (oldest first):', unpaidOrders.map(o => ({ orderNumber: o.orderNumber, createdAt: o.createdAt, balanceDue: o.balanceDue })));
+    console.debug('DEBUG /customers/:id/pay -> unpaidOrders fetched:', unpaidOrders.length, 'orders. FIFO order (oldest first):', unpaidOrders.map(o => ({ 
+      orderNumber: o.orderNumber, 
+      createdAt: o.createdAt, 
+      balanceDue: o.balanceDue,
+      totalAmount: o.totalAmount,
+      amountPaid: o.amountPaid,
+      calculatedBalance: getOrderOutstandingBalance(o),
+      processedByName: o.processedByName,
+      paymentProcessedByName: o.paymentProcessedByName
+    })));
 
-    const outstandingBalance = (unpaidOrders || []).reduce((sum, order) => sum + Number(order.balanceDue || 0), 0);
-    const paymentAmount = Math.min(requestedAmount, outstandingBalance);
-    let remainingPayment = paymentAmount;
-
+    // Use the proper balance calculation that handles old bills
+    const outstandingBalance = (unpaidOrders || []).reduce((sum, order) => sum + getOrderOutstandingBalance(order), 0);
+    
     const eligibleOrders = selectCreditOrdersForSettlement(unpaidOrders || [], req.user);
 
-    console.debug('DEBUG /customers/:id/pay -> eligible orders after filtering by user:', eligibleOrders.length, 'orders. FIFO order:', eligibleOrders.map(o => ({ orderNumber: o.orderNumber, createdAt: o.createdAt, balanceDue: o.balanceDue })));
+    // For non-manager/owner users, calculate max settlement amount based ONLY on their own sales account credit
+    let maxSettleableAmount = outstandingBalance;
+    if (!['owner', 'manager'].includes(req.user.role)) {
+      maxSettleableAmount = (eligibleOrders || []).reduce((sum, order) => sum + getOrderOutstandingBalance(order), 0);
+      
+      if (maxSettleableAmount <= 0) {
+        return res.status(400).json({
+          message: 'No outstanding credit from your sales account to settle. Contact your manager to settle bills from other sales accounts.'
+        });
+      }
+
+      if (requestedAmount > maxSettleableAmount) {
+        return res.status(400).json({
+          message: `Maximum amount you can settle is ${maxSettleableAmount} MK (credit tied to your sales account only). You requested ${requestedAmount} MK.`,
+          maxAmount: maxSettleableAmount,
+          requestedAmount
+        });
+      }
+    }
+
+    const paymentAmount = Math.min(requestedAmount, maxSettleableAmount);
+    let remainingPayment = paymentAmount;
+
+    console.debug('DEBUG /customers/:id/pay -> eligible orders after filtering by user:', eligibleOrders.length, 'orders. FIFO order:', eligibleOrders.map(o => ({ 
+      orderNumber: o.orderNumber, 
+      createdAt: o.createdAt, 
+      balanceDue: o.balanceDue,
+      calculatedBalance: getOrderOutstandingBalance(o),
+      processedByName: o.processedByName
+    })));
 
     // Only check for mismatch if user has NO eligible orders but is trying to settle
     if (eligibleOrders.length === 0 && (req.user?._id || req.user?.fullName || req.user?.username || req.user?.email)) {
@@ -376,11 +413,16 @@ router.post('/:id/pay', isBarOwnerOrSales, async (req, res) => {
     const updatedRequests = [];
 
     for (const order of eligibleOrders) {
-      if (order.paymentMethod !== 'credit' || Number(order.balanceDue || 0) <= 0 || remainingPayment <= 0) {
+      if (order.paymentMethod !== 'credit' || remainingPayment <= 0) {
         continue;
       }
 
-      const currentBalance = toNumber(order.balanceDue, 0);
+      // Use proper balance calculation for old bills
+      const currentBalance = getOrderOutstandingBalance(order);
+      if (currentBalance <= 0) {
+        continue;
+      }
+
       const appliedAmount = Math.min(remainingPayment, currentBalance);
       remainingPayment -= appliedAmount;
 

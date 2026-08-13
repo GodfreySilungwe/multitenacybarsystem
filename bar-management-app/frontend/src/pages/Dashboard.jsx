@@ -136,9 +136,14 @@ const Dashboard = () => {
 
         const todayData = todayRes instanceof Error ? { count: 0, totalSales: 0, totalProfit: 0 } : todayRes.data;
         const products = productsRes instanceof Error ? [] : productsRes.data || [];
-        const customers = customersRes instanceof Error ? [] : customersRes.data || [];
+        // Handle both array and paginated response formats
+        const customersData = customersRes instanceof Error ? [] : customersRes.data || [];
+        const customers = Array.isArray(customersData) ? customersData : customersData.items || [];
         const lowStock = lowStockRes instanceof Error ? [] : lowStockRes.data || [];
-        const recent = ordersRes instanceof Error ? [] : (ordersRes.data || []).slice(0, 5);
+        // Handle both array and paginated response formats for orders
+        const ordersData = ordersRes instanceof Error ? [] : ordersRes.data || [];
+        const ordersArray = Array.isArray(ordersData) ? ordersData : ordersData.items || [];
+        const recent = ordersArray.slice(0, 5);
         const userSummary = usersSummaryRes instanceof Error ? {} : usersSummaryRes.data || {};
         const summaryData = summaryRes instanceof Error ? {} : summaryRes.data || {};
         const activeSalesAccounts = Number(userSummary.activeSalesAccounts || 0);
