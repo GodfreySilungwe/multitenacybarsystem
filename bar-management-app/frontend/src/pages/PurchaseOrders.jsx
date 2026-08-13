@@ -14,6 +14,8 @@ const PurchaseOrders = () => {
   const [showForm, setShowForm] = useState(false);
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
+  const [currentPage, setCurrentPage] = useState(1);
+  const ORDERS_PAGE_SIZE = 5;
   const [formData, setFormData] = useState({
     supplier: '',
     items: [{ product: '', quantity: '', costPrice: '' }],
@@ -135,6 +137,13 @@ const PurchaseOrders = () => {
     };
     return labels[status] || status;
   };
+
+  // Pagination logic
+  const totalPages = Math.max(1, Math.ceil((orders || []).length / ORDERS_PAGE_SIZE));
+  const paginatedOrders = (orders || []).slice(
+    (currentPage - 1) * ORDERS_PAGE_SIZE,
+    currentPage * ORDERS_PAGE_SIZE
+  );
 
   if (loading) {
     return (
@@ -283,7 +292,7 @@ const PurchaseOrders = () => {
             <p style={styles.emptySubtext}>Create your first purchase order</p>
           </div>
         ) : (
-          orders.map((order, index) => (
+          paginatedOrders.map((order, index) => (
             <div 
               key={order._id}
               className={`fade-in delay-${(index % 6) + 1}`}
@@ -395,6 +404,36 @@ const PurchaseOrders = () => {
           ))
         )}
       </div>
+
+      {orders.length > ORDERS_PAGE_SIZE && (
+        <div style={styles.paginationContainer}>
+          <button
+            onClick={() => setCurrentPage(prev => Math.max(1, prev - 1))}
+            disabled={currentPage === 1}
+            style={{
+              ...styles.paginationButton,
+              opacity: currentPage === 1 ? 0.5 : 1,
+              cursor: currentPage === 1 ? 'not-allowed' : 'pointer'
+            }}
+          >
+            ← Previous
+          </button>
+          <span style={styles.paginationInfo}>
+            Page {currentPage} of {totalPages}
+          </span>
+          <button
+            onClick={() => setCurrentPage(prev => Math.min(totalPages, prev + 1))}
+            disabled={currentPage === totalPages}
+            style={{
+              ...styles.paginationButton,
+              opacity: currentPage === totalPages ? 0.5 : 1,
+              cursor: currentPage === totalPages ? 'not-allowed' : 'pointer'
+            }}
+          >
+            Next →
+          </button>
+        </div>
+      )}
     </PageContainer>
   );
 };
@@ -618,6 +657,33 @@ const styles = {
     borderRadius: '8px',
     marginBottom: '15px',
     border: '1px solid #c3e6cb'
+  },
+  paginationContainer: {
+    display: 'flex',
+    justifyContent: 'center',
+    alignItems: 'center',
+    gap: '12px',
+    padding: '20px 0',
+    marginTop: '20px',
+    borderTop: '1px solid #e5e7eb'
+  },
+  paginationButton: {
+    padding: '8px 14px',
+    borderRadius: '8px',
+    border: '1px solid #d1d5db',
+    backgroundColor: '#f9fafb',
+    color: '#374151',
+    fontWeight: '600',
+    fontSize: '13px',
+    cursor: 'pointer',
+    transition: 'all 0.3s ease'
+  },
+  paginationInfo: {
+    fontSize: '13px',
+    color: '#6b7280',
+    fontWeight: '500',
+    minWidth: '120px',
+    textAlign: 'center'
   }
 };
 

@@ -66,9 +66,12 @@ const Dashboard = () => {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [lastUpdated, setLastUpdated] = useState(null);
+  const [productSalesCurrentPage, setProductSalesCurrentPage] = useState(1);
+  const PRODUCT_SALES_PAGE_SIZE = 30;
 
   useEffect(() => {
     fetchDashboardData();
+    setProductSalesCurrentPage(1);
   }, [dateRange, customStartDate, customEndDate]);
 
   useEffect(() => {
@@ -205,6 +208,14 @@ const Dashboard = () => {
   const totalStartQty = productSales.reduce((sum, item) => sum + (item.startingQty !== null ? Number(item.startingQty || 0) : 0), 0);
   const totalClosingQty = productSales.reduce((sum, item) => sum + Number(item.closingQty || 0), 0);
   const totalProductSalesAmount = productSales.reduce((sum, item) => sum + Number(item.totalAmount || 0), 0);
+  
+  // Pagination for product sales
+  const totalProductSalesPages = Math.max(1, Math.ceil((productSales || []).length / PRODUCT_SALES_PAGE_SIZE));
+  const paginatedProductSales = (productSales || []).slice(
+    (productSalesCurrentPage - 1) * PRODUCT_SALES_PAGE_SIZE,
+    productSalesCurrentPage * PRODUCT_SALES_PAGE_SIZE
+  );
+
   const inventoryValueAtCost = (productsList || []).reduce((sum, p) => {
     const qty = Number(p.currentStock || 0);
     const cost = Number(p.costPrice || p.purchasePrice || 0);
@@ -608,7 +619,7 @@ const Dashboard = () => {
                       </tr>
                     </thead>
                     <tbody>
-                      {productSales.map((item) => (
+                      {paginatedProductSales.map((item) => (
                         <tr key={item.productId || item.name} style={styles.tableRow}>
                           <td style={styles.orderNumber}>{item.name}</td>
                           <td>{item.startingQty !== null ? item.startingQty : '-'}</td>
@@ -628,6 +639,35 @@ const Dashboard = () => {
                       </tr>
                     </tbody>
                   </table>
+                  {productSales.length > PRODUCT_SALES_PAGE_SIZE && (
+                    <div style={styles.paginationContainer}>
+                      <button
+                        onClick={() => setProductSalesCurrentPage(prev => Math.max(1, prev - 1))}
+                        disabled={productSalesCurrentPage === 1}
+                        style={{
+                          ...styles.paginationButton,
+                          opacity: productSalesCurrentPage === 1 ? 0.5 : 1,
+                          cursor: productSalesCurrentPage === 1 ? 'not-allowed' : 'pointer'
+                        }}
+                      >
+                        ← Previous
+                      </button>
+                      <span style={styles.paginationInfo}>
+                        Page {productSalesCurrentPage} of {totalProductSalesPages}
+                      </span>
+                      <button
+                        onClick={() => setProductSalesCurrentPage(prev => Math.min(totalProductSalesPages, prev + 1))}
+                        disabled={productSalesCurrentPage === totalProductSalesPages}
+                        style={{
+                          ...styles.paginationButton,
+                          opacity: productSalesCurrentPage === totalProductSalesPages ? 0.5 : 1,
+                          cursor: productSalesCurrentPage === totalProductSalesPages ? 'not-allowed' : 'pointer'
+                        }}
+                      >
+                        Next →
+                      </button>
+                    </div>
+                  )}
                 </div>
               ) : (
                 <div style={styles.emptyState}>
@@ -1168,6 +1208,37 @@ const styles = {
   mobile: {
     backgroundColor: '#fdebd0',
     color: '#e67e22'
+  },
+  paginationContainer: {
+    display: 'flex',
+    justifyContent: 'center',
+    alignItems: 'center',
+    gap: '12px',
+    padding: '16px 0',
+    borderTop: '1px solid #e5e7eb',
+    marginTop: '12px'
+  },
+  paginationButton: {
+    padding: '8px 14px',
+    borderRadius: '8px',
+    border: '1px solid #d1d5db',
+    backgroundColor: '#f9fafb',
+    color: '#374151',
+    fontWeight: '600',
+    fontSize: '13px',
+    cursor: 'pointer',
+    transition: 'all 0.3s ease',
+    ':hover': {
+      backgroundColor: '#e94560',
+      color: 'white'
+    }
+  },
+  paginationInfo: {
+    fontSize: '13px',
+    color: '#6b7280',
+    fontWeight: '500',
+    minWidth: '120px',
+    textAlign: 'center'
   }
 };
 
