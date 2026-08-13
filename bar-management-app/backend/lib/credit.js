@@ -26,6 +26,7 @@ function getOrderSalesAccount(order = {}) {
   const candidate = String(
     order.processedByName ||
     order.paymentProcessedByName ||
+    order.processedByUsername ||
     order.processedBy ||
     order.paymentProcessedBy ||
     order.salesAccount ||
@@ -49,17 +50,42 @@ function isOrderOwnedByUser(order = {}, currentUser = {}) {
 
   const orderSalesAccountId = String(order.processedBy || order.paymentProcessedBy || '').trim();
   const orderSalesAccountName = getOrderSalesAccount(order);
+  const orderProcessedByUsername = String(order.processedByUsername || '').trim();
 
-  // Match by ID if available
+  // Try to match by ID first (if both are valid UUID format)
   if (currentSalesAccountId && orderSalesAccountId) {
-    return orderSalesAccountId === currentSalesAccountId;
+    const isOrderIdUuid = orderSalesAccountId.includes('-');
+    const isCurrentIdUuid = currentSalesAccountId.includes('-');
+    
+    if (isOrderIdUuid && isCurrentIdUuid) {
+      // Both are UUIDs, compare directly
+      if (orderSalesAccountId === currentSalesAccountId) {
+        return true;
+      }
+    } else if (!isOrderIdUuid && !isCurrentIdUuid) {
+      // Both are username strings, compare directly (case-insensitive)
+      if (orderSalesAccountId.toLowerCase() === currentSalesAccountId.toLowerCase()) {
+        return true;
+      }
+    }
   }
 
-  // Fallback to name matching for old bills that may not have processedBy ID
+  // Try to match by username if available (for old orders with processedByUsername)
+  if (currentSalesAccountName && orderProcessedByUsername) {
+    const currentUsernameNormalized = currentSalesAccountName.toLowerCase().trim();
+    const orderUsernameNormalized = orderProcessedByUsername.toLowerCase().trim();
+    if (orderUsernameNormalized.includes(currentUsernameNormalized) || currentUsernameNormalized.includes(orderUsernameNormalized)) {
+      return true;
+    }
+  }
+
+  // Fallback to name matching
   if (currentSalesAccountName && orderSalesAccountName && orderSalesAccountName !== 'Sales account') {
     const currentNameNormalized = currentSalesAccountName.toLowerCase().trim();
     const orderNameNormalized = orderSalesAccountName.toLowerCase().trim();
-    return orderNameNormalized === currentNameNormalized;
+    if (orderNameNormalized === currentNameNormalized) {
+      return true;
+    }
   }
 
   // If no ID or clear name match, allow if current user has no specific account
