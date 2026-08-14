@@ -839,7 +839,8 @@ router.post('/', async (req, res) => {
       paymentStatus,
       status: paymentStatus === 'paid' ? 'completed' : 'partial',
       processedBy: req.user._id,
-      processedByName: req.user.fullName || req.user.username || req.user.email || 'Sales account'
+      processedByName: req.user.fullName || req.user.username || req.user.email || 'Sales account',
+      createdAt: new Date().toISOString()
     });
 
     const savedOrder = await order.save();

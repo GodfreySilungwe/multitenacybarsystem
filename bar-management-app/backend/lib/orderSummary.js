@@ -25,9 +25,9 @@ function getDisplayProductName(item) {
 
 function calculateOutstandingCreditInPeriod(orders = []) {
   return (orders || [])
-    .filter((order) => !order.reversed && (order.paymentMethod === 'credit' || order.paymentStatus === 'partial' || order.paymentStatus === 'credit'))
+    .filter((order) => !order.reversed && (order.paymentMethod === 'credit' || order.paymentStatus === 'partial' || order.paymentStatus === 'credit') && normalizeNumber(order.balanceDue || order.amountDue || 0) > 0)
     .reduce((sum, order) => {
-      const amount = normalizeNumber(order.totalAmount || order.amountDue || order.amount || order.balanceDue || 0);
+      const amount = normalizeNumber(order.balanceDue || order.amountDue || 0);
       return sum + amount;
     }, 0);
 }

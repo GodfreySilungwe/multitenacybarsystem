@@ -44,12 +44,12 @@ test('buildOrderSummary excludes reversed orders and calculates totals from the 
   assert.equal(summary.topProducts[0].profit, 180);
 });
 
-test('calculateOutstandingCreditInPeriod keeps credit sales in the originating period even if they are settled later', () => {
+test('calculateOutstandingCreditInPeriod only counts credit sales with remaining balance due', () => {
   const orders = [
     {
       reversed: false,
       paymentMethod: 'credit',
-      paymentStatus: 'credit',
+      paymentStatus: 'paid',
       balanceDue: 0,
       totalAmount: 300,
       amount: 300
@@ -64,6 +64,14 @@ test('calculateOutstandingCreditInPeriod keeps credit sales in the originating p
     },
     {
       reversed: false,
+      paymentMethod: 'credit',
+      paymentStatus: 'credit',
+      balanceDue: 200,
+      totalAmount: 200,
+      amount: 200
+    },
+    {
+      reversed: false,
       paymentMethod: 'cash',
       paymentStatus: 'paid',
       totalAmount: 180,
@@ -71,7 +79,8 @@ test('calculateOutstandingCreditInPeriod keeps credit sales in the originating p
     }
   ];
 
-  assert.equal(calculateOutstandingCreditInPeriod(orders), 550);
+  // Only orders with balanceDue > 0: 50 + 200 = 250
+  assert.equal(calculateOutstandingCreditInPeriod(orders), 250);
 });
 
 test('validateCustomerOrderItems rejects customer orders when stock is insufficient', async () => {
