@@ -701,10 +701,6 @@ router.patch('/payments/:id/confirm', isBarOwnerOrSales, async (req, res) => {
 
 router.patch('/payments/:id/reject', isBarOwnerOrSales, async (req, res) => {
   try {
-    if (!(await requireValidCurrentUserPassword(req, res))) {
-      return;
-    }
-
     const paymentRequest = await CustomerPaymentRequest.findOne({ _id: req.params.id, barId: req.user.barId });
     if (!paymentRequest) {
       return res.status(404).json({ message: 'Payment request not found.' });
