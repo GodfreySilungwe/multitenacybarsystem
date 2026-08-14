@@ -23,6 +23,15 @@ function getDisplayProductName(item) {
   return candidateName === 'Product' && productId ? `Product ${String(productId).slice(-4)}` : candidateName;
 }
 
+function calculateOutstandingCreditInPeriod(orders = []) {
+  return (orders || [])
+    .filter((order) => !order.reversed && (order.paymentMethod === 'credit' || order.paymentStatus === 'partial' || order.paymentStatus === 'credit'))
+    .reduce((sum, order) => {
+      const amount = normalizeNumber(order.totalAmount || order.amountDue || order.amount || order.balanceDue || 0);
+      return sum + amount;
+    }, 0);
+}
+
 function buildOrderSummary(orders = []) {
   const activeOrders = (orders || []).filter((order) => !order.reversed);
 
@@ -130,4 +139,4 @@ function buildOrderSummary(orders = []) {
   };
 }
 
-module.exports = { buildOrderSummary };
+module.exports = { buildOrderSummary, calculateOutstandingCreditInPeriod };

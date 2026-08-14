@@ -1,6 +1,6 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const { buildOrderSummary } = require('./orderSummary');
+const { buildOrderSummary, calculateOutstandingCreditInPeriod } = require('./orderSummary');
 const Product = require('../models/Product');
 const { validateCustomerOrderItems } = require('../routes/customer-order-requests');
 
@@ -42,6 +42,36 @@ test('buildOrderSummary excludes reversed orders and calculates totals from the 
   assert.equal(summary.averageItemsPerOrder, 2.5);
   assert.equal(summary.grossMarginRatio, 30);
   assert.equal(summary.topProducts[0].profit, 180);
+});
+
+test('calculateOutstandingCreditInPeriod keeps credit sales in the originating period even if they are settled later', () => {
+  const orders = [
+    {
+      reversed: false,
+      paymentMethod: 'credit',
+      paymentStatus: 'credit',
+      balanceDue: 0,
+      totalAmount: 300,
+      amount: 300
+    },
+    {
+      reversed: false,
+      paymentMethod: 'credit',
+      paymentStatus: 'partial',
+      balanceDue: 50,
+      totalAmount: 250,
+      amount: 250
+    },
+    {
+      reversed: false,
+      paymentMethod: 'cash',
+      paymentStatus: 'paid',
+      totalAmount: 180,
+      amount: 180
+    }
+  ];
+
+  assert.equal(calculateOutstandingCreditInPeriod(orders), 550);
 });
 
 test('validateCustomerOrderItems rejects customer orders when stock is insufficient', async () => {

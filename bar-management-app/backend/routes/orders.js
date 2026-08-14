@@ -11,7 +11,7 @@ const CustomerPaymentRequest = require('../models/CustomerPaymentRequest');
 const StockSnapshot = require('../models/StockSnapshot');
 const { recomputeCustomerCreditBalance } = require('../lib/credit');
 const { queryEntities, decodeLastEvaluatedKey } = require('../lib/dynamodb');
-const { buildOrderSummary } = require('../lib/orderSummary');
+const { buildOrderSummary, calculateOutstandingCreditInPeriod } = require('../lib/orderSummary');
 const { createAuditEntry } = require('../lib/audit');
 
 router.use(protect, isBarOwnerOrSales);
@@ -308,7 +308,8 @@ router.get('/summary', async (req, res) => {
     const paymentOrders = payments
       .map((payment) => ({
         amount: Number(payment.amountApplied || payment.amountRequested || payment.amount || 0),
-        confirmedAt: payment.confirmedAt ? new Date(payment.confirmedAt).getTime() : 0
+        confirmedAt: payment.confirmedAt ? new Date(payment.confirmedAt).getTime() : 0,
+        paymentMethod: String(payment.creditPaymentMethod || payment.paymentMethod || 'cash').toLowerCase()
       }))
       .filter((payment) => payment.amount > 0)
       .sort((a, b) => a.confirmedAt - b.confirmedAt);
@@ -324,6 +325,41 @@ router.get('/summary', async (req, res) => {
     let currentPeriodCreditCollected = 0;
     const rangeStartTime = startDate ? new Date(startDate).getTime() : 0;
 
+    const settlementMethods = ['credit_cash', 'credit_airtel_money', 'credit_mpamba', 'credit_bank_account'];
+    const currentPeriodSettlementMap = settlementMethods.reduce((acc, method) => {
+      acc[method] = 0;
+      return acc;
+    }, {});
+
+    const inRangePayments = (payments || []).filter((payment) => {
+      const paymentDate = payment.confirmedAt || payment.createdAt;
+      if (!paymentDate) return false;
+      const timestamp = new Date(paymentDate).getTime();
+      if (Number.isNaN(timestamp)) return false;
+      return timestamp >= rangeStartTime && (!queryOptions.endDate || timestamp <= new Date(queryOptions.endDate).getTime());
+    });
+
+    inRangePayments.forEach((payment) => {
+      const methodKey = settlementMethods.includes(String(payment.creditPaymentMethod || payment.paymentMethod || '').toLowerCase())
+        ? String(payment.creditPaymentMethod || payment.paymentMethod || '').toLowerCase()
+        : 'credit_cash';
+      const amount = Number(payment.amountApplied || payment.amountRequested || payment.amount || 0);
+      if (amount > 0) {
+        currentPeriodSettlementMap[methodKey] += amount;
+        currentPeriodCreditCollected += amount;
+      }
+    });
+
+    legacyCreditOrderPayments.forEach((payment) => {
+      const paymentDate = payment.confirmedAt || payment.createdAt;
+      if (!paymentDate) return;
+      const timestamp = new Date(paymentDate).getTime();
+      if (!Number.isNaN(timestamp) && timestamp >= rangeStartTime && (!queryOptions.endDate || timestamp <= new Date(queryOptions.endDate).getTime())) {
+        currentPeriodSettlementMap.credit_cash += Number(payment.amount || 0);
+        currentPeriodCreditCollected += Number(payment.amount || 0);
+      }
+    });
+
     paymentOrders.forEach((payment) => {
       if (payment.isLegacyCreditOrderPayment) {
         return;
@@ -337,29 +373,11 @@ router.get('/summary', async (req, res) => {
         const applied = Math.min(remaining, nextOrder.balanceDue);
         if (nextOrder.createdAt < rangeStartTime) {
           previousBillsCollected += applied;
-        } else {
-          currentPeriodCreditCollected += applied;
         }
 
         nextOrder.balanceDue -= applied;
         remaining -= applied;
       }
-    });
-
-    const settlementMethods = ['credit_cash', 'credit_airtel_money', 'credit_mpamba', 'credit_bank_account'];
-    const settlementMap = settlementMethods.reduce((acc, method) => {
-      acc[method] = 0;
-      return acc;
-    }, {});
-
-    payments.forEach((payment) => {
-      const methodKey = String(payment.creditPaymentMethod || '').toLowerCase();
-      const method = settlementMethods.includes(methodKey) ? methodKey : 'credit_cash';
-      settlementMap[method] += Number(payment.amountApplied || payment.amountRequested || payment.amount || 0);
-    });
-
-    legacyCreditOrderPayments.forEach((payment) => {
-      settlementMap.credit_cash += Number(payment.amount || 0);
     });
 
     const settlementLabels = {
@@ -371,12 +389,10 @@ router.get('/summary', async (req, res) => {
 
     const creditSettlementSummary = settlementMethods.map((method) => ({
       method: settlementLabels[method],
-      amount: settlementMap[method] || 0
+      amount: currentPeriodSettlementMap[method] || 0
     }));
 
-    const unpaidCredit = (enrichedOrders || [])
-      .filter((order) => !order.reversed && Number(order.balanceDue || 0) > 0 && (order.paymentMethod === 'credit' || order.paymentStatus === 'partial' || order.paymentStatus === 'credit'))
-      .reduce((sum, order) => sum + Number(order.balanceDue || 0), 0);
+    const unpaidCredit = calculateOutstandingCreditInPeriod(enrichedOrders || []);
 
     const totalOutstandingCredit = (allCreditOrders || [])
       .reduce((sum, order) => sum + Number(order.balanceDue || 0), 0);
