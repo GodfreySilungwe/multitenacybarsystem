@@ -83,6 +83,21 @@ test('calculateOutstandingCreditInPeriod only counts credit sales with remaining
   assert.equal(calculateOutstandingCreditInPeriod(orders), 250);
 });
 
+test('calculateOutstandingCreditInPeriod uses credit sales in period minus same-period repayments', () => {
+  const orders = [
+    { reversed: false, paymentMethod: 'credit', totalAmount: 500 },
+    { reversed: false, paymentMethod: 'credit', totalAmount: 200 },
+    { reversed: false, paymentMethod: 'cash', totalAmount: 100 }
+  ];
+
+  const payments = [
+    { amountApplied: 150 },
+    { amount: 120 }
+  ];
+
+  assert.equal(calculateOutstandingCreditInPeriod(orders, payments), 430);
+});
+
 test('validateCustomerOrderItems rejects customer orders when stock is insufficient', async () => {
   const originalFindOne = Product.findOne;
   Product.findOne = async ({ _id }) => ({

@@ -23,9 +23,50 @@ function getDisplayProductName(item) {
   return candidateName === 'Product' && productId ? `Product ${String(productId).slice(-4)}` : candidateName;
 }
 
-function calculateOutstandingCreditInPeriod(orders = []) {
-  return (orders || [])
-    .filter((order) => !order.reversed && (order.paymentMethod === 'credit' || order.paymentStatus === 'partial' || order.paymentStatus === 'credit') && normalizeNumber(order.balanceDue || order.amountDue || 0) > 0)
+function calculateOutstandingCreditInPeriod(orders = [], payments = []) {
+  // Filter credit orders, explicitly excluding those that are already fully paid
+  // This prevents counting paid orders in the outstanding balance
+  // Only include orders with:
+  // - paymentMethod === 'credit' but NOT paymentStatus === 'paid'
+  // - OR paymentStatus === 'partial' (partial payments)
+  // - OR paymentStatus === 'credit' (original credit order status)
+  const creditOrders = (orders || [])
+    .filter((order) => {
+      if (order.reversed) return false;
+      if (order.paymentStatus === 'paid') return false; // Exclude fully paid orders
+      return order.paymentMethod === 'credit' || order.paymentStatus === 'partial' || order.paymentStatus === 'credit';
+    });
+
+  // Try to use balanceDue if available (this is the most accurate source of truth)
+  const ordersWithBalanceDue = creditOrders.filter((order) => normalizeNumber(order.balanceDue || 0) > 0);
+  if (ordersWithBalanceDue.length > 0) {
+    // If we have orders with balanceDue > 0, use that as the source of truth
+    return ordersWithBalanceDue.reduce((sum, order) => {
+      return sum + normalizeNumber(order.balanceDue || 0);
+    }, 0);
+  }
+
+  // Fallback: Calculate from totalAmount - repayments
+  // This handles legacy data where balanceDue might not be set
+  const creditSalesTotal = creditOrders.reduce((sum, order) => {
+    const orderTotal = normalizeNumber(order.totalAmount || order.amount || 0);
+    return sum + orderTotal;
+  }, 0);
+
+  if (Array.isArray(payments) && payments.length > 0) {
+    const repaymentsTotal = payments.reduce((sum, payment) => {
+      const paymentAmount = normalizeNumber(
+        payment.amountApplied ?? payment.amountRequested ?? payment.amount ?? payment.totalAmount ?? 0
+      );
+      return sum + paymentAmount;
+    }, 0);
+
+    return Math.max(creditSalesTotal - repaymentsTotal, 0);
+  }
+
+  // Final fallback: use balanceDue even if it's 0
+  return creditOrders
+    .filter((order) => normalizeNumber(order.balanceDue || order.amountDue || 0) > 0)
     .reduce((sum, order) => {
       const amount = normalizeNumber(order.balanceDue || order.amountDue || 0);
       return sum + amount;

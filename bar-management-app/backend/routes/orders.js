@@ -380,6 +380,55 @@ router.get('/summary', async (req, res) => {
       }
     });
 
+    const currentPeriodCreditOrders = (allCreditOrders || []).filter((order) => {
+      const createdAt = order.createdAt;
+      if (!createdAt) return false;
+      const timestamp = new Date(createdAt).getTime();
+      if (Number.isNaN(timestamp)) return false;
+      return timestamp >= rangeStartTime && (!queryOptions.endDate || timestamp <= new Date(queryOptions.endDate).getTime());
+    });
+
+    const currentPeriodOrderStates = (allCreditOrders || [])
+      .map((order) => ({
+        createdAt: new Date(order.createdAt || 0).getTime(),
+        balanceDue: Number(order.balanceDue || 0),
+        totalAmount: Number(order.totalAmount || 0)
+      }))
+      .filter((order) => {
+        if (Number.isNaN(order.createdAt)) return false;
+        return order.createdAt >= rangeStartTime && (!queryOptions.endDate || order.createdAt <= new Date(queryOptions.endDate).getTime());
+      })
+      .sort((a, b) => a.createdAt - b.createdAt);
+
+    const currentPeriodRepaymentsApplied = [];
+    const currentPeriodAllocationStates = (allCreditOrders || [])
+      .map((order) => ({
+        createdAt: new Date(order.createdAt || 0).getTime(),
+        balanceDue: Number(order.balanceDue || 0)
+      }))
+      .sort((a, b) => a.createdAt - b.createdAt);
+
+    paymentOrders.forEach((payment) => {
+      if (payment.isLegacyCreditOrderPayment) {
+        return;
+      }
+
+      let remaining = payment.amount;
+      while (remaining > 0) {
+        const nextOrder = currentPeriodAllocationStates.find((order) => order.balanceDue > 0);
+        if (!nextOrder) break;
+
+        const applied = Math.min(remaining, nextOrder.balanceDue);
+        const orderCreatedInPeriod = nextOrder.createdAt >= rangeStartTime && (!queryOptions.endDate || nextOrder.createdAt <= new Date(queryOptions.endDate).getTime());
+        if (orderCreatedInPeriod) {
+          currentPeriodRepaymentsApplied.push({ amountApplied: applied });
+        }
+
+        nextOrder.balanceDue -= applied;
+        remaining -= applied;
+      }
+    });
+
     const settlementLabels = {
       credit_cash: 'Credit Cash',
       credit_airtel_money: 'Credit Airtel Money',
@@ -392,7 +441,7 @@ router.get('/summary', async (req, res) => {
       amount: currentPeriodSettlementMap[method] || 0
     }));
 
-    const unpaidCredit = calculateOutstandingCreditInPeriod(enrichedOrders || []);
+    const unpaidCredit = calculateOutstandingCreditInPeriod(currentPeriodCreditOrders || [], currentPeriodRepaymentsApplied || []);
 
     const totalOutstandingCredit = (allCreditOrders || [])
       .reduce((sum, order) => sum + Number(order.balanceDue || 0), 0);
