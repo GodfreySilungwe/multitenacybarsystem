@@ -205,7 +205,6 @@ const Dashboard = () => {
   const totalCreditOrderCount = outstandingCustomers.reduce((sum, customer) => sum + Number(customer.ordersCount || 0), 0);
   const totalProductSoldQty = productSales.reduce((sum, item) => sum + Number(item.soldQuantity || 0), 0);
   const totalPurchaseOrdersQty = productSales.reduce((sum, item) => sum + Number(item.purchaseOrdersQty || 0), 0);
-  const totalStartQty = productSales.reduce((sum, item) => sum + (item.startingQty !== null ? Number(item.startingQty || 0) : 0), 0);
   const totalClosingQty = productSales.reduce((sum, item) => sum + Number(item.closingQty || 0), 0);
   const totalProductSalesAmount = productSales.reduce((sum, item) => sum + Number(item.totalAmount || 0), 0);
   
@@ -498,7 +497,7 @@ const Dashboard = () => {
                   <span style={styles.metricValue}>{formatPriceMK(totalCreditSales)}</span>
                 </div>
                 <div style={styles.handoverMetric}>
-                  <span style={styles.metricLabel}>Outstanding Bills (this period)</span>
+                  <span style={styles.metricLabel}>Outstanding Bills (same period net)</span>
                   <span style={styles.metricValue}>{formatPriceMK(outstandingCreditInPeriod)}</span>
                 </div>
                 <div style={styles.handoverMetric}>
@@ -611,7 +610,6 @@ const Dashboard = () => {
                     <thead>
                       <tr>
                         <th>Product</th>
-                        <th>Start Qty</th>
                         <th>Purchase Order Qty</th>
                         <th>Sold Qty</th>
                         <th>Closing Qty</th>
@@ -622,7 +620,6 @@ const Dashboard = () => {
                       {paginatedProductSales.map((item) => (
                         <tr key={item.productId || item.name} style={styles.tableRow}>
                           <td style={styles.orderNumber}>{item.name}</td>
-                          <td>{item.startingQty !== null ? item.startingQty : '-'}</td>
                           <td>{item.purchaseOrdersQty ? item.purchaseOrdersQty : '-'}</td>
                           <td>{item.soldQuantity}</td>
                           <td>{item.closingQty}</td>
@@ -631,7 +628,6 @@ const Dashboard = () => {
                       ))}
                       <tr style={styles.tableRow}>
                         <td style={styles.orderNumber}><strong>Total (including unpaid bills) — Purchase Order Qty</strong></td>
-                        <td>{totalStartQty}</td>
                         <td>{totalPurchaseOrdersQty ? totalPurchaseOrdersQty : '-'}</td>
                         <td>{totalProductSoldQty}</td>
                         <td>{totalClosingQty}</td>

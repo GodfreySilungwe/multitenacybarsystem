@@ -55,7 +55,7 @@ const Sidebar = ({ isMobileOpen = false, onClose = () => {} }) => {
   }, [isGlobalOwner]);
   
   const navItems = [
-    { path: '/', label: 'Dashboard', icon: faChartBar, authOnly: true },
+    { path: '/dashboard', label: 'Dashboard', icon: faChartBar, authOnly: true },
     { path: '/pos', label: 'POS', icon: faCashRegister, salesOnly: true },
     { path: '/products', label: 'SMART BAR', icon: faTools, barOwnerOnly: true },
     { path: '/categories', label: 'Categories', icon: faTags, barOwnerOnly: true },
@@ -82,8 +82,12 @@ const Sidebar = ({ isMobileOpen = false, onClose = () => {} }) => {
       return item.customerOnly === true || item.path === '/customer-portal';
     }
 
-    if (role === 'sales' || role === 'manager') {
-      return item.salesOnly === true || item.salesAndOwnerOnly === true || item.barOwnerOrSales === true || item.path === '/';
+    if (role === 'sales') {
+      return item.path === '/dashboard' || item.path === '/pos' || item.path === '/customers' || item.salesOnly === true || item.salesAndOwnerOnly === true || item.barOwnerOrSales === true;
+    }
+
+    if (role === 'manager') {
+      return item.path === '/dashboard' || item.path === '/customers' || item.path === '/orders' || item.path === '/payment-history' || item.salesAndOwnerOnly === true || item.barOwnerOrSales === true;
     }
 
     if (showGlobalOwner) {
@@ -91,7 +95,7 @@ const Sidebar = ({ isMobileOpen = false, onClose = () => {} }) => {
     }
 
     if (isBarOwner) {
-      return item.barOwnerOnly === true || item.barOwnerOrSales === true || item.path === '/' || item.ownerOnly === true;
+      return item.path === '/customers' || item.barOwnerOnly === true || item.barOwnerOrSales === true || item.path === '/' || item.ownerOnly === true;
     }
 
     return false;

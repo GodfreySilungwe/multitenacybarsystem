@@ -335,7 +335,23 @@ const POS = () => {
   };
 
   const handleRejectPayment = async (paymentId) => {
-    openPasswordModal(paymentId, 'reject');
+    try {
+      setRejectingPaymentId(paymentId);
+      await api.patch(`/customer-order-requests/payments/${paymentId}/reject`);
+      setCustomerPayments((prev) => prev.filter((p) => p._id !== paymentId));
+      await loadData();
+      const nextNotification = { id: Date.now(), message: 'Payment request rejected.', createdAt: new Date().toLocaleTimeString() };
+      setNotificationHistory((prev) => [nextNotification, ...prev].slice(0, 8));
+      setNotification(nextNotification.message);
+      setTimeout(() => setNotification(''), 4000);
+      window.dispatchEvent(new Event('customer-request-updated'));
+    } catch (err) {
+      console.error('Failed to reject payment:', err);
+      setError('Could not reject the payment.');
+      setTimeout(() => setError(''), 4000);
+    } finally {
+      setRejectingPaymentId(null);
+    }
   };
 
   const handleConfirmRequest = async (requestId) => {
@@ -515,16 +531,11 @@ const POS = () => {
       }
       setSuccess(`✅ Order ${newOrder.orderNumber} completed!`);
       setCart([]);
-      const keepCustomerSelected = paymentMethod === 'credit' && selectedCustomer;
       setPaymentAmount('');
       setPaymentMethod('cash');
       await loadData();
-      if (keepCustomerSelected) {
-        setSelectedCustomer(selectedCustomer);
-      } else {
-        setSelectedCustomer('');
-      }
-      
+      setSelectedCustomer('');
+
       setTimeout(() => setSuccess(''), 5000);
     } catch (err) {
       console.error('Checkout error:', err);
@@ -599,7 +610,7 @@ const POS = () => {
           <div style={styles.modalCard} onClick={(e) => e.stopPropagation()}>
             <div style={styles.modalHeader}>Verify payment action</div>
             <p style={styles.modalText}>
-              Enter the current sales account password to {pendingPasswordAction?.action === 'confirm' ? 'confirm' : 'reject'} this payment.
+              Enter the current sales account password to confirm this payment.
             </p>
             <input
               type="password"

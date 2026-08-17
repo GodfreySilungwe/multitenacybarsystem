@@ -128,11 +128,30 @@ const PaymentHistory = () => {
       .reduce((sum, entry) => sum + Number(entry.amount || 0), 0);
   }, [payments]);
 
+  const isPaymentFromDifferentSalesPerson = (entry) => {
+    // Check if payment belongs to a different sales account
+    // For pending payments, use createdByName (who created the request)
+    // For confirmed payments, use processedByName (who confirmed it)
+    const salesAccountName = entry.createdByName || entry.processedByName || entry.approvedByName || entry.salesAccount || '';
+    const currentUserName = user?.fullName || user?.username || user?.email || '';
+    
+    if (!salesAccountName || !currentUserName) {
+      return false;
+    }
+    
+    return salesAccountName !== currentUserName;
+  };
+
   const handlePaymentAction = async (entry, action) => {
-    if (!window.confirm(`Are you sure you want to ${action} this payment request?`)) return;
+    // For reject, show specific confirmation
+    if (action === 'reject') {
+      if (!window.confirm('Cancel this payment request?')) return;
+    } else if (!window.confirm(`Are you sure you want to ${action} this payment request?`)) {
+      return;
+    }
 
     let payload = {};
-    if (['confirm', 'reject', 'reverse'].includes(action)) {
+    if (['confirm', 'reverse'].includes(action)) {
       const password = window.prompt('Enter the current sales account password to continue:');
       if (!password) {
         return;
@@ -143,6 +162,12 @@ const PaymentHistory = () => {
     try {
       const res = await api.patch(`/customer-order-requests/payments/${entry._id}/${action}`, payload);
       setPayments((prev) => prev.map((item) => (item._id === entry._id ? res.data.paymentRequest || res.data : item)));
+      
+      // Show specific confirmation message for reject
+      if (action === 'reject') {
+        alert('✓ Payment request cancelled');
+      }
+      
       window.dispatchEvent(new Event('payment-updated'));
     } catch (err) {
       console.error(`Failed to ${action} payment`, err);
@@ -268,9 +293,32 @@ const PaymentHistory = () => {
                     <div style={styles.meta}>{entry.createdAt ? new Date(entry.createdAt).toLocaleString() : '—'}</div>
                   </div>
                   {canManagePayments && entry.source === 'bill_settlement' && entry.status === 'pending' && (
-                    <div style={styles.actionsRow}>
-                      <button type="button" onClick={() => handlePaymentAction(entry, 'confirm')} style={styles.confirmBtn}>Confirm</button>
-                      <button type="button" onClick={() => handlePaymentAction(entry, 'reject')} style={styles.rejectBtn}>Reject</button>
+                    <div>
+                      {isPaymentFromDifferentSalesPerson(entry) && (
+                        <div style={styles.warningMessage}>
+                          ⚠️ This Bill belongs to different sales person
+                        </div>
+                      )}
+                      <div style={styles.actionsRow}>
+                        <button
+                          type="button"
+                          onClick={() => handlePaymentAction(entry, 'confirm')}
+                          disabled={isPaymentFromDifferentSalesPerson(entry)}
+                          style={{
+                            ...styles.confirmBtn,
+                            ...(isPaymentFromDifferentSalesPerson(entry) ? styles.confirmBtnDisabled : {})
+                          }}
+                        >
+                          Confirm
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => handlePaymentAction(entry, 'reject')}
+                          style={styles.rejectBtn}
+                        >
+                          Reject
+                        </button>
+                      </div>
                     </div>
                   )}
                   {canReversePayments && entry.source === 'bill_settlement' && entry.status === 'confirmed' && (
@@ -476,6 +524,24 @@ const styles = {
     color: 'white',
     cursor: 'pointer',
     fontWeight: '700'
+  },
+  confirmBtnDisabled: {
+    backgroundColor: '#9ca3af',
+    color: '#6b7280',
+    cursor: 'not-allowed',
+    opacity: 0.7,
+    pointerEvents: 'none',
+    border: '1px solid #d1d5db'
+  },
+  warningMessage: {
+    padding: '10px 12px',
+    borderRadius: '8px',
+    backgroundColor: '#fef3c7',
+    color: '#92400e',
+    fontSize: '13px',
+    fontWeight: '600',
+    marginBottom: '10px',
+    border: '1px solid #fcd34d'
   },
   rejectBtn: {
     padding: '8px 14px',

@@ -41,11 +41,7 @@ const HomeRoute = () => {
   }
 
   if (user?.role === 'sales') {
-    return (
-      <Layout>
-        <Dashboard />
-      </Layout>
-    );
+    return <Navigate to="/pos" replace />;
   }
 
   return (
@@ -69,6 +65,13 @@ function App() {
             <Route path="/" element={
               <ProtectedRoute>
                 <HomeRoute />
+              </ProtectedRoute>
+            } />
+            <Route path="/dashboard" element={
+              <ProtectedRoute barOwnerOrSales>
+                <Layout>
+                  <Dashboard />
+                </Layout>
               </ProtectedRoute>
             } />
             <Route path="/pos" element={

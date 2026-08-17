@@ -11,7 +11,7 @@ const CustomerPortal = () => {
   const [products, setProducts] = useState([]);
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
-  const [payingBill, setPayingBill] = useState(false);
+  const [submittingBillRequest, setSubmittingBillRequest] = useState(false);
   const [requestMessage, setRequestMessage] = useState('');
   const [orderItems, setOrderItems] = useState([{ productId: '', quantity: '1' }]);
   const [customerRequests, setCustomerRequests] = useState([]);
@@ -212,7 +212,7 @@ const CustomerPortal = () => {
       return;
     }
 
-    setPayingBill(true);
+    setSubmittingBillRequest(true);
     setRequestMessage('');
 
     try {
@@ -222,7 +222,7 @@ const CustomerPortal = () => {
         paymentReference: paymentReference.trim(),
         amount: paymentAmountNumber
       });
-      setRequestMessage(response.data?.message || 'Accumulated bill paid successfully.');
+      setRequestMessage(response.data?.message || 'Accumulated bill request submitted successfully.');
       setPaymentMethod('cash');
       setPaymentReference('');
       setPaymentAmount('');
@@ -230,9 +230,9 @@ const CustomerPortal = () => {
       emitCustomerPortalEvent('customer-request-updated');
       emitCustomerPortalEvent('customer-payment-created', paymentRequest);
     } catch (err) {
-      setRequestMessage(err.response?.data?.message || 'Could not pay your accumulated bill.');
+      setRequestMessage(err.response?.data?.message || 'Could not submit your payment request.');
     } finally {
-      setPayingBill(false);
+      setSubmittingBillRequest(false);
     }
   };
 
@@ -423,8 +423,8 @@ const CustomerPortal = () => {
                 value={paymentReference}
                 onChange={(e) => setPaymentReference(e.target.value)}
               />
-              <Button fullWidth={isCompact} onClick={payAccumulatedBill} disabled={payingBill || outstandingBill <= 0}>
-                {payingBill ? 'Paying...' : 'Submit Payment'}
+              <Button fullWidth={isCompact} onClick={payAccumulatedBill} disabled={submittingBillRequest || outstandingBill <= 0}>
+                {submittingBillRequest ? 'Submitting request...' : 'Submit Request'}
               </Button>
             </div>
           </div>
