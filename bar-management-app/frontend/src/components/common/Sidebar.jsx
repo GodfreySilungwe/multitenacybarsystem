@@ -95,7 +95,7 @@ const Sidebar = ({ isMobileOpen = false, onClose = () => {} }) => {
     }
 
     if (isBarOwner) {
-      return item.path === '/customers' || item.barOwnerOnly === true || item.barOwnerOrSales === true || item.path === '/' || item.ownerOnly === true;
+      return item.path === '/dashboard' || item.path === '/customers' || item.barOwnerOnly === true || item.barOwnerOrSales === true || item.path === '/' || item.ownerOnly === true;
     }
 
     return false;
