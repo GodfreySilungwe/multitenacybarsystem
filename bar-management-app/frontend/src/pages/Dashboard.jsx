@@ -54,6 +54,9 @@ const Dashboard = () => {
   const [totalOutstandingCredit, setTotalOutstandingCredit] = useState(0);
   const [outstandingCreditInPeriod, setOutstandingCreditInPeriod] = useState(0);
   const [productSales, setProductSales] = useState([]);
+  const [productSalesHasMore, setProductSalesHasMore] = useState(false);
+  const [productSalesTotals, setProductSalesTotals] = useState({});
+  const [productSalesLoading, setProductSalesLoading] = useState(false);
   const [productsList, setProductsList] = useState([]);
   const [outstandingCustomers, setOutstandingCustomers] = useState([]);
   const [unpaidCredit, setUnpaidCredit] = useState(0);
@@ -83,9 +86,13 @@ const Dashboard = () => {
     return () => window.removeEventListener('payment-updated', handleRefresh);
   }, [dateRange, customStartDate, customEndDate]);
 
-  const fetchDashboardData = async () => {
+  const fetchDashboardData = async ({ appendProductSales = false } = {}) => {
     try {
-      setLoading(true);
+      if (appendProductSales) {
+        setProductSalesLoading(true);
+      } else {
+        setLoading(true);
+      }
       setError(null);
 
       if (isGlobalOwner) {
@@ -122,6 +129,10 @@ const Dashboard = () => {
         setLastUpdated(new Date().toLocaleTimeString());
       } else {
         const params = { range: dateRange };
+        if (appendProductSales) {
+          params.productSalesOffset = productSales.length;
+          params.productSalesLimit = PRODUCT_SALES_PAGE_SIZE;
+        }
         if (dateRange === 'custom') {
           if (customStartDate) params.startDate = customStartDate;
           if (customEndDate) params.endDate = customEndDate;
@@ -176,7 +187,10 @@ const Dashboard = () => {
         setLowStockProducts(lowStock);
         setCreditSettlementSummary(summaryData.creditSettlementSummary || []);
         setPaymentMethodProceeds(summaryData.paymentMethodProceeds || []);
-        setProductSales(summaryData.productSales || []);
+        const nextProductSales = summaryData.productSales || [];
+        setProductSales((current) => appendProductSales ? [...current, ...nextProductSales] : nextProductSales);
+        setProductSalesHasMore(Boolean(summaryData.productSalesHasMore));
+        setProductSalesTotals(summaryData.productSalesTotals || {});
         setOutstandingCustomers(summaryData.outstandingCustomers || []);
         setUnpaidCredit(summaryData.unpaidCredit || 0);
         setTotalCreditSales(summaryData.totalCreditSales || 0);
@@ -194,7 +208,11 @@ const Dashboard = () => {
       console.error('Error fetching dashboard data:', err);
       setError('Could not load dashboard data. Please try again.');
     } finally {
-      setLoading(false);
+      if (appendProductSales) {
+        setProductSalesLoading(false);
+      } else {
+        setLoading(false);
+      }
     }
   };
 
@@ -203,10 +221,10 @@ const Dashboard = () => {
   const totalCustomerOutstandingBalance = outstandingCustomers.reduce((sum, customer) => sum + Number(customer.totalOutstandingBalance || 0), 0);
   const totalCustomerPeriodBalance = outstandingCustomers.reduce((sum, customer) => sum + Number(customer.periodOutstandingBalance || 0), 0);
   const totalCreditOrderCount = outstandingCustomers.reduce((sum, customer) => sum + Number(customer.ordersCount || 0), 0);
-  const totalProductSoldQty = productSales.reduce((sum, item) => sum + Number(item.soldQuantity || 0), 0);
-  const totalPurchaseOrdersQty = productSales.reduce((sum, item) => sum + Number(item.purchaseOrdersQty || 0), 0);
-  const totalClosingQty = productSales.reduce((sum, item) => sum + Number(item.closingQty || 0), 0);
-  const totalProductSalesAmount = productSales.reduce((sum, item) => sum + Number(item.totalAmount || 0), 0);
+  const totalProductSoldQty = Number(productSalesTotals.soldQuantity ?? productSales.reduce((sum, item) => sum + Number(item.soldQuantity || 0), 0));
+  const totalPurchaseOrdersQty = Number(productSalesTotals.purchaseOrdersQty ?? productSales.reduce((sum, item) => sum + Number(item.purchaseOrdersQty || 0), 0));
+  const totalClosingQty = Number(productSalesTotals.closingQty ?? productSales.reduce((sum, item) => sum + Number(item.closingQty || 0), 0));
+  const totalProductSalesAmount = Number(productSalesTotals.totalAmount ?? productSales.reduce((sum, item) => sum + Number(item.totalAmount || 0), 0));
   
   // Pagination for product sales
   const totalProductSalesPages = Math.max(1, Math.ceil((productSales || []).length / PRODUCT_SALES_PAGE_SIZE));
@@ -214,6 +232,18 @@ const Dashboard = () => {
     (productSalesCurrentPage - 1) * PRODUCT_SALES_PAGE_SIZE,
     productSalesCurrentPage * PRODUCT_SALES_PAGE_SIZE
   );
+
+  const handleProductSalesNext = async () => {
+    if (productSalesCurrentPage < totalProductSalesPages) {
+      setProductSalesCurrentPage((prev) => prev + 1);
+      return;
+    }
+
+    if (productSalesHasMore && !productSalesLoading) {
+      await fetchDashboardData({ appendProductSales: true });
+      setProductSalesCurrentPage((prev) => prev + 1);
+    }
+  };
 
   const inventoryValueAtCost = (productsList || []).reduce((sum, p) => {
     const qty = Number(p.currentStock || 0);
@@ -635,7 +665,7 @@ const Dashboard = () => {
                       </tr>
                     </tbody>
                   </table>
-                  {productSales.length > PRODUCT_SALES_PAGE_SIZE && (
+                  {(productSales.length > PRODUCT_SALES_PAGE_SIZE || productSalesHasMore) && (
                     <div style={styles.paginationContainer}>
                       <button
                         onClick={() => setProductSalesCurrentPage(prev => Math.max(1, prev - 1))}
@@ -652,15 +682,15 @@ const Dashboard = () => {
                         Page {productSalesCurrentPage} of {totalProductSalesPages}
                       </span>
                       <button
-                        onClick={() => setProductSalesCurrentPage(prev => Math.min(totalProductSalesPages, prev + 1))}
-                        disabled={productSalesCurrentPage === totalProductSalesPages}
+                        onClick={handleProductSalesNext}
+                        disabled={productSalesLoading || (!productSalesHasMore && productSalesCurrentPage === totalProductSalesPages)}
                         style={{
                           ...styles.paginationButton,
-                          opacity: productSalesCurrentPage === totalProductSalesPages ? 0.5 : 1,
-                          cursor: productSalesCurrentPage === totalProductSalesPages ? 'not-allowed' : 'pointer'
+                          opacity: productSalesLoading || (!productSalesHasMore && productSalesCurrentPage === totalProductSalesPages) ? 0.5 : 1,
+                          cursor: productSalesLoading || (!productSalesHasMore && productSalesCurrentPage === totalProductSalesPages) ? 'not-allowed' : 'pointer'
                         }}
                       >
-                        Next →
+                        {productSalesLoading ? 'Loading...' : productSalesCurrentPage === totalProductSalesPages && productSalesHasMore ? 'Load more →' : 'Next →'}
                       </button>
                     </div>
                   )}
