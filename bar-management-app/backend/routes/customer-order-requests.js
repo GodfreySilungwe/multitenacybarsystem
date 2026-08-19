@@ -109,6 +109,12 @@ const buildPaymentRecordFromRequest = (paymentRequest) => {
   const rawMethod = String(paymentRequest.paymentMethod || 'cash').toLowerCase();
   const normalizedMethod = validMethods.includes(rawMethod) ? rawMethod : 'cash';
 
+  // For pending payments, use createdByName (who submitted the request)
+  // For confirmed/processed payments, use approvedByName (who approved it)
+  const salesAccountName = paymentRequest.status === 'pending'
+    ? (paymentRequest.createdByName || 'Sales account')
+    : (paymentRequest.approvedByName || paymentRequest.approvedBy || 'Sales account');
+
   return {
     _id: paymentRequest._id,
     customerId: paymentRequest.customerId,
@@ -128,8 +134,9 @@ const buildPaymentRecordFromRequest = (paymentRequest) => {
             : 'confirmed',
     reference: paymentRequest.paymentReference || '',
     approvedBy: paymentRequest.approvedByName || paymentRequest.approvedBy || '',
-    processedByName: paymentRequest.approvedByName || paymentRequest.approvedBy || 'Sales account',
-    salesAccount: paymentRequest.approvedByName || paymentRequest.approvedBy || 'Sales account',
+    processedByName: salesAccountName,
+    salesAccount: salesAccountName,
+    createdByName: paymentRequest.createdByName || 'Sales account',
     createdAt: paymentRequest.createdAt,
     confirmedAt: paymentRequest.confirmedAt,
     description: paymentRequest.status === 'pending'
@@ -478,6 +485,8 @@ router.post('/pay-bill', async (req, res) => {
       paymentReference: trimmedReference,
       source: 'credit_settlement',
       status: 'pending',
+      createdByUserId: req.user._id,
+      createdByName: req.user.fullName || req.user.username || req.user.email || 'Sales account',
       createdAt: new Date().toISOString()
     });
 
@@ -491,7 +500,9 @@ router.post('/pay-bill', async (req, res) => {
 
 router.get('/payments', async (req, res) => {
   try {
-    const { customerId, summary } = req.query;
+    const { customerId, customerName, status, summary } = req.query;
+    const offset = Math.max(0, Number.parseInt(req.query.offset || '0', 10) || 0);
+    const limit = Math.min(100, Math.max(1, Number.parseInt(req.query.limit || '10', 10) || 10));
     const requestQuery = { barId: req.user.barId };
     if (customerId) {
       requestQuery.customerId = customerId;
@@ -520,6 +531,14 @@ router.get('/payments', async (req, res) => {
     });
 
     if (summary === 'true' || summary === '1') {
+      const customerNames = Array.from(new Set(payments.map((payment) => payment.customerName || 'Walk-in customer'))).sort();
+      const filteredPayments = payments.filter((payment) => {
+        const matchesStatus = !status || status === 'all' || payment.status === status;
+        const matchesCustomer = !customerName || customerName === 'all' || (payment.customerName || 'Walk-in customer') === customerName;
+        return matchesStatus && matchesCustomer;
+      });
+      const paginatedPayments = filteredPayments.slice(offset, offset + limit);
+
       const methodLabels = {
         cash: 'Cash',
         airtel_money: 'Airtel Money',
@@ -528,7 +547,7 @@ router.get('/payments', async (req, res) => {
         credit: 'Credit'
       };
 
-      const totalsByMethod = payments.reduce((acc, payment) => {
+      const totalsByMethod = paginatedPayments.reduce((acc, payment) => {
         if (payment.status !== 'confirmed') {
           return acc;
         }
@@ -547,7 +566,13 @@ router.get('/payments', async (req, res) => {
         .sort((a, b) => b.amount - a.amount);
       const totalAmount = totalsList.reduce((sum, item) => sum + item.amount, 0);
 
-      return res.json({ payments, summary: { totalsByMethod: totalsList, totalAmount } });
+      return res.json({
+        payments: paginatedPayments,
+        hasMore: offset + paginatedPayments.length < filteredPayments.length,
+        total: filteredPayments.length,
+        customerNames,
+        summary: { totalsByMethod: totalsList, totalAmount }
+      });
     }
 
     res.json(payments);

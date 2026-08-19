@@ -173,6 +173,24 @@ router.delete('/:id', isBarOwner, async (req, res) => {
       return res.status(404).json({ message: 'User not found.' });
     }
 
+    if (user.role === 'sales') {
+      const linkedCreditSale = await Order.findOne({
+        barId: req.user.barId,
+        reversed: { $ne: true },
+        paymentMethod: 'credit',
+        $or: [
+          { processedBy: user._id },
+          { paymentProcessedBy: user._id }
+        ]
+      });
+
+      if (linkedCreditSale) {
+        return res.status(400).json({
+          message: 'Cannot delete this sales account because it has credit sales attached. Clear or transfer those credit sales before deleting the account.'
+        });
+      }
+    }
+
     if (user.role === 'customer') {
       const customer = await Customer.findOne({ accountUserId: user._id, barId: req.user.barId });
       if (customer) {

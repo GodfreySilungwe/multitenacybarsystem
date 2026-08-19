@@ -359,9 +359,10 @@ router.post('/:id/pay', isBarOwnerOrSales, async (req, res) => {
     
     const eligibleOrders = selectCreditOrdersForSettlement(unpaidOrders || [], req.user);
 
-    // For non-manager/owner users, calculate max settlement amount based ONLY on their own sales account credit
+    // Owners and managers can clear any unpaid customer credit regardless of which sales account created it.
+    const canSettleAllCustomerCredits = ['owner', 'manager'].includes(req.user.role);
     let maxSettleableAmount = outstandingBalance;
-    if (!['owner', 'manager'].includes(req.user.role)) {
+    if (!canSettleAllCustomerCredits) {
       maxSettleableAmount = (eligibleOrders || []).reduce((sum, order) => sum + getOrderOutstandingBalance(order), 0);
       
       if (maxSettleableAmount <= 0) {

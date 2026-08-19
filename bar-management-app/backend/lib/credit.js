@@ -40,6 +40,10 @@ function isManagerOrOwnerUser(currentUser = {}) {
   return ['owner', 'manager'].includes(String(currentUser?.role || '').toLowerCase());
 }
 
+function canSettleAllCustomerCredits(currentUser = {}) {
+  return isManagerOrOwnerUser(currentUser);
+}
+
 function isOrderOwnedByUser(order = {}, currentUser = {}) {
   const currentSalesAccountId = String(currentUser?._id || currentUser?.id || '').trim();
   const currentSalesAccountName = String(currentUser?.fullName || currentUser?.username || currentUser?.email || '').trim();
@@ -149,7 +153,7 @@ function selectCreditOrdersForSettlement(orders = [], currentUser = {}) {
     .filter((order) => !order.reversed && hasOutstandingBalance(order) && isCreditOrder(order))
     .sort((a, b) => new Date(a.createdAt || 0) - new Date(b.createdAt || 0));
 
-  if (isManagerOrOwnerUser(currentUser)) {
+  if (canSettleAllCustomerCredits(currentUser)) {
     console.debug('selectCreditOrdersForSettlement - manager/owner, returning all active orders in FIFO order:', activeOrders.map(o => ({ orderNumber: o.orderNumber, createdAt: o.createdAt })));
     return activeOrders;
   }
@@ -192,5 +196,6 @@ module.exports = {
   isOrderOwnedByUser,
   getSalesAccountMismatchMessage,
   selectCreditOrdersForSettlement,
-  recomputeCustomerCreditBalance
+  recomputeCustomerCreditBalance,
+  canSettleAllCustomerCredits
 };

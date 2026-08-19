@@ -21,6 +21,21 @@ const toNumber = (value, fallback = 0) => {
   return Number.isFinite(numericValue) ? numericValue : fallback;
 };
 
+const getOutstandingBalance = (order) => {
+  const recordedBalance = toNumber(order?.balanceDue);
+  if (recordedBalance > 0) {
+    return recordedBalance;
+  }
+
+  return Math.max(0, toNumber(order?.totalAmount) - toNumber(order?.amountPaid));
+};
+
+const isOpenCreditOrder = (order) => (
+  !order?.reversed &&
+  getOutstandingBalance(order) > 0 &&
+  (order?.paymentMethod === 'credit' || order?.paymentStatus === 'partial' || order?.paymentStatus === 'credit')
+);
+
 const MALAWI_OFFSET_MINUTES = 120;
 
 const parseLocalDateBoundary = (value, endOfDay = false, offsetMinutes = MALAWI_OFFSET_MINUTES) => {
@@ -248,28 +263,23 @@ router.get('/summary', async (req, res) => {
     const paymentQuery = { barId: req.user.barId };
 
     const allPayments = await CustomerPaymentRequest.find(paymentQuery);
-    const payments = (allPayments || []).filter((payment) => {
-      if (payment.status !== 'confirmed') {
+    const isWithinSelectedPeriod = (dateValue) => {
+      if (!dateValue) {
         return false;
       }
-      if (!startDate && !queryOptions.endDate) {
-        return true;
-      }
-      const paymentDate = payment.confirmedAt || payment.createdAt;
-      if (!paymentDate) {
-        return true;
-      }
-      const timestamp = new Date(paymentDate).getTime();
+
+      const timestamp = new Date(dateValue).getTime();
       if (Number.isNaN(timestamp)) {
-        return true;
-      }
-      if (startDate && timestamp < new Date(startDate).getTime()) {
         return false;
       }
-      if (queryOptions.endDate && timestamp > new Date(queryOptions.endDate).getTime()) {
-        return false;
-      }
-      return true;
+
+      return (!startDate || timestamp >= new Date(startDate).getTime())
+        && (!queryOptions.endDate || timestamp <= new Date(queryOptions.endDate).getTime());
+    };
+
+    const payments = (allPayments || []).filter((payment) => {
+      const paymentDate = payment.confirmedAt || payment.createdAt;
+      return payment.status === 'confirmed' && isWithinSelectedPeriod(paymentDate);
     });
     const allCreditOrders = await Order.find({ barId: req.user.barId, reversed: { $ne: true }, paymentMethod: 'credit' });
 
@@ -281,24 +291,7 @@ router.get('/summary', async (req, res) => {
     });
 
     const legacyCreditOrderPayments = (legacyCreditOrders || []).filter((order) => {
-      if (!startDate && !queryOptions.endDate) {
-        return true;
-      }
-      const paymentDate = order.createdAt;
-      if (!paymentDate) {
-        return true;
-      }
-      const timestamp = new Date(paymentDate).getTime();
-      if (Number.isNaN(timestamp)) {
-        return true;
-      }
-      if (startDate && timestamp < new Date(startDate).getTime()) {
-        return false;
-      }
-      if (queryOptions.endDate && timestamp > new Date(queryOptions.endDate).getTime()) {
-        return false;
-      }
-      return true;
+      return isWithinSelectedPeriod(order.createdAt);
     }).map((order) => ({
       amount: Number(order.amountPaid || 0),
       confirmedAt: order.createdAt ? new Date(order.createdAt).getTime() : 0,
@@ -333,10 +326,7 @@ router.get('/summary', async (req, res) => {
 
     const inRangePayments = (payments || []).filter((payment) => {
       const paymentDate = payment.confirmedAt || payment.createdAt;
-      if (!paymentDate) return false;
-      const timestamp = new Date(paymentDate).getTime();
-      if (Number.isNaN(timestamp)) return false;
-      return timestamp >= rangeStartTime && (!queryOptions.endDate || timestamp <= new Date(queryOptions.endDate).getTime());
+      return isWithinSelectedPeriod(paymentDate);
     });
 
     inRangePayments.forEach((payment) => {
@@ -610,16 +600,20 @@ router.get('/summary', async (req, res) => {
       productSalesMap[productId].purchaseOrdersQty = Number(productSalesMap[productId].purchaseOrdersQty || 0);
     });
 
-    const productSales = Object.values(productSalesMap)
+    const allProductSales = Object.values(productSalesMap)
       .sort((a, b) => b.totalAmount - a.totalAmount)
-      .slice(0, 40);
+    const productSalesOffset = Math.max(0, Number.parseInt(req.query.productSalesOffset || '0', 10) || 0);
+    const productSalesLimit = Math.min(100, Math.max(1, Number.parseInt(req.query.productSalesLimit || '30', 10) || 30));
+    const productSales = allProductSales.slice(productSalesOffset, productSalesOffset + productSalesLimit);
 
     const creditCustomers = {};
-    const creditOrders = (orders || []).filter((order) => !order.reversed && Number(order.balanceDue || 0) > 0 && (order.paymentMethod === 'credit' || order.paymentStatus === 'partial' || order.paymentStatus === 'credit'));
-    creditOrders.forEach((order) => {
+    const creditOrders = (allCreditOrders || []).filter(isOpenCreditOrder);
+    const periodCreditOrders = (enrichedOrders || []).filter(isOpenCreditOrder);
+
+    const addCreditOrder = (order, balanceField) => {
       const orderCustomer = order.customer || order.customerId || {};
       const customerId = String(orderCustomer?._id || orderCustomer?.id || orderCustomer || '').trim();
-      const balanceDue = Number(order.balanceDue || 0);
+      const balanceDue = getOutstandingBalance(order);
       if (!customerId) return;
       if (!creditCustomers[customerId]) {
         creditCustomers[customerId] = {
@@ -632,11 +626,15 @@ router.get('/summary', async (req, res) => {
           ordersCount: 0
         };
       }
-      creditCustomers[customerId].outstandingBalance += balanceDue;
-      creditCustomers[customerId].totalOutstandingBalance += balanceDue;
-      creditCustomers[customerId].periodOutstandingBalance += balanceDue;
-      creditCustomers[customerId].ordersCount += 1;
-    });
+      creditCustomers[customerId][balanceField] += balanceDue;
+      if (balanceField === 'totalOutstandingBalance') {
+        creditCustomers[customerId].outstandingBalance += balanceDue;
+        creditCustomers[customerId].ordersCount += 1;
+      }
+    };
+
+    creditOrders.forEach((order) => addCreditOrder(order, 'totalOutstandingBalance'));
+    periodCreditOrders.forEach((order) => addCreditOrder(order, 'periodOutstandingBalance'));
 
     const customerIds = Object.keys(creditCustomers);
     if (customerIds.length > 0) {
@@ -722,6 +720,14 @@ router.get('/summary', async (req, res) => {
       creditSettlementSummary,
       unpaidCredit,
       productSales,
+      productSalesHasMore: productSalesOffset + productSales.length < allProductSales.length,
+      productSalesTotal: allProductSales.length,
+      productSalesTotals: {
+        soldQuantity: allProductSales.reduce((sum, item) => sum + Number(item.soldQuantity || 0), 0),
+        purchaseOrdersQty: allProductSales.reduce((sum, item) => sum + Number(item.purchaseOrdersQty || 0), 0),
+        closingQty: allProductSales.reduce((sum, item) => sum + Number(item.closingQty || 0), 0),
+        totalAmount: allProductSales.reduce((sum, item) => sum + Number(item.totalAmount || 0), 0)
+      },
       outstandingCustomers,
       outstandingCreditBySalesAccount
     });

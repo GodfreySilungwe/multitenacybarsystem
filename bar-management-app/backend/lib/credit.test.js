@@ -52,4 +52,7 @@ assert.equal(mismatchedMessage, 'This bill can only be settled by Alice.');
 const managerMatch = selectCreditOrdersForSettlement(orders, { _id: 'manager-1', role: 'manager', fullName: 'Dana' });
 assert.deepEqual(managerMatch.map((order) => order._id), ['old-other', 'current-2', 'current-1', 'current-3']);
 
+const managerMismatch = getSalesAccountMismatchMessage(orders, { _id: 'manager-1', role: 'manager', fullName: 'Dana' });
+assert.equal(managerMismatch, null);
+
 console.log('credit settlement tests passed');
