@@ -605,8 +605,7 @@ const Dashboard = () => {
 
                   {creditByMethodProceeds.length > 0 && (
                     <div style={{ marginTop: '18px' }}>
-                      <div style={styles.sectionTitle}>Bill Repayment</div>
-                      <div style={styles.disclaimerText}>Only payments that were applied to credit orders are included here. Older payments with no method recorded are counted as Cash.</div>
+                      <div style={styles.sectionTitle}>Bill Repayments</div>
                       <div style={styles.tableWrapper}>
                         <table style={styles.table}>
                           <thead>
@@ -723,7 +722,7 @@ const Dashboard = () => {
                         <th>Customer</th>
                         <th>Phone</th>
                         <th>Outstanding Balance (Total)</th>
-                        <th>Outstanding Balance (Period)</th>
+                        <th>Outstanding Balance (This Period)</th>
                         <th>Open Credit Orders</th>
                       </tr>
                     </thead>
