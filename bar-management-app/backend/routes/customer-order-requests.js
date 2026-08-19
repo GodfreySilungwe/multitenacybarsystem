@@ -547,7 +547,7 @@ router.get('/payments', async (req, res) => {
         credit: 'Credit'
       };
 
-      const totalsByMethod = paginatedPayments.reduce((acc, payment) => {
+      const totalsByMethod = filteredPayments.reduce((acc, payment) => {
         if (payment.status !== 'confirmed') {
           return acc;
         }
