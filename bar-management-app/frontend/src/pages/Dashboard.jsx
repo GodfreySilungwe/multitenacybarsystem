@@ -71,20 +71,29 @@ const Dashboard = () => {
   const [lastUpdated, setLastUpdated] = useState(null);
   const [productSalesCurrentPage, setProductSalesCurrentPage] = useState(1);
   const PRODUCT_SALES_PAGE_SIZE = 30;
+  const customRangeReady = dateRange !== 'custom' || Boolean(customStartDate && customEndDate);
 
   useEffect(() => {
+    if (!customRangeReady) {
+      return;
+    }
+
     fetchDashboardData();
     setProductSalesCurrentPage(1);
-  }, [dateRange, customStartDate, customEndDate]);
+  }, [dateRange, customStartDate, customEndDate, customRangeReady]);
 
   useEffect(() => {
     const handleRefresh = () => {
+      if (!customRangeReady) {
+        return;
+      }
+
       fetchDashboardData();
     };
 
     window.addEventListener('payment-updated', handleRefresh);
     return () => window.removeEventListener('payment-updated', handleRefresh);
-  }, [dateRange, customStartDate, customEndDate]);
+  }, [dateRange, customStartDate, customEndDate, customRangeReady]);
 
   const fetchDashboardData = async ({ appendProductSales = false } = {}) => {
     try {
