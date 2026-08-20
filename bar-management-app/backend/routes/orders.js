@@ -13,6 +13,7 @@ const { recomputeCustomerCreditBalance } = require('../lib/credit');
 const { queryEntities, decodeLastEvaluatedKey } = require('../lib/dynamodb');
 const { buildOrderSummary, calculateOutstandingCreditInPeriod } = require('../lib/orderSummary');
 const { createAuditEntry } = require('../lib/audit');
+const { getInitialCreditPayment } = require('../lib/creditPayments');
 
 router.use(protect, isBarOwnerOrSales);
 
@@ -293,7 +294,7 @@ router.get('/summary', async (req, res) => {
     const legacyCreditOrderPayments = (legacyCreditOrders || []).filter((order) => {
       return isWithinSelectedPeriod(order.createdAt);
     }).map((order) => ({
-      amount: Number(order.amountPaid || 0),
+      amount: getInitialCreditPayment(order).amount,
       confirmedAt: order.createdAt ? new Date(order.createdAt).getTime() : 0,
       isLegacyCreditOrderPayment: true
     }));
@@ -891,6 +892,8 @@ router.post('/', async (req, res) => {
       paymentMethod: paymentMethod || 'cash',
       amountPaid: paymentMethod === 'credit' ? Math.min(paidAmount, totalAmount) : totalAmount,
       balanceDue: paymentMethod === 'credit' ? remainingBalance : 0,
+      initialAmountPaid: paymentMethod === 'credit' ? Math.min(paidAmount, totalAmount) : 0,
+      initialPaymentMethod: paymentMethod === 'credit' ? 'cash' : paymentMethod,
       paymentStatus,
       status: paymentStatus === 'paid' ? 'completed' : 'partial',
       processedBy: req.user._id,

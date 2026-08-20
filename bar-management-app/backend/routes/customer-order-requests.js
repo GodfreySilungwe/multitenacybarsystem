@@ -10,6 +10,7 @@ const Order = require('../models/Order');
 const User = require('../models/User');
 const { recomputeCustomerCreditBalance, selectCreditOrdersForSettlement } = require('../lib/credit');
 const { createAuditEntry } = require('../lib/audit');
+const { getInitialCreditPayment } = require('../lib/creditPayments');
 
 router.use(protect);
 
@@ -152,7 +153,7 @@ const buildPaymentRecordFromRequest = (paymentRequest) => {
 };
 
 const buildPaymentRecordFromOrder = (order) => {
-  const amount = Number(order.amountPaid || 0);
+  const amount = getInitialCreditPayment(order).amount;
   const status = order.paymentStatus === 'paid' ? 'confirmed' : 'partial';
   return {
     _id: `order-${order._id}`,
@@ -163,7 +164,7 @@ const buildPaymentRecordFromOrder = (order) => {
     orderNumber: order.orderNumber || '',
     customerName: order.customerName || 'Walk-in customer',
     amount,
-    paymentMethod: order.paymentMethod || 'cash',
+    paymentMethod: order.paymentMethod === 'credit' ? 'cash' : (order.paymentMethod || 'cash'),
     status,
     reference: order.paymentReference || '',
     approvedBy: order.processedByName || order.processedBy || '',
