@@ -412,6 +412,7 @@ router.post('/:id/pay', isBarOwnerOrSales, async (req, res) => {
     }
 
     const updatedRequests = [];
+    const allocations = [];
 
     for (const order of eligibleOrders) {
       if (order.paymentMethod !== 'credit' || remainingPayment <= 0) {
@@ -426,6 +427,11 @@ router.post('/:id/pay', isBarOwnerOrSales, async (req, res) => {
 
       const appliedAmount = Math.min(remainingPayment, currentBalance);
       remainingPayment -= appliedAmount;
+      allocations.push({
+        orderId: order._id,
+        amount: appliedAmount,
+        orderCreatedAt: order.createdAt
+      });
 
       console.debug(`FIFO settlement: Order ${order.orderNumber} (created: ${order.createdAt}), balance: ${currentBalance}, applied: ${appliedAmount}, remaining payment: ${remainingPayment}`);
 
@@ -471,7 +477,8 @@ router.post('/:id/pay', isBarOwnerOrSales, async (req, res) => {
       confirmedAt: new Date().toISOString(),
       approvedBy: req.user._id,
       approvedByName: req.user.fullName || req.user.username || req.user.email || 'Sales account',
-      approvedAt: new Date().toISOString()
+      approvedAt: new Date().toISOString(),
+      allocations
     });
     await paymentRecord.save();
 

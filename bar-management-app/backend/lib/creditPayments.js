@@ -42,7 +42,30 @@ function summarizeCreditPaymentEvents(order, settlements = []) {
   return summary;
 }
 
+function classifyRepaymentAllocations(payment, rangeStartTime = 0, rangeEndTime = Infinity) {
+  const allocations = Array.isArray(payment?.allocations) ? payment.allocations : null;
+  if (!allocations) {
+    return { hasAllocations: false, previousAmount: 0, currentAmount: 0 };
+  }
+
+  return allocations.reduce((summary, allocation) => {
+    const amount = normalizeAmount(allocation.amount);
+    const createdAt = new Date(allocation.orderCreatedAt).getTime();
+    if (!amount || Number.isNaN(createdAt) || createdAt > rangeEndTime) {
+      return summary;
+    }
+
+    if (createdAt < rangeStartTime) {
+      summary.previousAmount += amount;
+    } else {
+      summary.currentAmount += amount;
+    }
+    return summary;
+  }, { hasAllocations: true, previousAmount: 0, currentAmount: 0 });
+}
+
 module.exports = {
   getInitialCreditPayment,
-  summarizeCreditPaymentEvents
+  summarizeCreditPaymentEvents,
+  classifyRepaymentAllocations
 };

@@ -644,6 +644,7 @@ router.patch('/payments/:id/confirm', isBarOwnerOrSales, async (req, res) => {
     let appliedAmount = 0;
     const updatedRequests = [];
     const updatedRequestIds = new Set();
+    const allocations = [];
 
     // For non-owner/manager users, use only their eligible orders
     const ordersToProcess = ['owner', 'manager'].includes(req.user.role) ? creditOrders : eligibleOrders;
@@ -661,6 +662,11 @@ router.patch('/payments/:id/confirm', isBarOwnerOrSales, async (req, res) => {
       const paymentApplied = Math.min(remainingPayment, amountDue);
       order.balanceDue = Math.max(0, amountDue - paymentApplied);
       order.amountPaid = toNumber(order.amountPaid, 0) + paymentApplied;
+      allocations.push({
+        orderId: order._id,
+        amount: paymentApplied,
+        orderCreatedAt: order.createdAt
+      });
       order.paymentStatus = order.balanceDue > 0 ? 'partial' : 'paid';
       await order.save();
 
@@ -702,6 +708,7 @@ router.patch('/payments/:id/confirm', isBarOwnerOrSales, async (req, res) => {
     paymentRequest.approvedBy = req.user._id;
     paymentRequest.approvedByName = req.user.fullName || req.user.username || req.user.email || 'Sales account';
     paymentRequest.approvedAt = new Date().toISOString();
+    paymentRequest.allocations = allocations;
     await paymentRequest.save();
 
     await createAuditEntry({

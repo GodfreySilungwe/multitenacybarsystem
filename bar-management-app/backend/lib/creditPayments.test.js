@@ -1,6 +1,6 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const { getInitialCreditPayment, summarizeCreditPaymentEvents } = require('./creditPayments');
+const { getInitialCreditPayment, summarizeCreditPaymentEvents, classifyRepaymentAllocations } = require('./creditPayments');
 
 test('credit order with initial cash and later Airtel repayment is counted once per method', () => {
   const order = {
@@ -34,4 +34,17 @@ test('legacy credit order does not fabricate a cash payment from cumulative amou
     amount: 0,
     paymentMethod: 'credit_cash'
   });
+});
+
+test('repayment allocation stays current when an older bill is also outstanding', () => {
+  const summary = classifyRepaymentAllocations({
+    allocations: [{
+      amount: 800,
+      orderCreatedAt: '2026-08-20T10:00:00.000Z'
+    }]
+  }, new Date('2026-08-20T00:00:00.000Z').getTime());
+
+  assert.equal(summary.hasAllocations, true);
+  assert.equal(summary.previousAmount, 0);
+  assert.equal(summary.currentAmount, 800);
 });

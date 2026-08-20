@@ -13,7 +13,7 @@ const { recomputeCustomerCreditBalance } = require('../lib/credit');
 const { queryEntities, decodeLastEvaluatedKey } = require('../lib/dynamodb');
 const { buildOrderSummary, calculateOutstandingCreditInPeriod } = require('../lib/orderSummary');
 const { createAuditEntry } = require('../lib/audit');
-const { getInitialCreditPayment } = require('../lib/creditPayments');
+const { getInitialCreditPayment, classifyRepaymentAllocations } = require('../lib/creditPayments');
 
 router.use(protect, isBarOwnerOrSales);
 
@@ -303,7 +303,8 @@ router.get('/summary', async (req, res) => {
       .map((payment) => ({
         amount: Number(payment.amountApplied || payment.amountRequested || payment.amount || 0),
         confirmedAt: payment.confirmedAt ? new Date(payment.confirmedAt).getTime() : 0,
-        paymentMethod: String(payment.creditPaymentMethod || payment.paymentMethod || 'cash').toLowerCase()
+        paymentMethod: String(payment.creditPaymentMethod || payment.paymentMethod || 'cash').toLowerCase(),
+        allocations: payment.allocations
       }))
       .filter((payment) => payment.amount > 0)
       .sort((a, b) => a.confirmedAt - b.confirmedAt);
@@ -356,6 +357,12 @@ router.get('/summary', async (req, res) => {
         return;
       }
 
+      const allocationSummary = classifyRepaymentAllocations(payment, rangeStartTime, queryOptions.endDate ? new Date(queryOptions.endDate).getTime() : Infinity);
+      if (allocationSummary.hasAllocations) {
+        previousBillsCollected += allocationSummary.previousAmount;
+        return;
+      }
+
       let remaining = payment.amount;
       while (remaining > 0) {
         const nextOrder = creditOrderStates.find((order) => order.balanceDue > 0);
@@ -401,6 +408,14 @@ router.get('/summary', async (req, res) => {
 
     paymentOrders.forEach((payment) => {
       if (payment.isLegacyCreditOrderPayment) {
+        return;
+      }
+
+      const allocationSummary = classifyRepaymentAllocations(payment, rangeStartTime, queryOptions.endDate ? new Date(queryOptions.endDate).getTime() : Infinity);
+      if (allocationSummary.hasAllocations) {
+        if (allocationSummary.currentAmount > 0) {
+          currentPeriodRepaymentsApplied.push({ amountApplied: allocationSummary.currentAmount });
+        }
         return;
       }
 
