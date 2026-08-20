@@ -562,11 +562,10 @@ const Dashboard = () => {
 
           <div className="fade-in" style={{ marginBottom: '20px' }}>
             <UnifiedCard title="💳 Payment Summary & Credit Breakdown">
-              <p style={styles.sectionDescription}>This section separates direct receipt proceeds by method, outstanding customer credit, and bill repayment by credit payment method. Older credit payments without a recorded method are counted as Cash.</p>
               {(paymentMethodProceeds.length > 0 || creditByMethodProceeds.length > 0) ? (
                 <>
                   <div style={styles.sectionTitleRow}>
-                    <div style={styles.sectionTitle}>Direct Receipt Proceeds by Method</div>
+                    <div style={styles.sectionTitle}>Direct POS Sales by Payment Method</div>
                   </div>
                   {directPaymentMethodProceeds.length > 0 ? (
                     <div style={styles.tableWrapper}>
