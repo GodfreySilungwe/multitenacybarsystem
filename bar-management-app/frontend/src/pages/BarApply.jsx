@@ -8,7 +8,6 @@ import Button from '../components/common/Button';
 const BarApply = () => {
   const [form, setForm] = useState({
     barName: '',
-    barCode: '',
     description: '',
     ownerFullName: '',
     ownerEmail: '',
@@ -34,7 +33,6 @@ const BarApply = () => {
     try {
       const payload = {
         barName: form.barName.trim(),
-        barCode: form.barCode.trim(),
         description: form.description.trim(),
         ownerFullName: form.ownerFullName.trim(),
         ownerEmail: form.ownerEmail.trim(),
@@ -70,16 +68,6 @@ const BarApply = () => {
               style={styles.input}
               placeholder="Enter bar name"
               required
-            />
-
-            <label style={styles.label}>Bar Code</label>
-            <input
-              type="text"
-              name="barCode"
-              value={form.barCode}
-              onChange={handleChange}
-              style={styles.input}
-              placeholder="Optional bar code"
             />
 
             <label style={styles.label}>Description</label>

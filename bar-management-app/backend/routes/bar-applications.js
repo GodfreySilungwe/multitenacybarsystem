@@ -28,7 +28,6 @@ router.post('/', async (req, res) => {
   try {
     const {
       barName,
-      barCode,
       description,
       ownerFullName,
       ownerEmail,
@@ -41,6 +40,8 @@ router.post('/', async (req, res) => {
       return res.status(400).json({ message: 'Bar name, owner name, email and phone are required.' });
     }
 
+    const normalizedPhone = String(ownerPhone).trim();
+
     if (!ownerUsername || !String(ownerUsername).trim()) {
       return res.status(400).json({ message: 'Owner username is required.' });
     }
@@ -52,7 +53,7 @@ router.post('/', async (req, res) => {
     const normalizedUsername = normalizeUsername(ownerUsername || ownerFullName, barName);
     const normalizedEmail = normalizeEmail(ownerEmail, `${normalizedUsername}@bar.local`);
     const password = ownerPassword || generatePassword(normalizedUsername);
-    const existingBar = await Bar.findOne({ $or: [{ name: barName }, { code: barCode }] });
+    const existingBar = await Bar.findOne({ $or: [{ name: barName }, { code: normalizedPhone }] });
     if (existingBar) {
       return res.status(400).json({ message: 'A bar with that name or code already exists.' });
     }
@@ -72,7 +73,7 @@ router.post('/', async (req, res) => {
 
     const application = new BarApplication({
       barName,
-      barCode,
+      barCode: normalizedPhone,
       description,
       ownerFullName,
       ownerEmail: normalizedEmail,
