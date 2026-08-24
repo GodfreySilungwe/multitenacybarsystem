@@ -536,7 +536,7 @@ const Dashboard = () => {
                   <span style={styles.metricValue}>{formatPriceMK(totalCreditSales)}</span>
                 </div>
                 <div style={styles.handoverMetric}>
-                  <span style={styles.metricLabel}>Outstanding Bills (same period net)</span>
+                  <span style={styles.metricLabel}>Outstanding Bills (thisPeriodOnly)</span>
                   <span style={styles.metricValue}>{formatPriceMK(outstandingCreditInPeriod)}</span>
                 </div>
                 <div style={styles.handoverMetric}>

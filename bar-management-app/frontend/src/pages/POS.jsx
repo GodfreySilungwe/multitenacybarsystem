@@ -751,7 +751,6 @@ const POS = () => {
           }
           .pos-mobile-product-grid {
             grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
-            max-height: none !important;
             padding: 2px 0 !important;
           }
           .pos-mobile-category-filter {
@@ -779,8 +778,13 @@ const POS = () => {
         }
 
         @media (max-width: 480px) {
+          .pos-mobile-product-total {
+            display: flex !important;
+          }
           .pos-mobile-product-grid {
             grid-template-columns: 1fr !important;
+            max-height: 360px !important;
+            overflow-y: auto !important;
           }
           .pos-mobile-payment-btn {
             flex-basis: 100% !important;
@@ -806,6 +810,11 @@ const POS = () => {
           100% { opacity: 0.85; }
         }
       `}</style>
+
+      <div className="pos-mobile-product-total" style={styles.mobileProductTotal}>
+        <span>Products total</span>
+        <strong>{formatPriceMK(subtotal)}</strong>
+      </div>
 
       <div style={styles.posLayout} className="pos-mobile-stack">
         {/* Left: Product Grid */}
@@ -1131,6 +1140,23 @@ const styles = {
     alignItems: 'start',
     width: '100%',
     overflowX: 'hidden'
+  },
+  mobileProductTotal: {
+    display: 'none',
+    position: 'sticky',
+    top: '8px',
+    zIndex: 5,
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    padding: '10px 14px',
+    marginBottom: '12px',
+    border: '1px solid #ffd6df',
+    borderRadius: '10px',
+    backgroundColor: '#fff7f8',
+    boxShadow: '0 4px 12px rgba(233, 69, 96, 0.12)',
+    color: '#6b1d2a',
+    fontSize: '13px',
+    fontWeight: '600'
   },
   productSection: {
     minHeight: '500px',
