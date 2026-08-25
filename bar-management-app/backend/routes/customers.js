@@ -2,7 +2,7 @@ const express = require('express');
 const router = express.Router();
 const { protect, isBarOwnerOrSales } = require('../middleware/auth');
 const bcrypt = require('bcryptjs');
-const { queryEntities, decodeLastEvaluatedKey } = require('../lib/dynamodb');
+const { listEntities, decodeLastEvaluatedKey } = require('../lib/dynamodb');
 const Customer = require('../models/Customer');
 const Order = require('../models/Order');
 const Product = require('../models/Product');
@@ -137,20 +137,21 @@ const enrichCustomer = async (customer, barId) => {
 router.get('/', isBarOwnerOrSales, async (req, res) => {
   try {
     const limit = req.query.limit ? Number(req.query.limit) : null;
-    const lastKey = req.query.lastKey ? decodeLastEvaluatedKey(req.query.lastKey) : null;
-
-    const queryOptions = {
-      barId: req.user.barId,
-      limit,
-      lastEvaluatedKey: lastKey
-    };
-
-    const result = await queryEntities('customer', queryOptions);
-    const customers = (result.items || []).sort((a, b) => String(a.name || '').localeCompare(String(b.name || '')));
+    const pageToken = req.query.lastKey ? decodeLastEvaluatedKey(req.query.lastKey) : null;
+    const allCustomers = await listEntities('customer');
+    const sortedCustomers = allCustomers.sort((a, b) => String(a.name || '').localeCompare(String(b.name || '')));
+    const pageOffset = Number.isInteger(pageToken?.offset) && pageToken.offset >= 0 ? pageToken.offset : 0;
+    const customers = limit
+      ? sortedCustomers.slice(pageOffset, pageOffset + limit)
+      : sortedCustomers;
     const enrichedCustomers = await Promise.all(customers.map((customer) => enrichCustomer(customer, req.user.barId)));
 
-    if (limit || lastKey) {
-      return res.json({ items: enrichedCustomers, nextKey: result.lastEvaluatedKey });
+    if (limit || pageToken) {
+      const nextOffset = pageOffset + customers.length;
+      const nextKey = nextOffset < sortedCustomers.length
+        ? Buffer.from(JSON.stringify({ offset: nextOffset })).toString('base64')
+        : null;
+      return res.json({ items: enrichedCustomers, nextKey });
     }
 
     res.json(enrichedCustomers);
