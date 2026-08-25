@@ -238,7 +238,7 @@ router.post('/', isBarOwnerOrSales, async (req, res) => {
       return res.status(400).json({ message: 'Phone number already exists' });
     }
 
-    const existingUsername = await User.findOne({ username: normalizedUsername });
+    const existingUsername = await User.findGlobalByUsername(normalizedUsername);
     if (existingUsername) {
       return res.status(400).json({ message: 'Username already exists' });
     }

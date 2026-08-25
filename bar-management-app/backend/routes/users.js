@@ -129,9 +129,8 @@ router.post('/', isBarOwner, async (req, res) => {
       return res.status(400).json({ message: 'Username, email, and password are required.' });
     }
 
-    const existingUser = await User.findOne({
-      $or: [{ username: normalizedUsername }, { email: normalizedEmail }],
-      barId: req.user?.barId || null
+    const existingUser = await User.findGlobalOne({
+      $or: [{ username: normalizedUsername }, { email: normalizedEmail }]
     });
 
     if (existingUser) {

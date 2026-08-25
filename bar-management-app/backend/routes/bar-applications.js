@@ -53,6 +53,10 @@ router.post('/', async (req, res) => {
     const normalizedUsername = normalizeUsername(ownerUsername || ownerFullName, barName);
     const normalizedEmail = normalizeEmail(ownerEmail, `${normalizedUsername}@bar.local`);
     const password = ownerPassword || generatePassword(normalizedUsername);
+    const existingUser = await User.findGlobalByUsername(normalizedUsername);
+    if (existingUser) {
+      return res.status(400).json({ message: 'That username is already in use.' });
+    }
     const existingBar = await Bar.findOne({ $or: [{ name: barName }, { code: normalizedPhone }] });
     if (existingBar) {
       return res.status(400).json({ message: 'A bar with that name or code already exists.' });
@@ -119,6 +123,12 @@ router.patch('/:id/approve', async (req, res) => {
       return res.status(400).json({ message: 'A bar with this name or code already exists.' });
     }
 
+    const normalizedUsername = normalizeUsername(application.ownerUsername || application.ownerFullName, application.barName);
+    const existingUser = await User.findGlobalByUsername(normalizedUsername);
+    if (existingUser) {
+      return res.status(400).json({ message: 'That username is already in use.' });
+    }
+
     const bar = new Bar({
       name: application.barName,
       code: application.barCode,
@@ -131,7 +141,7 @@ router.patch('/:id/approve', async (req, res) => {
     const hashedPassword = await bcrypt.hash(application.ownerPassword || generatePassword(application.ownerUsername), salt);
 
     const adminUser = new User({
-      username: normalizeUsername(application.ownerUsername || application.ownerFullName, application.barName),
+      username: normalizedUsername,
       email: normalizeEmail(application.ownerEmail, `${application.ownerUsername || application.ownerFullName}@bar.local`),
       password: hashedPassword,
       fullName: application.ownerFullName,

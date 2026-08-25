@@ -25,7 +25,7 @@ const verifyToken = (token) => {
 };
 
 async function ensureUserAccount(userConfig = {}) {
-  const existingUser = await User.findOne({
+  const existingUser = await User.findGlobalOne({
     $or: [
       { email: userConfig.email },
       { username: userConfig.username }
@@ -105,10 +105,10 @@ router.post('/register', async (req, res) => {
     await ensureDefaultOwnerUser();
 
     const { username, email, password, fullName, role, barId } = req.body;
+    const normalizedUsername = String(username || '').trim().toLowerCase().replace(/\s+/g, '');
 
-    const existingUser = await User.findOne({ 
-      $or: [{ email }, { username }],
-      ...(barId ? { barId } : {})
+    const existingUser = await User.findGlobalOne({
+      $or: [{ email }, { username: normalizedUsername }]
     });
 
     if (existingUser) {
@@ -121,7 +121,7 @@ router.post('/register', async (req, res) => {
     const hashedPassword = await bcrypt.hash(password, salt);
 
     const user = new User({
-      username,
+      username: normalizedUsername,
       email,
       password: hashedPassword,
       fullName,

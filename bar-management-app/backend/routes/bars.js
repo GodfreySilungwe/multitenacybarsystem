@@ -113,7 +113,7 @@ router.post('/', async (req, res) => {
     const normalizedUsername = normalizeUsername(adminUsername, name);
     const normalizedEmail = normalizeEmail(adminEmail, `${normalizedUsername}@bar.local`);
 
-    const existingUser = await User.findOne({ $or: [{ username: normalizedUsername }, { email: normalizedEmail }] });
+    const existingUser = await User.findGlobalOne({ $or: [{ username: normalizedUsername }, { email: normalizedEmail }] });
     if (existingUser) {
       return res.status(400).json({ message: 'Bar admin username or email already exists.' });
     }

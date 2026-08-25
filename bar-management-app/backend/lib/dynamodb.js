@@ -287,6 +287,22 @@ async function listEntities(entityType) {
     });
 }
 
+async function listAllEntities(entityType) {
+  await ensureTableExists();
+  const result = await docClient.send(new QueryCommand({
+    TableName: TABLE_NAME,
+    ConsistentRead: true,
+    KeyConditionExpression: 'pk = :pk',
+    ExpressionAttributeValues: {
+      ':pk': String(entityType).toUpperCase()
+    }
+  }));
+
+  return (result.Items || [])
+    .map(fromDynamoItem)
+    .filter((record) => record?.entityType === String(entityType).toLowerCase());
+}
+
 async function getEntity(entityType, id) {
   await ensureTableExists();
   const result = await docClient.send(new GetCommand({
@@ -364,6 +380,7 @@ module.exports = {
   ensureTableExists,
   generateId,
   listEntities,
+  listAllEntities,
   queryEntities,
   decodeLastEvaluatedKey,
   getEntity,
