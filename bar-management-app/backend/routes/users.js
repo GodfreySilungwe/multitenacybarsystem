@@ -6,7 +6,7 @@ const Customer = require('../models/Customer');
 const Order = require('../models/Order');
 const CustomerOrderRequest = require('../models/CustomerOrderRequest');
 const CustomerPaymentRequest = require('../models/CustomerPaymentRequest');
-const { protect, isBarOwner, isBarOwnerOrSales } = require('../middleware/auth');
+const { protect, isBarOwner, isBarOwnerOrManager, isBarOwnerOrSales } = require('../middleware/auth');
 
 const toSafeUser = (user) => {
   const safe = { ...user };
@@ -70,7 +70,7 @@ router.get('/summary', isBarOwnerOrSales, async (req, res) => {
   }
 });
 
-router.get('/', isBarOwner, async (req, res) => {
+router.get('/', isBarOwnerOrManager, async (req, res) => {
   try {
     const users = await User.find({ barId: req.user.barId }).sort({ username: 1 });
     const safeUsers = users.map((user) => toSafeUser(user));
@@ -81,7 +81,7 @@ router.get('/', isBarOwner, async (req, res) => {
   }
 });
 
-router.patch('/:id/reset-password', isBarOwner, async (req, res) => {
+router.patch('/:id/reset-password', isBarOwnerOrManager, async (req, res) => {
   try {
     const { newPassword } = req.body || {};
     const targetPassword = String(newPassword || '').trim();
@@ -97,6 +97,10 @@ router.patch('/:id/reset-password', isBarOwner, async (req, res) => {
     const user = await User.findOne({ _id: req.params.id, barId: req.user.barId });
     if (!user) {
       return res.status(404).json({ message: 'User not found.' });
+    }
+
+    if (user.role !== 'sales') {
+      return res.status(403).json({ message: 'Only sales account passwords can be reset here.' });
     }
 
     if (String(user._id) === String(req.user._id || req.user.id)) {
