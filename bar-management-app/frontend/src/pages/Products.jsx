@@ -10,6 +10,7 @@ const Products = () => {
   const [products, setProducts] = useState([]);
   const [categories, setCategories] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [searchTerm, setSearchTerm] = useState('');
   const [showForm, setShowForm] = useState(false);
   const [editingProduct, setEditingProduct] = useState(null);
   const [formData, setFormData] = useState({
@@ -118,6 +119,14 @@ const Products = () => {
     return icons[unit] || '📦';
   };
 
+  const filteredProducts = products.filter((product) => {
+    const searchValue = searchTerm.trim().toLowerCase();
+    if (!searchValue) return true;
+
+    return [product.name, product.category?.name, product.unit]
+      .some((value) => String(value || '').toLowerCase().includes(searchValue));
+  });
+
   if (loading) {
     return (
           <PageContainer title="🍹 SMART BAR Products">
@@ -130,9 +139,19 @@ const Products = () => {
       <PageContainer title="🍹 SMART BAR Products">
       <div style={styles.header}>
           <p style={styles.subtitle}>Manage your SMART BAR inventory</p>
-        <Button onClick={() => setShowForm(!showForm)}>
-          {showForm ? '✕ Close' : '+ Add Product'}
-        </Button>
+        <div style={styles.headerActions}>
+          <input
+            type="search"
+            aria-label="Search products"
+            placeholder="Search products..."
+            value={searchTerm}
+            onChange={(e) => setSearchTerm(e.target.value)}
+            style={styles.searchInput}
+          />
+          <Button onClick={() => setShowForm(!showForm)}>
+            {showForm ? '✕ Close' : '+ Add Product'}
+          </Button>
+        </div>
       </div>
 
       {showForm && (
@@ -237,7 +256,7 @@ const Products = () => {
       )}
 
       <div style={styles.productGrid}>
-        {products.map((product, index) => (
+        {filteredProducts.map((product, index) => (
           <div 
             key={product._id} 
             className={`fade-in delay-${(index % 6) + 1}`}
@@ -285,6 +304,9 @@ const Products = () => {
           </div>
         ))}
       </div>
+      {filteredProducts.length === 0 && (
+        <p style={styles.emptyMessage}>No products match your search.</p>
+      )}
     </PageContainer>
   );
 };
@@ -299,6 +321,19 @@ const styles = {
     gap: '10px',
     width: '100%'
   },
+  headerActions: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: '10px',
+    flexWrap: 'wrap'
+  },
+  searchInput: {
+    minWidth: '240px',
+    padding: '10px 12px',
+    border: '1px solid #ddd',
+    borderRadius: '8px',
+    fontSize: '14px'
+  },
   subtitle: {
     fontSize: '16px',
     color: '#888',
@@ -309,6 +344,11 @@ const styles = {
     gridTemplateColumns: 'repeat(auto-fill, minmax(300px, 1fr))',
     gap: '20px',
     width: '100%'
+  },
+  emptyMessage: {
+    color: '#888',
+    textAlign: 'center',
+    padding: '24px'
   },
   productCard: {
     backgroundColor: 'white',

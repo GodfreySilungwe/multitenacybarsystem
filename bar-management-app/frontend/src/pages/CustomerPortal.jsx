@@ -19,6 +19,7 @@ const CustomerPortal = () => {
   const [paymentReference, setPaymentReference] = useState('');
   const [paymentAmount, setPaymentAmount] = useState('');
   const [isCompact, setIsCompact] = useState(false);
+  const [refreshKey, setRefreshKey] = useState(0);
 
   useEffect(() => {
     const loadCustomer = async () => {
@@ -27,6 +28,7 @@ const CustomerPortal = () => {
         return;
       }
 
+      setLoading(true);
       try {
         const [customerRes, productsRes, requestsRes] = await Promise.all([
           api.get(`/customers/${user.customerId}`),
@@ -53,7 +55,7 @@ const CustomerPortal = () => {
     return () => {
       window.removeEventListener('customer-request-updated', handleRequestUpdate);
     };
-  }, [user?.customerId]);
+  }, [refreshKey, user?.customerId]);
 
   useEffect(() => {
     const handleResize = () => setIsCompact(window.innerWidth < 640);
@@ -245,6 +247,9 @@ const CustomerPortal = () => {
             <h2 style={responsiveStyles.title}>{customer?.name || user?.fullName || user?.username}</h2>
             <p style={responsiveStyles.subtitle}>Your orders, credit balance, and payment activity all in one place.</p>
           </div>
+          <Button type="button" variant="secondary" onClick={() => setRefreshKey((value) => value + 1)} disabled={loading}>
+            {loading ? 'Refreshing...' : '↻ Refresh'}
+          </Button>
           <div style={responsiveStyles.heroStats}>
             <div style={responsiveStyles.heroStatBox}>
               <span style={responsiveStyles.heroStatLabel}>Loyalty</span>

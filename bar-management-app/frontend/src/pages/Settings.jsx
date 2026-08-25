@@ -32,6 +32,7 @@ const Settings = () => {
   });
 
   const [teamForm, setTeamForm] = useState({
+    username: '',
     email: '',
     password: '',
     fullName: ''
@@ -211,7 +212,7 @@ const Settings = () => {
       const createdPassword = credentials?.password || teamForm.password;
 
       setMessage(`✅ Sales account created successfully. Username: ${createdUsername} Password: ${createdPassword}`);
-      setTeamForm({ email: '', password: '', fullName: '' });
+      setTeamForm({ username: '', email: '', password: '', fullName: '' });
       await loadTeamUsers();
       setTimeout(() => setMessage(''), 6000);
     } catch (err) {
@@ -495,11 +496,16 @@ const Settings = () => {
                   />
                 </div>
                 <div style={styles.formGroup}>
-                  <label style={styles.label}>Username</label>
-                  <div style={{ ...styles.input, backgroundColor: '#f9fafb', color: '#6b7280', display: 'flex', alignItems: 'center' }}>
-                    Auto-generated with your bar code for uniqueness
-                  </div>
-                  <span style={styles.helperText}>Sales usernames will be created as a friendly name plus your bar identifier.</span>
+                  <label style={styles.label}>Preferred Username *</label>
+                  <input
+                    type="text"
+                    required
+                    style={styles.input}
+                    value={teamForm.username}
+                    onChange={(e) => setTeamForm({ ...teamForm, username: e.target.value })}
+                    placeholder="Choose a unique username"
+                  />
+                  <span style={styles.helperText}>Usernames are shared across all bars and must be unique.</span>
                 </div>
                 <div style={styles.formGroup}>
                   <label style={styles.label}>Email *</label>
