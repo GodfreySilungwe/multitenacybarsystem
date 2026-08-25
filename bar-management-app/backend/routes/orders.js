@@ -10,7 +10,7 @@ const CustomerOrderRequest = require('../models/CustomerOrderRequest');
 const CustomerPaymentRequest = require('../models/CustomerPaymentRequest');
 const StockSnapshot = require('../models/StockSnapshot');
 const { recomputeCustomerCreditBalance } = require('../lib/credit');
-const { queryEntities, decodeLastEvaluatedKey } = require('../lib/dynamodb');
+const { queryEntities, listEntities, decodeLastEvaluatedKey } = require('../lib/dynamodb');
 const { buildOrderSummary, calculateOutstandingCreditInPeriod } = require('../lib/orderSummary');
 const { createAuditEntry } = require('../lib/audit');
 const { getInitialCreditPayment, classifyRepaymentAllocations } = require('../lib/creditPayments');
@@ -124,26 +124,18 @@ const cleanProductName = (value) => {
 router.get('/', async (req, res) => {
   try {
     const limit = req.query.limit ? Number(req.query.limit) : 20;
-    const lastKey = req.query.lastKey ? decodeLastEvaluatedKey(req.query.lastKey) : null;
+    const pageToken = req.query.lastKey ? decodeLastEvaluatedKey(req.query.lastKey) : null;
     // Get raw dates but don't pass to DynamoDB filter - will filter in app instead
     const startDateStr = req.query.startDate ? parseLocalDateBoundary(req.query.startDate, false) : null;
     const endDateStr = req.query.endDate ? parseLocalDateBoundary(req.query.endDate, true) : null;
     const includeReversed = req.query.includeReversed !== 'false';
 
-    const queryOptions = {
-      barId: req.user.barId,
-      limit: limit * 3, // Fetch more items since we'll filter on app level
-      lastEvaluatedKey: lastKey,
-      // Don't send dates to DynamoDB - will filter in app
-      startDate: null,
-      endDate: null,
-      includeReversed: includeReversed ? undefined : false
-    };
+    const pageOffset = Number.isInteger(pageToken?.offset) && pageToken.offset >= 0 ? pageToken.offset : 0;
+    let orders = await listEntities('order');
 
-    console.debug('DEBUG /orders -> queryOptions (will filter in app):', queryOptions);
-
-    let orderQuery = await queryEntities('order', queryOptions);
-    let orders = (orderQuery.items || []);
+    if (!includeReversed) {
+      orders = orders.filter((order) => !order.reversed);
+    }
     
     // Filter by date in application layer
     if (startDateStr || endDateStr) {
@@ -156,11 +148,9 @@ router.get('/', async (req, res) => {
       console.debug('DEBUG /orders -> after date filter:', orders.length, 'orders');
     }
     
-    // Apply limit after filtering
-    orders = orders.slice(0, limit);
-    
-    orders = orders.sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
-    const enrichedOrders = orders.map((order) => ({
+    const filteredOrders = orders.sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
+    const paginatedOrders = filteredOrders.slice(pageOffset, pageOffset + limit);
+    const enrichedOrders = paginatedOrders.map((order) => ({
       ...order,
       items: (order.items || []).map((item) => ({
         ...item,
@@ -168,11 +158,16 @@ router.get('/', async (req, res) => {
       }))
     }));
 
-    console.debug('DEBUG /orders -> returned:', enrichedOrders.length, 'orders, nextKey:', Boolean(orderQuery.lastEvaluatedKey));
+    const nextOffset = pageOffset + paginatedOrders.length;
+    const nextKey = nextOffset < filteredOrders.length
+      ? Buffer.from(JSON.stringify({ offset: nextOffset })).toString('base64')
+      : null;
+
+    console.debug('DEBUG /orders -> returned:', enrichedOrders.length, 'orders, nextKey:', Boolean(nextKey));
 
     return res.json({
       items: enrichedOrders,
-      nextKey: orderQuery.lastEvaluatedKey
+      nextKey
     });
   } catch (error) {
     console.error('Error fetching orders:', error);
