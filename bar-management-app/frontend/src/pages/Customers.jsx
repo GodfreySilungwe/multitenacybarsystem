@@ -12,6 +12,7 @@ const Customers = () => {
   const [customers, setCustomers] = useState([]);
   const [loading, setLoading] = useState(true);
   const [loadingMore, setLoadingMore] = useState(false);
+  const [loadError, setLoadError] = useState('');
   const [hasMore, setHasMore] = useState(false);
   const [nextKey, setNextKey] = useState(null);
   const [summary, setSummary] = useState({
@@ -50,7 +51,10 @@ const Customers = () => {
   }, []);
 
   const loadCustomers = async ({ reset = false, lastKey = null } = {}) => {
+    const loadingStartedAt = Date.now();
+
     try {
+      setLoadError('');
       if (reset) {
         setLoading(true);
       } else {
@@ -58,32 +62,47 @@ const Customers = () => {
       }
 
       const params = {
-        limit: 10
+        limit: 5
       };
 
       if (!reset && lastKey) {
         params.lastKey = lastKey;
       }
 
-      const [customersRes, summaryRes, paymentsRes] = await Promise.all([
-        api.get('/customers', { params }),
-        api.get('/customers/summary'),
-        api.get('/customer-order-requests/payments')
-      ]);
-
+      const customersRes = await api.get('/customers', { params });
       const customersData = customersRes.data || {};
       const items = Array.isArray(customersData) ? customersData : customersData.items || [];
-      const paymentsData = paymentsRes.data || [];
-      const paymentRecords = Array.isArray(paymentsData) ? paymentsData : (paymentsData.payments || []);
 
       setCustomers((prev) => (reset ? items : [...prev, ...items]));
       setNextKey(customersData.nextKey || null);
       setHasMore(Boolean(customersData.nextKey));
-      setSummary(summaryRes.data || summary);
-      setSettlements(paymentRecords);
+      if (reset) {
+        setLoading(false);
+      }
+
+      const [summaryResult, paymentsResult] = await Promise.allSettled([
+        api.get('/customers/summary'),
+        api.get('/customer-order-requests/payments')
+      ]);
+
+      if (summaryResult.status === 'fulfilled') {
+        setSummary(summaryResult.value.data || summary);
+      }
+      if (paymentsResult.status === 'fulfilled') {
+        const paymentsData = paymentsResult.value.data || [];
+        const paymentRecords = Array.isArray(paymentsData) ? paymentsData : (paymentsData.payments || []);
+        setSettlements(paymentRecords);
+      }
     } catch (err) {
       console.error('Error loading customers:', err);
+      setLoadError(err.response?.data?.message || 'Could not load customers. Please try again.');
     } finally {
+      if (reset) {
+        const remainingLoadingTime = 1000 - (Date.now() - loadingStartedAt);
+        if (remainingLoadingTime > 0) {
+          await new Promise((resolve) => setTimeout(resolve, remainingLoadingTime));
+        }
+      }
       setLoading(false);
       setLoadingMore(false);
     }
@@ -202,6 +221,15 @@ const Customers = () => {
     return (
       <PageContainer title="👤 Customers">
         <p>Loading customers...</p>
+      </PageContainer>
+    );
+  }
+
+  if (loadError && customers.length === 0) {
+    return (
+      <PageContainer title="👤 Customers">
+        <p>{loadError}</p>
+        <Button type="button" onClick={() => loadCustomers({ reset: true })}>Retry</Button>
       </PageContainer>
     );
   }

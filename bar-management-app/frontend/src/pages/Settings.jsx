@@ -10,6 +10,7 @@ import { confirmTypedDelete } from '../utils/confirmation';
 const Settings = () => {
   const { user } = useAuth();
   const isBarOwner = user?.role === 'owner' && !!user?.barId;
+  const canManageTeam = isBarOwner || (user?.role === 'manager' && !!user?.barId);
   const [activeTab, setActiveTab] = useState('profile');
   const [loading, setLoading] = useState(false);
   const [message, setMessage] = useState('');
@@ -61,12 +62,12 @@ const Settings = () => {
       return;
     }
 
-    if (isBarOwner) {
+    if (canManageTeam) {
       loadTeamUsers();
     } else {
       setTeamUsers([]);
     }
-  }, [isBarOwner]);
+  }, [canManageTeam]);
 
   const loadProfile = async () => {
     try {
@@ -148,7 +149,7 @@ const Settings = () => {
   };
 
   const loadTeamUsers = async () => {
-    if (!isBarOwner) {
+    if (!canManageTeam) {
       return;
     }
 
@@ -335,9 +336,9 @@ const Settings = () => {
 
   const tabs = [
     { id: 'profile', label: '👤 Profile', delay: 1 },
-    ...(isBarOwner ? [{ id: 'team', label: '👥 Team', delay: 2 }] : []),
-    { id: 'password', label: '🔒 Password', delay: isBarOwner ? 3 : 2 },
-    { id: 'business', label: '🏢 Business', delay: isBarOwner ? 4 : 3 }
+    ...(canManageTeam ? [{ id: 'team', label: '👥 Team', delay: 2 }] : []),
+    { id: 'password', label: '🔒 Password', delay: canManageTeam ? 3 : 2 },
+    { id: 'business', label: '🏢 Business', delay: canManageTeam ? 4 : 3 }
   ];
 
   return (
@@ -480,7 +481,7 @@ const Settings = () => {
         </div>
       )}
 
-      {activeTab === 'team' && isBarOwner && (
+      {activeTab === 'team' && canManageTeam && (
         <div className="fade-in">
           <UnifiedCard title="👥 Manage Managers & Sales Accounts">
             <form onSubmit={handleCreateSalesAccount} style={styles.form}>
