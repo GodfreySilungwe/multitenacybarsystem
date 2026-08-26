@@ -3,6 +3,7 @@ import api from '../api/api';
 import PageContainer from './PageContainer';
 import Button from '../components/common/Button';
 import UnifiedCard from '../components/common/UnifiedCard';
+import BatchProductForm from '../components/common/BatchProductForm';
 import { formatPriceMK } from '../utils/formatPrice';
 import { confirmTypedDelete } from '../utils/confirmation';
 
@@ -12,6 +13,7 @@ const Products = () => {
   const [loading, setLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState('');
   const [showForm, setShowForm] = useState(false);
+  const [showBatchForm, setShowBatchForm] = useState(false);
   const [editingProduct, setEditingProduct] = useState(null);
   const [formData, setFormData] = useState({
     name: '',
@@ -90,6 +92,12 @@ const Products = () => {
     }
   };
 
+  const handleBatchSubmit = async (batch) => {
+    await api.post('/products/batch', { products: batch });
+    setShowBatchForm(false);
+    await loadData();
+  };
+
   const handleEdit = (product) => {
     setEditingProduct(product);
     setFormData({
@@ -148,11 +156,22 @@ const Products = () => {
             onChange={(e) => setSearchTerm(e.target.value)}
             style={styles.searchInput}
           />
-          <Button onClick={() => setShowForm(!showForm)}>
+          <Button onClick={() => { setShowForm(!showForm); setShowBatchForm(false); }}>
             {showForm ? '✕ Close' : '+ Add Product'}
+          </Button>
+          <Button variant="secondary" onClick={() => { setShowBatchForm(!showBatchForm); setShowForm(false); }}>
+            {showBatchForm ? '✕ Close batch' : '+ Batch Add'}
           </Button>
         </div>
       </div>
+
+      {showBatchForm && (
+        <BatchProductForm
+          categories={categories}
+          onComplete={handleBatchSubmit}
+          onCancel={() => setShowBatchForm(false)}
+        />
+      )}
 
       {showForm && (
         <UnifiedCard title={editingProduct ? 'Edit Product' : 'Add New Product'}>
