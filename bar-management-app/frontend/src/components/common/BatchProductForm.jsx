@@ -91,7 +91,7 @@ const BatchProductForm = ({ categories, onComplete, onCancel }) => {
         {error && <div role="alert" style={styles.error}>{error}</div>}
         <div style={styles.tableWrap}>
           <table style={styles.table}>
-            <thead><tr><th /><th>Product</th><th>Category *</th><th>Purchase unit</th><th>Purchase cost *</th><th>Units *</th><th>Cost / unit</th><th>Selling price *</th><th>Stock *</th><th>Low stock</th><th>Selling unit</th></tr></thead>
+            <thead><tr><th /><th>Product</th><th>Category *</th><th>Purchase unit</th><th>Purchase cost *</th><th>Selling unit</th><th># Shots/Glasses *</th><th>Cost / unit</th><th>Selling price *</th><th>Stock *</th><th>Low stock</th></tr></thead>
             <tbody>{visibleRows.map((row) => {
               const unitCost = calculateUnitCost(row);
               return <tr key={row.id} style={!row.selected ? styles.disabledRow : undefined}>
@@ -100,12 +100,12 @@ const BatchProductForm = ({ categories, onComplete, onCancel }) => {
                 <td><select required={row.selected} disabled={!row.selected} value={row.category} onChange={(event) => updateRow(row.id, 'category', event.target.value)}><option value="">Select</option>{categoryOptions.map((category) => <option key={category._id} value={category.name}>{category.name}</option>)}</select></td>
                 <td><select disabled={!row.selected} value={row.purchaseUnit} onChange={(event) => updateRow(row.id, 'purchaseUnit', event.target.value)}>{purchaseUnits.map(([unit, label]) => <option key={unit} value={unit}>{label}</option>)}</select></td>
                 <td><input required={row.selected} disabled={!row.selected} type="number" min="0" step="0.01" value={row.purchaseCost} onChange={(event) => updateRow(row.id, 'purchaseCost', event.target.value)} /></td>
+                <td><select disabled={!row.selected} value={row.sellingUnit} onChange={(event) => updateRow(row.id, 'sellingUnit', event.target.value)}>{sellingUnits.map((unit) => <option key={unit} value={unit}>{unit}</option>)}</select></td>
                 <td><input required={row.selected} disabled={!row.selected} type="number" min="1" step="1" value={row.conversionQuantity} onChange={(event) => updateRow(row.id, 'conversionQuantity', event.target.value)} /></td>
                 <td style={styles.calculated}>{unitCost === null ? '-' : formatPriceMK(unitCost)}</td>
                 <td><input required={row.selected} disabled={!row.selected} type="number" min="0" step="0.01" value={row.sellingPrice} onChange={(event) => updateRow(row.id, 'sellingPrice', event.target.value)} /></td>
                 <td><input required={row.selected} disabled={!row.selected} type="number" min="0" step="1" value={row.currentStock} onChange={(event) => updateRow(row.id, 'currentStock', event.target.value)} /></td>
                 <td><input disabled={!row.selected} type="number" min="0" step="1" value={row.lowStockThreshold} onChange={(event) => updateRow(row.id, 'lowStockThreshold', event.target.value)} /></td>
-                <td><select disabled={!row.selected} value={row.sellingUnit} onChange={(event) => updateRow(row.id, 'sellingUnit', event.target.value)}>{sellingUnits.map((unit) => <option key={unit} value={unit}>{unit}</option>)}</select></td>
               </tr>;
             })}</tbody>
           </table>
