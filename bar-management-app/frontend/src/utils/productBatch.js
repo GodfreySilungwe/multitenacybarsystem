@@ -20,18 +20,27 @@ export const PRODUCT_NAMES = [
 
 const defaults = (name) => {
   const normalizedName = name.toLowerCase();
-  if (normalizedName.includes('shot')) return { purchaseUnit: 'bottle', conversionQuantity: 28, sellingUnit: 'shot' };
-  if (normalizedName.includes('glass')) return { purchaseUnit: 'carton', conversionQuantity: 20, sellingUnit: 'glass' };
-  if (normalizedName.includes('cane')) return { purchaseUnit: 'bottle', conversionQuantity: 1, sellingUnit: 'can' };
-  if (normalizedName.includes('packet')) return { purchaseUnit: 'bottle', conversionQuantity: 1, sellingUnit: 'packet' };
-  return { purchaseUnit: 'bottle', conversionQuantity: 1, sellingUnit: 'bottle' };
+  let category = 'Other';
+  if (/(beer|lager|castle|heineken|heinken|windhoek|miller|budwiser|amstel|corona|doppel|imperial|green|dragon|bruto|castel)/.test(normalizedName)) category = 'Beer';
+  else if (/(wine|overmeer|4th street|cellar cask|capestyle)/.test(normalizedName)) category = 'Wine';
+  else if (/(vodka|absolute|siminoff)/.test(normalizedName)) category = 'Vodka';
+  else if (/(brandy|comaradas|camaradas|southern confort|kvw|premier)/.test(normalizedName)) category = 'Brandy';
+  else if (/(jameson|glenvent|glenfidish|jagermeister|captain morgan|ancient rum|amalura|tequila|bumbu|hennessy|konyagi|uganda waragi|select reserve|malawi gin|grants|cactus jack|jack honey|jack daniels|whiskey|whisky)/.test(normalizedName)) category = 'Spirits';
+  else if (/(breezer|savana|hunters)/.test(normalizedName)) category = 'Cider';
+  else if (/(red bull|power|devine power)/.test(normalizedName)) category = 'Energy';
+  else if (/(juice|grapetizer|squash)/.test(normalizedName)) category = 'Juice';
+  else if (/(water|minerals|soda|tonic|ginger ale)/.test(normalizedName)) category = normalizedName.includes('water') || normalizedName.includes('minerals') ? 'Minerals' : 'Other';
+  if (normalizedName.includes('shot')) return { category, purchaseUnit: 'bottle', conversionQuantity: 28, sellingUnit: 'shot' };
+  if (normalizedName.includes('glass')) return { category, purchaseUnit: 'carton', conversionQuantity: 20, sellingUnit: 'glass' };
+  if (normalizedName.includes('cane')) return { category, purchaseUnit: 'bottle', conversionQuantity: 1, sellingUnit: 'can' };
+  if (normalizedName.includes('packet')) return { category, purchaseUnit: 'bottle', conversionQuantity: 1, sellingUnit: 'packet' };
+  return { category, purchaseUnit: 'bottle', conversionQuantity: 1, sellingUnit: 'bottle' };
 };
 
 export const createBatchRows = () => PRODUCT_NAMES.map((name, index) => ({
   id: `${index}-${name}`,
   name,
   selected: true,
-  category: '',
   purchaseCost: '',
   sellingPrice: '',
   currentStock: '',

@@ -5,6 +5,8 @@ import UnifiedCard from './UnifiedCard';
 import { formatPriceMK } from '../../utils/formatPrice';
 import { calculateUnitCost, createBatchRows } from '../../utils/productBatch';
 
+const commonCategories = ['Beer', 'Brandy', 'Cider', 'Cream', 'Energy', 'Juice', 'Minerals', 'Other', 'Spirits', 'Vodka', 'Water', 'Whiskey', 'Wine'];
+
 const purchaseUnits = [
   ['bottle', 'Bottle', 1],
   ['six-pack', 'Six-pack', 6],
@@ -19,6 +21,8 @@ const BatchProductForm = ({ categories, onComplete, onCancel }) => {
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
   const [bulkCategory, setBulkCategory] = useState('');
+  const [searchTerm, setSearchTerm] = useState('');
+  const [sortDirection, setSortDirection] = useState('asc');
 
   const updateRow = (id, field, value) => {
     setRows((currentRows) => currentRows.map((row) => {
@@ -37,6 +41,14 @@ const BatchProductForm = ({ categories, onComplete, onCancel }) => {
   };
 
   const toggleAll = (selected) => setRows((currentRows) => currentRows.map((row) => ({ ...row, selected })));
+
+  const categoryOptions = [...new Map([
+    ...commonCategories.map((name) => [name.toLowerCase(), { _id: `common-${name}`, name }]),
+    ...categories.map((category) => [String(category.name).toLowerCase(), category])
+  ]).values()];
+  const visibleRows = rows
+    .filter((row) => row.name.toLowerCase().includes(searchTerm.trim().toLowerCase()))
+    .sort((left, right) => sortDirection === 'asc' ? left.name.localeCompare(right.name) : right.name.localeCompare(left.name));
 
   const handleSubmit = async (event) => {
     event.preventDefault();
@@ -70,20 +82,22 @@ const BatchProductForm = ({ categories, onComplete, onCancel }) => {
           <button type="button" onClick={() => toggleAll(false)}>Clear all</button>
           <select value={bulkCategory} onChange={(event) => setBulkCategory(event.target.value)} style={styles.bulkSelect}>
             <option value="">Apply category to selected...</option>
-            {categories.map((category) => <option key={category._id} value={category._id}>{category.name}</option>)}
+            {categoryOptions.map((category) => <option key={category._id} value={category.name}>{category.name}</option>)}
           </select>
           <Button type="button" onClick={applyCategory} variant="secondary">Apply</Button>
+          <input type="search" aria-label="Search batch products" placeholder="Search products..." value={searchTerm} onChange={(event) => setSearchTerm(event.target.value)} style={styles.searchInput} />
+          <Button type="button" variant="secondary" onClick={() => setSortDirection((direction) => direction === 'asc' ? 'desc' : 'asc')}>Sort {sortDirection === 'asc' ? 'A-Z' : 'Z-A'}</Button>
         </div>
         {error && <div role="alert" style={styles.error}>{error}</div>}
         <div style={styles.tableWrap}>
           <table style={styles.table}>
             <thead><tr><th /><th>Product</th><th>Category *</th><th>Purchase unit</th><th>Purchase cost *</th><th>Units *</th><th>Cost / unit</th><th>Selling price *</th><th>Stock *</th><th>Low stock</th><th>Selling unit</th></tr></thead>
-            <tbody>{rows.map((row) => {
+            <tbody>{visibleRows.map((row) => {
               const unitCost = calculateUnitCost(row);
               return <tr key={row.id} style={!row.selected ? styles.disabledRow : undefined}>
                 <td><input type="checkbox" checked={row.selected} onChange={(event) => updateRow(row.id, 'selected', event.target.checked)} /></td>
                 <td style={styles.name}>{row.name}</td>
-                <td><select required={row.selected} disabled={!row.selected} value={row.category} onChange={(event) => updateRow(row.id, 'category', event.target.value)}><option value="">Select</option>{categories.map((category) => <option key={category._id} value={category._id}>{category.name}</option>)}</select></td>
+                <td><select required={row.selected} disabled={!row.selected} value={row.category} onChange={(event) => updateRow(row.id, 'category', event.target.value)}><option value="">Select</option>{categoryOptions.map((category) => <option key={category._id} value={category.name}>{category.name}</option>)}</select></td>
                 <td><select disabled={!row.selected} value={row.purchaseUnit} onChange={(event) => updateRow(row.id, 'purchaseUnit', event.target.value)}>{purchaseUnits.map(([unit, label]) => <option key={unit} value={unit}>{label}</option>)}</select></td>
                 <td><input required={row.selected} disabled={!row.selected} type="number" min="0" step="0.01" value={row.purchaseCost} onChange={(event) => updateRow(row.id, 'purchaseCost', event.target.value)} /></td>
                 <td><input required={row.selected} disabled={!row.selected} type="number" min="1" step="1" value={row.conversionQuantity} onChange={(event) => updateRow(row.id, 'conversionQuantity', event.target.value)} /></td>
@@ -105,10 +119,10 @@ const BatchProductForm = ({ categories, onComplete, onCancel }) => {
 const styles = {
   form: { display: 'flex', flexDirection: 'column', gap: '15px' },
   toolbar: { display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap', fontSize: '13px' },
-  toolbarButton: { cursor: 'pointer' },
+  searchInput: { minWidth: '180px', padding: '8px', border: '1px solid #ddd', borderRadius: '6px' },
   bulkSelect: { marginLeft: 'auto', padding: '8px' },
   error: { padding: '10px', color: '#9b1c1c', backgroundColor: '#fff1f1', border: '1px solid #f3b4b4', borderRadius: '6px' },
-  tableWrap: { overflowX: 'auto', border: '1px solid #e5e5e5' },
+  tableWrap: { maxHeight: '520px', overflow: 'auto', border: '1px solid #e5e5e5' },
   table: { borderCollapse: 'collapse', minWidth: '1500px', width: '100%', fontSize: '12px' },
   name: { minWidth: '190px', fontWeight: '600' },
   disabledRow: { opacity: 0.45 },
