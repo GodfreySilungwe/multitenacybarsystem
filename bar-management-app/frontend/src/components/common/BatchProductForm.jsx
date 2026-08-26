@@ -91,7 +91,7 @@ const BatchProductForm = ({ categories, onComplete, onCancel }) => {
         {error && <div role="alert" style={styles.error}>{error}</div>}
         <div style={styles.tableWrap}>
           <table style={styles.table}>
-            <thead><tr><th /><th>Product</th><th>Category *</th><th>Purchase unit</th><th>Purchase cost *</th><th>Selling unit</th><th># Shots/Glasses *</th><th>Cost / unit</th><th>Selling price *</th><th>Stock *</th><th>Low stock</th></tr></thead>
+            <thead><tr><th style={styles.headerCell} /><th style={styles.headerCell}>Product</th><th style={styles.headerCell}>Category *</th><th style={styles.headerCell}>Order unit</th><th style={styles.headerCell}>Order Unit cost *</th><th style={styles.headerCell}>Selling unit</th><th style={styles.headerCell}># Shots/Glasses/Bottles *</th><th style={styles.headerCell}>Cost / unit</th><th style={styles.headerCell}>Selling price *</th><th style={styles.headerCell}>Stock *</th><th style={styles.headerCell}>Low stock</th></tr></thead>
             <tbody>{visibleRows.map((row) => {
               const unitCost = calculateUnitCost(row);
               return <tr key={row.id} style={!row.selected ? styles.disabledRow : undefined}>
@@ -124,6 +124,7 @@ const styles = {
   error: { padding: '10px', color: '#9b1c1c', backgroundColor: '#fff1f1', border: '1px solid #f3b4b4', borderRadius: '6px' },
   tableWrap: { maxHeight: '520px', overflow: 'auto', border: '1px solid #e5e5e5' },
   table: { borderCollapse: 'collapse', minWidth: '1500px', width: '100%', fontSize: '12px' },
+  headerCell: { position: 'sticky', top: 0, zIndex: 1, backgroundColor: '#fff', boxShadow: '0 1px 0 #d9d9d9', whiteSpace: 'nowrap' },
   name: { minWidth: '190px', fontWeight: '600' },
   disabledRow: { opacity: 0.45 },
   calculated: { whiteSpace: 'nowrap', color: '#26734d', fontWeight: '600' },

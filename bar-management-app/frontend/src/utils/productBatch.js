@@ -40,7 +40,7 @@ const defaults = (name) => {
 export const createBatchRows = () => PRODUCT_NAMES.map((name, index) => ({
   id: `${index}-${name}`,
   name,
-  selected: true,
+  selected: false,
   purchaseCost: '',
   sellingPrice: '',
   currentStock: '',
