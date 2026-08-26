@@ -4,6 +4,7 @@ const { protect, isBarOwnerOrSales } = require('../middleware/auth');
 const { queryEntities, decodeLastEvaluatedKey } = require('../lib/dynamodb');
 const Product = require('../models/Product');
 const Category = require('../models/Category');
+const { calculateProductPricing } = require('../lib/productBatch');
 
 router.use(protect);
 
@@ -110,6 +111,72 @@ router.post('/', isBarOwnerOrSales, async (req, res) => {
     res.status(201).json(product);
   } catch (error) {
     console.error('Error creating product:', error);
+    res.status(400).json({ message: error.message });
+  }
+});
+
+// Create multiple products after validating the complete batch.
+router.post('/batch', isBarOwnerOrSales, async (req, res) => {
+  try {
+    const rows = req.body?.products;
+    if (!Array.isArray(rows) || rows.length === 0 || rows.length > 100) {
+      return res.status(400).json({ message: 'Provide between 1 and 100 products.' });
+    }
+
+    const categories = await Category.find({ barId: req.user.barId });
+    const categoriesByKey = new Map(categories.map((category) => [String(category.name || '').trim().toLowerCase(), category]));
+    const existingProducts = await Product.find({ barId: req.user.barId });
+    const existingNames = new Set(existingProducts.map((product) => String(product.name || '').trim().toLowerCase()));
+    const batchNames = new Set();
+
+    for (const [index, row] of rows.entries()) {
+      const categoryValue = String(row?.category || '').trim();
+      if (!categoryValue) continue;
+      const categoryKey = categoryValue.toLowerCase();
+      if (categoriesByKey.has(categoryKey)) continue;
+      const category = new Category({ name: categoryValue, barId: req.user.barId });
+      await category.save();
+      categories.push(category);
+      categoriesByKey.set(categoryKey, category);
+      if (!category._id && !category.id) throw new Error(`Row ${index + 1}: category could not be created.`);
+    }
+
+    const preparedProducts = rows.map((row, index) => {
+      const rowNumber = index + 1;
+      const name = String(row?.name || '').trim();
+      if (!name) throw new Error(`Row ${rowNumber}: product name is required.`);
+
+      const normalizedName = name.toLowerCase();
+      if (batchNames.has(normalizedName)) throw new Error(`Row ${rowNumber}: duplicate product name in this batch.`);
+      if (existingNames.has(normalizedName)) throw new Error(`Row ${rowNumber}: product already exists for this bar.`);
+      batchNames.add(normalizedName);
+
+      const categoryValue = String(row?.category || '').trim();
+      if (!categoryValue) throw new Error(`Row ${rowNumber}: select a category.`);
+      let category = categoriesByKey.get(categoryValue.toLowerCase());
+      if (!category) {
+        category = categories.find((item) => String(item._id || item.id) === categoryValue);
+      }
+      if (!category) throw new Error(`Row ${rowNumber}: category could not be resolved.`);
+
+      return {
+        name,
+        category: category._id || category.id,
+        barId: req.user.barId,
+        ...calculateProductPricing(row, rowNumber)
+      };
+    });
+
+    const createdProducts = [];
+    for (const productData of preparedProducts) {
+      const product = new Product(productData);
+      await product.save();
+      createdProducts.push(product);
+    }
+
+    res.status(201).json({ products: createdProducts, count: createdProducts.length });
+  } catch (error) {
+    console.error('Error creating product batch:', error);
     res.status(400).json({ message: error.message });
   }
 });
