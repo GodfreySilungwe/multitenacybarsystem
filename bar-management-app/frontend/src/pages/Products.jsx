@@ -127,13 +127,15 @@ const Products = () => {
     return icons[unit] || '📦';
   };
 
-  const filteredProducts = products.filter((product) => {
-    const searchValue = searchTerm.trim().toLowerCase();
-    if (!searchValue) return true;
+  const filteredProducts = products
+    .filter((product) => {
+      const searchValue = searchTerm.trim().toLowerCase();
+      if (!searchValue) return true;
 
-    return [product.name, product.category?.name, product.unit]
-      .some((value) => String(value || '').toLowerCase().includes(searchValue));
-  });
+      return [product.name, product.category?.name, product.unit]
+        .some((value) => String(value || '').toLowerCase().includes(searchValue));
+    })
+    .sort((a, b) => String(a.name || '').localeCompare(String(b.name || '')));
 
   if (loading) {
     return (

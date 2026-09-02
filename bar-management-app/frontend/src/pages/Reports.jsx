@@ -55,9 +55,15 @@ const Reports = () => {
     grossMarginRatio: 0
   });
 
+  const canLoadCustomRange = dateRange !== 'custom' || (customStartDate && customEndDate);
+
   useEffect(() => {
+    if (!canLoadCustomRange) {
+      return;
+    }
+
     loadReportData();
-  }, [dateRange, customStartDate, customEndDate]);
+  }, [dateRange, customStartDate, customEndDate, canLoadCustomRange]);
 
   const loadReportData = async () => {
     try {
@@ -66,8 +72,13 @@ const Reports = () => {
 
       const params = { range: dateRange };
       if (dateRange === 'custom') {
-        if (customStartDate) params.startDate = customStartDate;
-        if (customEndDate) params.endDate = customEndDate;
+        if (!customStartDate || !customEndDate) {
+          setLoading(false);
+          return;
+        }
+
+        params.startDate = customStartDate;
+        params.endDate = customEndDate;
       }
 
       const [ordersRes, customersRes] = await Promise.all([
@@ -360,8 +371,6 @@ const Reports = () => {
                 <thead>
                   <tr>
                     <th>Payment Method</th>
-                    <th>Direct POS</th>
-                    <th>Customer Settlements</th>
                     <th>Total</th>
                   </tr>
                 </thead>
@@ -369,15 +378,11 @@ const Reports = () => {
                   {reportData.paymentMethodProceeds.map((method, index) => (
                     <tr key={index} style={styles.tableRow}>
                       <td style={styles.productName}>{method.method}</td>
-                      <td>{formatPriceMK(method.directAmount)}</td>
-                      <td>{formatPriceMK(method.settlementAmount)}</td>
                       <td style={styles.revenue}>{formatPriceMK(method.totalAmount)}</td>
                     </tr>
                   ))}
                   <tr style={{ ...styles.tableRow, fontWeight: '700', backgroundColor: '#f9fafb' }}>
                     <td style={styles.productName}>Total Proceeds</td>
-                    <td>{formatPriceMK(reportData.paymentMethodProceeds.reduce((sum, method) => sum + Number(method.directAmount || 0), 0))}</td>
-                    <td>{formatPriceMK(reportData.paymentMethodProceeds.reduce((sum, method) => sum + Number(method.settlementAmount || 0), 0))}</td>
                     <td style={styles.revenue}>{formatPriceMK(reportData.paymentMethodProceeds.reduce((sum, method) => sum + Number(method.totalAmount || 0), 0))}</td>
                   </tr>
                 </tbody>
@@ -394,7 +399,7 @@ const Reports = () => {
 
       {reportData.creditAccounts.length > 0 && (
         <div className="fade-in delay-5" style={{ marginBottom: '20px' }}>
-          <UnifiedCard title="🧾 Customer Credit Accounts">
+          <UnifiedCard title="🧾 Accumulated Customer Credit Accounts(All)">
             <div style={styles.tableWrapper}>
               <table style={styles.table}>
                 <thead>
@@ -426,7 +431,7 @@ const Reports = () => {
 
       {reportData.outstandingCreditBySalesAccount.length > 0 && (
         <div className="fade-in delay-5" style={{ marginBottom: '20px' }}>
-          <UnifiedCard title="🧑‍💼 Outstanding Bills by Sales Account">
+          <UnifiedCard title="🧑‍💼 Outstanding Bills by Sales Account(onlyThisPeriod)">
             <div style={styles.tableWrapper}>
               <table style={styles.table}>
                 <thead>

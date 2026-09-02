@@ -52,19 +52,25 @@ const PaymentHistory = () => {
     loadPayments();
   }, []);
 
+  const getEntryAmount = useCallback((entry) => Number(entry?.amount ?? entry?.amountRequested ?? entry?.amountApplied ?? 0), []);
+
+  const visiblePayments = useMemo(() => {
+    return (payments || []).filter((entry) => getEntryAmount(entry) > 0);
+  }, [getEntryAmount, payments]);
+
   const customerOptions = useMemo(() => {
-    const names = new Set((payments || []).map((entry) => entry.customerName || 'Walk-in customer'));
+    const names = new Set((visiblePayments || []).map((entry) => entry.customerName || 'Walk-in customer'));
     return Array.from(names).sort();
-  }, [payments]);
+  }, [visiblePayments]);
 
   const filteredPayments = useMemo(() => {
-    return (payments || [])
+    return (visiblePayments || [])
       .filter((entry) => {
         const matchesStatus = filter === 'all' ? true : entry.status === filter;
         const matchesCustomer = customerFilter === 'all' ? true : (entry.customerName || 'Walk-in customer') === customerFilter;
         return matchesStatus && matchesCustomer;
       });
-  }, [customerFilter, filter, payments]);
+  }, [customerFilter, filter, visiblePayments]);
 
   const totalPages = Math.max(1, Math.ceil(filteredPayments.length / PAGE_SIZE));
   const paginatedPayments = useMemo(() => {
@@ -115,18 +121,18 @@ const PaymentHistory = () => {
   }, [filteredPayments]);
 
   const directSalesByMethod = useMemo(() => {
-    return groupPaymentsByMethod(payments.filter((entry) => entry.source === 'pos_sale'));
-  }, [payments, groupPaymentsByMethod]);
+    return groupPaymentsByMethod(visiblePayments.filter((entry) => entry.source === 'pos_sale'));
+  }, [visiblePayments, groupPaymentsByMethod]);
 
   const billManagementPaidByMethod = useMemo(() => {
-    return groupPaymentsByMethod(payments.filter((entry) => entry.source === 'bill_settlement' && entry.status === 'confirmed'));
-  }, [payments, groupPaymentsByMethod]);
+    return groupPaymentsByMethod(visiblePayments.filter((entry) => entry.source === 'bill_settlement' && entry.status === 'confirmed'));
+  }, [visiblePayments, groupPaymentsByMethod]);
 
   const outstandingCreditAmount = useMemo(() => {
-    return payments
+    return visiblePayments
       .filter((entry) => entry.source === 'bill_settlement' && entry.status === 'pending')
-      .reduce((sum, entry) => sum + Number(entry.amount || 0), 0);
-  }, [payments]);
+      .reduce((sum, entry) => sum + getEntryAmount(entry), 0);
+  }, [getEntryAmount, visiblePayments]);
 
   const isPaymentFromDifferentSalesPerson = (entry) => {
     // Check if payment belongs to a different sales account

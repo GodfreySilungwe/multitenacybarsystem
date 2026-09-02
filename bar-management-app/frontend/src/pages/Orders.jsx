@@ -34,6 +34,15 @@ const Orders = () => {
   const orderFilterOptions = isSales ? ['today', 'custom'] : ['all', 'today', 'custom'];
 
   useEffect(() => {
+    if (filter !== 'custom') {
+      loadOrders({ reset: true });
+      return;
+    }
+
+    if (!customStartDate || !customEndDate) {
+      return;
+    }
+
     loadOrders({ reset: true });
   }, [filter, customStartDate, customEndDate]);
 
