@@ -90,7 +90,7 @@ const corsOptions = {
   },
   credentials: true,
   methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
-  allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With']
+  allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With', 'X-Idempotency-Key']
 };
 
 // Middleware
@@ -99,7 +99,7 @@ app.use((req, res, next) => {
   if (req.method === 'OPTIONS') {
     res.header('Access-Control-Allow-Origin', req.headers.origin || '*');
     res.header('Access-Control-Allow-Methods', 'GET,POST,PUT,PATCH,DELETE,OPTIONS');
-    res.header('Access-Control-Allow-Headers', 'Content-Type,Authorization,X-Requested-With');
+    res.header('Access-Control-Allow-Headers', 'Content-Type,Authorization,X-Requested-With,X-Idempotency-Key');
     res.header('Access-Control-Allow-Credentials', 'true');
     return res.sendStatus(204);
   }
@@ -133,6 +133,7 @@ const uploadRoutes = require('./routes/uploads');
 const customerOrderRequestRoutes = require('./routes/customer-order-requests');
 const userRoutes = require('./routes/users');
 const auditRoutes = require('./routes/audit');
+const cashChestRoutes = require('./routes/cash-chest');
 const StockSnapshot = require('./models/StockSnapshot');
 
 // Use routes
@@ -147,6 +148,7 @@ app.use(['/api/uploads', '/uploads'], uploadRoutes);
 app.use(['/api/customer-order-requests', '/customer-order-requests'], customerOrderRequestRoutes);
 app.use(['/api/users', '/users'], userRoutes);
 app.use(['/api/audit', '/audit'], auditRoutes);
+app.use(['/api/cash-chest', '/cash-chest'], cashChestRoutes);
 
 // Root info route
 app.get('/', (req, res) => {

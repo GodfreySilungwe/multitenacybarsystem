@@ -376,9 +376,23 @@ async function transactWrite(items) {
     throw new Error('A transaction requires at least one item');
   }
 
+  const transactItems = items.map((item) => {
+    const operation = Object.keys(item || {})[0];
+    if (!operation || !item[operation]) {
+      throw new Error('Each transaction item must contain a DynamoDB operation');
+    }
+
+    return {
+      [operation]: {
+        TableName: TABLE_NAME,
+        ...item[operation]
+      }
+    };
+  });
+
   return docClient.send(new TransactWriteCommand({
     TableName: TABLE_NAME,
-    TransactItems: items
+    TransactItems: transactItems
   }));
 }
 
