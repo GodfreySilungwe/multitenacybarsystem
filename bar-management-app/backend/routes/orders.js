@@ -309,10 +309,10 @@ router.get('/summary', async (req, res) => {
       const totalSettlementAmount = periodPayments.reduce((sum, payment) => (
         sum + Number(payment.amountApplied || payment.amountRequested || payment.amount || 0)
       ), 0);
+      const allCreditOrders = allTenantOrders.filter((order) => isOpenCreditOrder(order));
+      const periodCreditOrders = enrichedOrders.filter((order) => isOpenCreditOrder(order));
       const outstandingCustomersMap = {};
-      (enrichedOrders || [])
-        .filter((order) => isOpenCreditOrder(order))
-        .forEach((order) => {
+      const addOutstandingCustomer = (order, balanceField) => {
           const customerId = String(order.customer || order.customerId || '').trim();
           if (!customerId) return;
           if (!outstandingCustomersMap[customerId]) {
@@ -326,19 +326,57 @@ router.get('/summary', async (req, res) => {
             };
           }
           const balance = getOutstandingBalance(order);
-          outstandingCustomersMap[customerId].totalOutstandingBalance += balance;
-          outstandingCustomersMap[customerId].periodOutstandingBalance += balance;
-          outstandingCustomersMap[customerId].ordersCount += 1;
-        });
-      const outstandingCustomers = Object.values(outstandingCustomersMap)
-        .sort((a, b) => b.totalOutstandingBalance - a.totalOutstandingBalance)
-        .slice(0, 20);
+          outstandingCustomersMap[customerId][balanceField] += balance;
+          if (balanceField === 'totalOutstandingBalance') {
+            outstandingCustomersMap[customerId].ordersCount += 1;
+          }
+      };
+      allCreditOrders.forEach((order) => addOutstandingCustomer(order, 'totalOutstandingBalance'));
+      periodCreditOrders.forEach((order) => addOutstandingCustomer(order, 'periodOutstandingBalance'));
+      const allOutstandingCustomers = Object.values(outstandingCustomersMap)
+        .sort((a, b) => b.totalOutstandingBalance - a.totalOutstandingBalance);
+      const outstandingCustomers = allOutstandingCustomers.slice(0, 20);
       const totalCreditOutstanding = allTenantOrders
         .filter((order) => isOpenCreditOrder(order))
         .reduce((sum, order) => sum + getOutstandingBalance(order), 0);
-      const outstandingCreditInPeriod = (enrichedOrders || [])
-        .filter((order) => isOpenCreditOrder(order))
+      const outstandingCreditInPeriod = periodCreditOrders
         .reduce((sum, order) => sum + getOutstandingBalance(order), 0);
+      const rangeStartTime = startDate ? new Date(startDate).getTime() : 0;
+      const periodEndTime = queryOptions.endDate ? new Date(queryOptions.endDate).getTime() : Infinity;
+      const creditOrderStates = allCreditOrders
+        .map((order) => ({
+          createdAt: new Date(order.createdAt || 0).getTime(),
+          balanceDue: getOutstandingBalance(order)
+        }))
+        .sort((a, b) => a.createdAt - b.createdAt);
+      let previousBillsCollected = 0;
+      periodPayments
+        .map((payment) => ({
+          amount: Number(payment.amountApplied || payment.amountRequested || payment.amount || 0),
+          allocations: payment.allocations,
+          confirmedAt: payment.confirmedAt ? new Date(payment.confirmedAt).getTime() : 0
+        }))
+        .filter((payment) => payment.amount > 0)
+        .sort((a, b) => a.confirmedAt - b.confirmedAt)
+        .forEach((payment) => {
+          const allocationSummary = classifyRepaymentAllocations(payment, rangeStartTime, periodEndTime);
+          if (allocationSummary.hasAllocations) {
+            previousBillsCollected += allocationSummary.previousAmount;
+            return;
+          }
+
+          let remaining = payment.amount;
+          while (remaining > 0) {
+            const nextOrder = creditOrderStates.find((order) => order.balanceDue > 0);
+            if (!nextOrder) break;
+            const applied = Math.min(remaining, nextOrder.balanceDue);
+            if (nextOrder.createdAt < rangeStartTime) {
+              previousBillsCollected += applied;
+            }
+            nextOrder.balanceDue -= applied;
+            remaining -= applied;
+          }
+        });
       const settlementMethods = ['credit_cash', 'credit_airtel_money', 'credit_mpamba', 'credit_bank_account'];
       const creditSettlementSummary = settlementMethods.map((method) => ({
         method: method.replace('credit_', 'Credit ').replace(/_/g, ' ').replace(/\b\w/g, (character) => character.toUpperCase()),
@@ -408,8 +446,11 @@ router.get('/summary', async (req, res) => {
           .reduce((sum, method) => sum + Number(method.amount || 0), 0),
         totalSalesByMethodProceeds: summary.totalSales,
         totalSettlementAmount,
+        totalCreditCollected: previousBillsCollected,
+        customerPreviousBillsPaid: previousBillsCollected,
         totalCreditOutstanding,
-        creditAccounts: outstandingCustomers.map((customer) => ({
+        totalOutstandingCredit: totalCreditOutstanding,
+        creditAccounts: allOutstandingCustomers.map((customer) => ({
           _id: customer.customerId,
           name: customer.name,
           phone: customer.phone,
