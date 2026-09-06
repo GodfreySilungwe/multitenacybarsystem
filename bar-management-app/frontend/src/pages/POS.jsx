@@ -493,6 +493,47 @@ const POS = () => {
     }
   };
 
+  const finishSuccessfulCheckout = async (newOrder) => {
+    const selectedCustomerAccount = selectedCustomerData
+      ? {
+          username: selectedCustomerData.accountUsername || selectedCustomerData.username || '',
+          password: selectedCustomerData.accountPassword || ''
+        }
+      : null;
+
+    const receiptCustomerAccount = selectedCustomerAccount?.username
+      ? selectedCustomerAccount
+      : newOrder.customerAccount || null;
+
+    setReceiptOrder({
+      ...newOrder,
+      customerName: selectedCustomerData?.name || newOrder.customerName || 'Walk-in Customer',
+      customerAccount: receiptCustomerAccount
+    });
+    if (selectedCustomer) {
+      emitCustomerPortalEvent('customer-request-updated', {
+        customerId: selectedCustomer,
+        order: newOrder
+      });
+    }
+    setSuccess(`✅ Order ${newOrder.orderNumber} completed!`);
+    setCart([]);
+    setPaymentAmount('');
+    setPaymentMethod('cash');
+    setSelectedCustomer('');
+    checkoutIdRef.current = null;
+
+    // The order is already committed. A refresh failure must not turn success into an error.
+    try {
+      await loadData();
+    } catch (refreshError) {
+      console.error('Order saved, but POS refresh failed:', refreshError);
+      setFeedbackMessage('Order saved. POS data will refresh on the next reload.');
+    }
+
+    setTimeout(() => setSuccess(''), 5000);
+  };
+
   const checkout = async () => {
     if (cart.length === 0) {
       setError('Cart is empty!');
@@ -531,41 +572,24 @@ const POS = () => {
       };
 
       const response = await createOrderWithRetry(orderData, checkoutIdRef.current);
-      
-      const newOrder = response.data;
-      const selectedCustomerAccount = selectedCustomerData
-        ? {
-            username: selectedCustomerData.accountUsername || selectedCustomerData.username || '',
-            password: selectedCustomerData.accountPassword || ''
-          }
-        : null;
-
-      const receiptCustomerAccount = selectedCustomerAccount?.username
-        ? selectedCustomerAccount
-        : newOrder.customerAccount || null;
-
-      setReceiptOrder({
-        ...newOrder,
-        customerName: selectedCustomerData?.name || newOrder.customerName || 'Walk-in Customer',
-        customerAccount: receiptCustomerAccount
-      });
-      if (selectedCustomer) {
-        emitCustomerPortalEvent('customer-request-updated', {
-          customerId: selectedCustomer,
-          order: newOrder
-        });
-      }
-      setSuccess(`✅ Order ${newOrder.orderNumber} completed!`);
-      setCart([]);
-      setPaymentAmount('');
-      setPaymentMethod('cash');
-      checkoutIdRef.current = null;
-      await loadData();
-      setSelectedCustomer('');
-
-      setTimeout(() => setSuccess(''), 5000);
+      await finishSuccessfulCheckout(response.data);
     } catch (err) {
       console.error('Checkout error:', err);
+
+      const status = err.response?.status;
+      const uncertainResult = !status || status >= 500 || err.code === 'ECONNABORTED' || err.code === 'ERR_NETWORK';
+      if (uncertainResult && checkoutIdRef.current) {
+        try {
+          const recoveryResponse = await api.get(`/orders/status/${checkoutIdRef.current}`);
+          if (recoveryResponse.data?._id) {
+            await finishSuccessfulCheckout(recoveryResponse.data);
+            return;
+          }
+        } catch (recoveryError) {
+          console.error('Could not confirm uncertain checkout status:', recoveryError);
+        }
+      }
+
       setError(err.response?.data?.message || 'Checkout failed!');
       setTimeout(() => setError(''), 5000);
     } finally {

@@ -94,6 +94,7 @@ const Orders = () => {
       const params = buildOrderParams({ lastKey: reset ? null : lastKey });
       const summaryParams = {
         range: filter === 'all' ? 'all' : filter,
+        light: 'true',
         ...(filter === 'custom' && customStartDate ? { startDate: customStartDate } : {}),
         ...(filter === 'custom' && customEndDate ? { endDate: customEndDate } : {})
       };

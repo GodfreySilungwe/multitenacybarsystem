@@ -70,7 +70,7 @@ const Reports = () => {
       setLoading(true);
       setError(null);
 
-      const params = { range: dateRange };
+      const params = { range: dateRange, optimized: 'true' };
       if (dateRange === 'custom') {
         if (!customStartDate || !customEndDate) {
           setLoading(false);

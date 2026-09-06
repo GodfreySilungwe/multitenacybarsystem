@@ -137,7 +137,7 @@ const Dashboard = () => {
         setLowStockProducts([]);
         setLastUpdated(new Date().toLocaleTimeString());
       } else {
-        const params = { range: dateRange };
+        const params = { range: dateRange, dashboard: 'true' };
         if (appendProductSales) {
           params.productSalesOffset = productSales.length;
           params.productSalesLimit = PRODUCT_SALES_PAGE_SIZE;
