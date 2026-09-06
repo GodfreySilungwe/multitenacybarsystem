@@ -57,6 +57,7 @@ const Sidebar = ({ isMobileOpen = false, onClose = () => {} }) => {
   const navItems = [
     { path: '/dashboard', label: 'Dashboard', icon: faChartBar, authOnly: true },
     { path: '/pos', label: 'POS', icon: faCashRegister, salesOnly: true },
+    { path: '/cash-chest', label: 'Cash Chest', icon: faCashRegister, barOwnerOrSales: true },
     { path: '/products', label: 'SMART BAR', icon: faTools, barOwnerOnly: true },
     { path: '/categories', label: 'Categories', icon: faTags, barOwnerOnly: true },
     { path: '/customers', label: 'Customers', icon: faUsers, salesAndOwnerOnly: true },

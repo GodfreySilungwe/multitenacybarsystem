@@ -8,6 +8,7 @@ const Login = lazy(() => import('./pages/Login'));
 const Register = lazy(() => import('./pages/Register'));
 const Dashboard = lazy(() => import('./pages/Dashboard'));
 const POS = lazy(() => import('./pages/POS'));
+const CashChest = lazy(() => import('./pages/CashChest'));
 const Products = lazy(() => import('./pages/Products'));
 const Categories = lazy(() => import('./pages/Categories'));
 const Customers = lazy(() => import('./pages/Customers'));
@@ -78,6 +79,13 @@ function App() {
               <ProtectedRoute salesOnly>
                 <Layout>
                   <POS />
+                </Layout>
+              </ProtectedRoute>
+            } />
+            <Route path="/cash-chest" element={
+              <ProtectedRoute barOwnerOrSales>
+                <Layout>
+                  <CashChest />
                 </Layout>
               </ProtectedRoute>
             } />
