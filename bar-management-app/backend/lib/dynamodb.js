@@ -176,18 +176,32 @@ async function queryEntities(entityType, options = {}) {
     ExpressionAttributeValues: values
   });
 
-  const result = await docClient.send(new QueryCommand(params));
-  const items = (result.Items || []).map(fromDynamoItem);
+  const items = [];
+  let result;
+  let exclusiveStartKey = params.ExclusiveStartKey;
+  const hasExplicitLimit = Boolean(options.limit && Number.isFinite(Number(options.limit)));
+
+  do {
+    const pageParams = {
+      ...params,
+      ...(exclusiveStartKey ? { ExclusiveStartKey: exclusiveStartKey } : {})
+    };
+    result = await docClient.send(new QueryCommand(pageParams));
+    items.push(...(result.Items || []));
+    exclusiveStartKey = result.LastEvaluatedKey;
+  } while (exclusiveStartKey && !hasExplicitLimit);
+
+  const normalizedItems = items.map(fromDynamoItem);
 
   console.debug(`queryEntities(${entityType}) result:`, {
-    itemsCount: items.length,
+    itemsCount: normalizedItems.length,
     scannedCount: result.ScannedCount,
-    hasMoreData: Boolean(result.LastEvaluatedKey)
+    hasMoreData: Boolean(exclusiveStartKey)
   });
 
   return {
-    items,
-    lastEvaluatedKey: result.LastEvaluatedKey ? encodeLastEvaluatedKey(result.LastEvaluatedKey) : null
+    items: normalizedItems,
+    lastEvaluatedKey: exclusiveStartKey ? encodeLastEvaluatedKey(exclusiveStartKey) : null
   };
 }
 
@@ -259,16 +273,25 @@ async function listEntities(entityType) {
   await ensureTableExists();
   const tenantBarId = getTenantId();
   const entityPartitionKey = String(entityType).toUpperCase();
-  const result = await docClient.send(new QueryCommand({
-    TableName: TABLE_NAME,
-    ConsistentRead: true,
-    KeyConditionExpression: 'pk = :pk',
-    ExpressionAttributeValues: {
-      ':pk': entityPartitionKey
-    }
-  }));
+  const items = [];
+  let exclusiveStartKey;
 
-  return (result.Items || [])
+  do {
+    const result = await docClient.send(new QueryCommand({
+      TableName: TABLE_NAME,
+      ConsistentRead: true,
+      KeyConditionExpression: 'pk = :pk',
+      ExpressionAttributeValues: {
+        ':pk': entityPartitionKey
+      },
+      ...(exclusiveStartKey ? { ExclusiveStartKey: exclusiveStartKey } : {})
+    }));
+
+    items.push(...(result.Items || []));
+    exclusiveStartKey = result.LastEvaluatedKey;
+  } while (exclusiveStartKey);
+
+  return items
     .map(fromDynamoItem)
     .filter((record) => {
       if (!record || record.entityType !== String(entityType).toLowerCase()) {
@@ -289,16 +312,26 @@ async function listEntities(entityType) {
 
 async function listAllEntities(entityType) {
   await ensureTableExists();
-  const result = await docClient.send(new QueryCommand({
-    TableName: TABLE_NAME,
-    ConsistentRead: true,
-    KeyConditionExpression: 'pk = :pk',
-    ExpressionAttributeValues: {
-      ':pk': String(entityType).toUpperCase()
-    }
-  }));
+  const entityPartitionKey = String(entityType).toUpperCase();
+  const items = [];
+  let exclusiveStartKey;
 
-  return (result.Items || [])
+  do {
+    const result = await docClient.send(new QueryCommand({
+      TableName: TABLE_NAME,
+      ConsistentRead: true,
+      KeyConditionExpression: 'pk = :pk',
+      ExpressionAttributeValues: {
+        ':pk': entityPartitionKey
+      },
+      ...(exclusiveStartKey ? { ExclusiveStartKey: exclusiveStartKey } : {})
+    }));
+
+    items.push(...(result.Items || []));
+    exclusiveStartKey = result.LastEvaluatedKey;
+  } while (exclusiveStartKey);
+
+  return items
     .map(fromDynamoItem)
     .filter((record) => record?.entityType === String(entityType).toLowerCase());
 }

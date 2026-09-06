@@ -248,6 +248,190 @@ router.get('/summary', async (req, res) => {
     const enrichedOrders = await resolveOrderProductNames(orders, req.user.barId);
     const summary = buildOrderSummary(enrichedOrders);
 
+    if (String(req.query.light || '').toLowerCase() === 'true') {
+      return res.json({
+        totalSales: summary.totalSales,
+        totalProfit: summary.totalProfit,
+        totalOrders: summary.totalOrders,
+        averageOrderValue: summary.averageOrderValue,
+        totalQuantitySold: summary.totalQuantitySold,
+        averageItemsPerOrder: summary.averageItemsPerOrder,
+        grossMarginRatio: summary.grossMarginRatio
+      });
+    }
+
+    const optimizedSummary = String(req.query.dashboard || '').toLowerCase() === 'true'
+      || String(req.query.optimized || '').toLowerCase() === 'true'
+      || (range === 'today' && String(req.query.full || '').toLowerCase() !== 'true');
+
+    if (optimizedSummary) {
+      const productSalesMap = {};
+      const products = await Product.find({ barId: req.user.barId });
+      const productMap = new Map((products || []).map((product) => [String(product._id || product.id), product]));
+      (enrichedOrders || []).forEach((order) => {
+        if (order.reversed) return;
+        (order.items || []).forEach((item) => {
+          const productId = String(item.product?._id || item.product || item.productId || item._id || item.productName);
+          if (!productSalesMap[productId]) {
+            productSalesMap[productId] = {
+              productId,
+              name: item.productName || item.product?.name || 'Product',
+              soldQuantity: 0,
+              totalAmount: 0
+            };
+          }
+          productSalesMap[productId].soldQuantity += Number(item.quantity || 0);
+          productSalesMap[productId].totalAmount += Number(item.subtotal || 0);
+        });
+      });
+
+      Object.values(productSalesMap).forEach((productSale) => {
+        const product = productMap.get(String(productSale.productId));
+        productSale.closingQty = Number(product?.currentStock || 0);
+        productSale.currentStock = productSale.closingQty;
+        productSale.purchaseOrdersQty = 0;
+      });
+
+      const paymentRecords = await CustomerPaymentRequest.find({
+        barId: req.user.barId,
+        status: 'confirmed'
+      });
+      const { items: allTenantOrders = [] } = await queryEntities('order', {
+        barId: req.user.barId,
+        includeReversed: false
+      });
+      const periodStart = startDate ? new Date(startDate).getTime() : 0;
+      const periodEnd = queryOptions.endDate ? new Date(queryOptions.endDate).getTime() : Infinity;
+      const periodPayments = (paymentRecords || []).filter((payment) => {
+        const paymentTime = new Date(payment.confirmedAt || payment.createdAt || 0).getTime();
+        return paymentTime >= periodStart && paymentTime <= periodEnd;
+      });
+      const totalSettlementAmount = periodPayments.reduce((sum, payment) => (
+        sum + Number(payment.amountApplied || payment.amountRequested || payment.amount || 0)
+      ), 0);
+      const outstandingCustomersMap = {};
+      (enrichedOrders || [])
+        .filter((order) => isOpenCreditOrder(order))
+        .forEach((order) => {
+          const customerId = String(order.customer || order.customerId || '').trim();
+          if (!customerId) return;
+          if (!outstandingCustomersMap[customerId]) {
+            outstandingCustomersMap[customerId] = {
+              customerId,
+              name: order.customerName || 'Unknown customer',
+              phone: order.customerPhone || '',
+              totalOutstandingBalance: 0,
+              periodOutstandingBalance: 0,
+              ordersCount: 0
+            };
+          }
+          const balance = getOutstandingBalance(order);
+          outstandingCustomersMap[customerId].totalOutstandingBalance += balance;
+          outstandingCustomersMap[customerId].periodOutstandingBalance += balance;
+          outstandingCustomersMap[customerId].ordersCount += 1;
+        });
+      const outstandingCustomers = Object.values(outstandingCustomersMap)
+        .sort((a, b) => b.totalOutstandingBalance - a.totalOutstandingBalance)
+        .slice(0, 20);
+      const totalCreditOutstanding = allTenantOrders
+        .filter((order) => isOpenCreditOrder(order))
+        .reduce((sum, order) => sum + getOutstandingBalance(order), 0);
+      const outstandingCreditInPeriod = (enrichedOrders || [])
+        .filter((order) => isOpenCreditOrder(order))
+        .reduce((sum, order) => sum + getOutstandingBalance(order), 0);
+      const settlementMethods = ['credit_cash', 'credit_airtel_money', 'credit_mpamba', 'credit_bank_account'];
+      const creditSettlementSummary = settlementMethods.map((method) => ({
+        method: method.replace('credit_', 'Credit ').replace(/_/g, ' ').replace(/\b\w/g, (character) => character.toUpperCase()),
+        amount: periodPayments
+          .filter((payment) => String(payment.creditPaymentMethod || payment.paymentMethod || 'cash').toLowerCase() === method)
+          .reduce((sum, payment) => sum + Number(payment.amountApplied || payment.amountRequested || payment.amount || 0), 0)
+      }));
+      const outstandingCreditBySalesAccountMap = {};
+      allTenantOrders
+        .filter((order) => isOpenCreditOrder(order))
+        .forEach((order) => {
+          const salesAccount = String(order.processedByName || order.processedBy || 'Sales account').trim() || 'Sales account';
+          if (!outstandingCreditBySalesAccountMap[salesAccount]) {
+            outstandingCreditBySalesAccountMap[salesAccount] = {
+              salesAccount,
+              outstandingBalance: 0,
+              ordersCount: 0,
+              customerIds: new Set()
+            };
+          }
+          outstandingCreditBySalesAccountMap[salesAccount].outstandingBalance += getOutstandingBalance(order);
+          outstandingCreditBySalesAccountMap[salesAccount].ordersCount += 1;
+          if (order.customer) {
+            outstandingCreditBySalesAccountMap[salesAccount].customerIds.add(String(order.customer?._id || order.customer));
+          }
+        });
+      const outstandingCreditBySalesAccount = Object.values(outstandingCreditBySalesAccountMap)
+        .map((item) => ({
+          salesAccount: item.salesAccount,
+          outstandingBalance: item.outstandingBalance,
+          ordersCount: item.ordersCount,
+          customerCount: item.customerIds.size
+        }))
+        .sort((a, b) => b.outstandingBalance - a.outstandingBalance);
+
+      const dailySalesMap = new Map((summary.dailySales || []).map((item) => [item.date, item]));
+      const rangeStart = startDate ? new Date(startDate) : null;
+      const rangeEnd = queryOptions.endDate ? new Date(queryOptions.endDate) : new Date();
+      if (rangeStart && rangeEnd && rangeEnd >= rangeStart) {
+        const cursor = new Date(rangeStart);
+        cursor.setHours(0, 0, 0, 0);
+        const lastDay = new Date(rangeEnd);
+        lastDay.setHours(0, 0, 0, 0);
+        while (cursor <= lastDay) {
+          const dateKey = cursor.toLocaleDateString();
+          if (!dailySalesMap.has(dateKey)) {
+            dailySalesMap.set(dateKey, { date: dateKey, sales: 0, profit: 0, count: 0 });
+          }
+          cursor.setDate(cursor.getDate() + 1);
+        }
+      }
+
+      return res.json({
+        ...summary,
+        paymentMethodProceeds: (summary.paymentMethods || []).map((method) => ({
+          method: method.method,
+          totalAmount: Number(method.amount || 0)
+        })),
+        directSales: summary.paymentMethods
+          .filter((method) => String(method.method).toLowerCase() !== 'credit')
+          .reduce((sum, method) => sum + Number(method.amount || 0), 0),
+        totalImmediateReceipts: summary.paymentMethods
+          .filter((method) => String(method.method).toLowerCase() !== 'credit')
+          .reduce((sum, method) => sum + Number(method.amount || 0), 0),
+        totalCreditSales: summary.paymentMethods
+          .filter((method) => String(method.method).toLowerCase() === 'credit')
+          .reduce((sum, method) => sum + Number(method.amount || 0), 0),
+        totalSalesByMethodProceeds: summary.totalSales,
+        totalSettlementAmount,
+        totalCreditOutstanding,
+        creditAccounts: outstandingCustomers.map((customer) => ({
+          _id: customer.customerId,
+          name: customer.name,
+          phone: customer.phone,
+          balance: customer.totalOutstandingBalance
+        })),
+        outstandingCreditBySalesAccount,
+        creditSettlementSummary,
+        outstandingCustomers,
+        unpaidCredit: outstandingCreditInPeriod,
+        outstandingCreditInPeriod,
+        dailySales: Array.from(dailySalesMap.values()).sort((a, b) => new Date(a.date) - new Date(b.date)),
+        productSales: Object.values(productSalesMap).sort((a, b) => b.totalAmount - a.totalAmount),
+        productSalesHasMore: false,
+        productSalesTotals: Object.values(productSalesMap).reduce((totals, product) => ({
+          soldQuantity: totals.soldQuantity + product.soldQuantity,
+          closingQty: totals.closingQty + product.closingQty,
+          purchaseOrdersQty: totals.purchaseOrdersQty + product.purchaseOrdersQty,
+          totalAmount: totals.totalAmount + product.totalAmount
+        }), { soldQuantity: 0, purchaseOrdersQty: 0, closingQty: 0, totalAmount: 0 })
+      });
+    }
+
     const reversedQueryOptions = {
       barId: req.user.barId,
       startDate,
@@ -814,9 +998,12 @@ router.post('/', async (req, res) => {
     }
 
     if (checkoutId) {
-      const existingOrder = await Order.findOne({ barId: req.user.barId, checkoutId });
-      if (existingOrder) {
-        return res.status(200).json(existingOrder);
+      const checkoutRecord = await dynamodb.getEntity('checkout', checkoutId);
+      if (checkoutRecord?.barId === req.user.barId && checkoutRecord.orderId) {
+        const existingOrder = await dynamodb.getEntity('order', checkoutRecord.orderId);
+        if (existingOrder?.barId === req.user.barId) {
+          return res.status(200).json(existingOrder);
+        }
       }
     }
 
@@ -825,16 +1012,35 @@ router.post('/', async (req, res) => {
     const orderItems = [];
 
     const productUpdates = [];
+    const normalizedItems = items.reduce((groupedItems, item) => {
+      const productId = String(item?.product || '').trim();
+      const quantity = Math.max(0, Math.floor(toNumber(item?.quantity, 0)));
+      if (!productId || quantity <= 0) {
+        return groupedItems;
+      }
+
+      const existingItem = groupedItems.find((groupedItem) => groupedItem.product === productId);
+      if (existingItem) {
+        existingItem.quantity += quantity;
+      } else {
+        groupedItems.push({ product: productId, quantity });
+      }
+      return groupedItems;
+    }, []);
+
+    if (normalizedItems.length === 0) {
+      return res.status(400).json({ message: 'Order items must contain valid products and quantities.' });
+    }
 
     // Read and validate every product before changing any inventory.
-    for (const item of items) {
-      const product = await Product.findOne({ _id: item.product, barId: req.user.barId });
+    for (const item of normalizedItems) {
+      const product = await dynamodb.getEntity('product', item.product);
       
-      if (!product) {
+      if (!product || product.barId !== req.user.barId) {
         return res.status(404).json({ message: `Product not found: ${item.product}` });
       }
 
-      const quantity = Math.max(0, Math.floor(toNumber(item.quantity, 0)));
+      const quantity = item.quantity;
 
       // Check if enough stock
       if (product.currentStock < quantity) {
@@ -886,7 +1092,10 @@ router.post('/', async (req, res) => {
     let paymentStatus = 'paid';
 
     if (paymentMethod === 'credit' && customer) {
-      customerDoc = await Customer.findOne({ _id: customer, barId: req.user.barId });
+      customerDoc = await dynamodb.getEntity('customer', customer);
+      if (customerDoc?.barId !== req.user.barId) {
+        customerDoc = null;
+      }
       if (!customerDoc) {
         return res.status(404).json({ message: 'Customer not found' });
       }
@@ -905,7 +1114,10 @@ router.post('/', async (req, res) => {
       paymentStatus = remainingBalance > 0 ? 'partial' : 'paid';
 
     } else if (customer) {
-      customerDoc = await Customer.findOne({ _id: customer, barId: req.user.barId });
+      customerDoc = await dynamodb.getEntity('customer', customer);
+      if (customerDoc?.barId !== req.user.barId) {
+        customerDoc = null;
+      }
       if (customerDoc) {
         // Customer totals are updated in the same transaction as the order.
       }
@@ -999,9 +1211,12 @@ router.post('/', async (req, res) => {
       await dynamodb.transactWrite(transactionItems);
     } catch (transactionError) {
       if (checkoutId) {
-        const committedOrder = await Order.findOne({ barId: req.user.barId, checkoutId });
-        if (committedOrder) {
-          return res.status(200).json(committedOrder);
+        const committedCheckout = await dynamodb.getEntity('checkout', checkoutId);
+        if (committedCheckout?.barId === req.user.barId && committedCheckout.orderId) {
+          const committedOrder = await dynamodb.getEntity('order', committedCheckout.orderId);
+          if (committedOrder?.barId === req.user.barId) {
+            return res.status(200).json(committedOrder);
+          }
         }
       }
       throw transactionError;
@@ -1059,6 +1274,30 @@ router.post('/', async (req, res) => {
   } catch (error) {
     console.error('Error creating order:', error);
     res.status(400).json({ message: error.message });
+  }
+});
+
+router.get('/status/:checkoutId', async (req, res) => {
+  try {
+    const checkoutId = String(req.params.checkoutId || '').trim();
+    if (!checkoutId) {
+      return res.status(400).json({ message: 'Checkout ID is required.' });
+    }
+
+    const checkoutRecord = await dynamodb.getEntity('checkout', checkoutId);
+    if (!checkoutRecord || checkoutRecord.barId !== req.user.barId || !checkoutRecord.orderId) {
+      return res.status(404).json({ message: 'Order status is not available yet.' });
+    }
+
+    const order = await dynamodb.getEntity('order', checkoutRecord.orderId);
+    if (!order || order.barId !== req.user.barId) {
+      return res.status(404).json({ message: 'Order status is not available yet.' });
+    }
+
+    return res.json(order);
+  } catch (error) {
+    console.error('Error checking order status:', error);
+    return res.status(500).json({ message: error.message });
   }
 });
 
@@ -1185,14 +1424,30 @@ router.post('/:id/pay', async (req, res) => {
 
 router.get('/:id', async (req, res) => {
   try {
-    const order = await Order.findOne({ _id: req.params.id, barId: req.user.barId })
-      .populate('customer', 'name phone')
-      .populate('items.product', 'name');
+    const order = await dynamodb.getEntity('order', req.params.id);
     
-    if (!order) {
+    if (!order || order.barId !== req.user.barId) {
       return res.status(404).json({ message: 'Order not found' });
     }
-    res.json(order);
+
+    const customer = order.customer
+      ? await dynamodb.getEntity('customer', order.customer)
+      : null;
+    const items = await Promise.all((order.items || []).map(async (item) => {
+      const productId = item.product?._id || item.product;
+      const product = productId ? await dynamodb.getEntity('product', productId) : null;
+      return {
+        ...item,
+        product: product ? { _id: product._id, name: product.name } : item.product || null,
+        productName: item.productName || product?.name || item.product?.name || 'Product'
+      };
+    }));
+
+    res.json({
+      ...order,
+      customer: customer ? { _id: customer._id, name: customer.name, phone: customer.phone } : order.customer || null,
+      items
+    });
   } catch (error) {
     console.error('Error fetching order:', error);
     res.status(500).json({ message: error.message });
