@@ -56,6 +56,7 @@ const POS = () => {
   const [pendingPasswordAction, setPendingPasswordAction] = useState(null);
   const [passwordInput, setPasswordInput] = useState('');
   const [passwordSubmitting, setPasswordSubmitting] = useState(false);
+  const checkoutIdRef = useRef(null);
 
   useEffect(() => {
     loadData();
@@ -472,6 +473,26 @@ const POS = () => {
   const subtotal = cart.reduce((sum, item) => sum + (item.sellingPrice * item.quantity), 0);
   const totalItems = cart.reduce((sum, item) => sum + item.quantity, 0);
 
+  const createOrderWithRetry = async (orderData, checkoutId, maxAttempts = 3) => {
+    for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
+      try {
+        return await api.post('/orders', orderData, {
+          headers: { 'X-Idempotency-Key': checkoutId }
+        });
+      } catch (err) {
+        const status = err.response?.status;
+        const retryable = !status || status >= 500 || err.code === 'ECONNABORTED' || err.code === 'ERR_NETWORK';
+
+        if (!retryable || attempt === maxAttempts) {
+          throw err;
+        }
+
+        setFeedbackMessage(`Checkout connection interrupted. Retrying (${attempt + 1}/${maxAttempts})...`);
+        await new Promise((resolve) => setTimeout(resolve, 500 * (2 ** (attempt - 1))));
+      }
+    }
+  };
+
   const checkout = async () => {
     if (cart.length === 0) {
       setError('Cart is empty!');
@@ -494,6 +515,10 @@ const POS = () => {
         ? (Number.isFinite(Number(paymentAmount)) ? Number(paymentAmount) : 0)
         : subtotal;
 
+      if (!checkoutIdRef.current) {
+        checkoutIdRef.current = window.crypto?.randomUUID?.() || `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+      }
+
       const orderData = {
         items: cart.map(item => ({
           product: item._id,
@@ -501,10 +526,11 @@ const POS = () => {
         })),
         customer: selectedCustomer || null,
         paymentMethod: paymentMethod,
-        amountPaid: normalizedPaymentAmount
+        amountPaid: normalizedPaymentAmount,
+        checkoutId: checkoutIdRef.current
       };
 
-      const response = await api.post('/orders', orderData);
+      const response = await createOrderWithRetry(orderData, checkoutIdRef.current);
       
       const newOrder = response.data;
       const selectedCustomerAccount = selectedCustomerData
@@ -533,6 +559,7 @@ const POS = () => {
       setCart([]);
       setPaymentAmount('');
       setPaymentMethod('cash');
+      checkoutIdRef.current = null;
       await loadData();
       setSelectedCustomer('');
 

@@ -9,7 +9,7 @@ const PurchaseOrder = require('../models/PurchaseOrder');
 const CustomerOrderRequest = require('../models/CustomerOrderRequest');
 const CustomerPaymentRequest = require('../models/CustomerPaymentRequest');
 const StockSnapshot = require('../models/StockSnapshot');
-const { recomputeCustomerCreditBalance } = require('../lib/credit');
+const dynamodb = require('../lib/dynamodb');
 const { queryEntities, listEntities, decodeLastEvaluatedKey } = require('../lib/dynamodb');
 const { buildOrderSummary, calculateOutstandingCreditInPeriod } = require('../lib/orderSummary');
 const { createAuditEntry } = require('../lib/audit');
@@ -807,16 +807,26 @@ router.get('/today', async (req, res) => {
 router.post('/', async (req, res) => {
   try {
     const { customer, items, paymentMethod, amountPaid } = req.body;
+    const checkoutId = String(req.get('x-idempotency-key') || req.body.checkoutId || '').trim();
 
     if (!items || items.length === 0) {
       return res.status(400).json({ message: 'No items in order' });
+    }
+
+    if (checkoutId) {
+      const existingOrder = await Order.findOne({ barId: req.user.barId, checkoutId });
+      if (existingOrder) {
+        return res.status(200).json(existingOrder);
+      }
     }
 
     let totalAmount = 0;
     let totalCost = 0;
     const orderItems = [];
 
-    // Process each item
+    const productUpdates = [];
+
+    // Read and validate every product before changing any inventory.
     for (const item of items) {
       const product = await Product.findOne({ _id: item.product, barId: req.user.barId });
       
@@ -833,15 +843,32 @@ router.post('/', async (req, res) => {
         });
       }
 
-      // Deduct from inventory
-      product.currentStock -= quantity;
-      await product.save();
-
       const sellingPrice = toNumber(product.sellingPrice, 0);
       const costPrice = toNumber(product.costPrice, 0);
       const subtotal = sellingPrice * quantity;
       totalAmount += subtotal;
       totalCost += costPrice * quantity;
+
+      productUpdates.push({
+        Update: {
+          Key: {
+            pk: 'PRODUCT',
+            sk: `PRODUCT#${product._id}`
+          },
+          UpdateExpression: 'SET #stock = #stock - :quantity, #updatedAt = :updatedAt',
+          ConditionExpression: '#stock >= :quantity AND #barId = :barId',
+          ExpressionAttributeNames: {
+            '#stock': 'currentStock',
+            '#updatedAt': 'updatedAt',
+            '#barId': 'barId'
+          },
+          ExpressionAttributeValues: {
+            ':quantity': quantity,
+            ':updatedAt': new Date().toISOString(),
+            ':barId': req.user.barId
+          }
+        }
+      });
 
       orderItems.push({
         product: product._id,
@@ -877,17 +904,10 @@ router.post('/', async (req, res) => {
       remainingBalance = Math.max(0, totalAmount - safePaidAmount);
       paymentStatus = remainingBalance > 0 ? 'partial' : 'paid';
 
-      customerDoc.totalSpent = toNumber(customerDoc.totalSpent, 0) + totalAmount;
-      customerDoc.loyaltyPoints = toNumber(customerDoc.loyaltyPoints, 0) + Math.floor(totalAmount / 100);
-      customerDoc.lastCreditPayment = safePaidAmount;
-      // persist other customer fields now; creditBalance will be recomputed from orders after save
-      await customerDoc.save();
     } else if (customer) {
       customerDoc = await Customer.findOne({ _id: customer, barId: req.user.barId });
       if (customerDoc) {
-        customerDoc.totalSpent = toNumber(customerDoc.totalSpent, 0) + totalAmount;
-        customerDoc.loyaltyPoints = toNumber(customerDoc.loyaltyPoints, 0) + Math.floor(totalAmount / 100);
-        await customerDoc.save();
+        // Customer totals are updated in the same transaction as the order.
       }
     }
 
@@ -908,29 +928,102 @@ router.post('/', async (req, res) => {
       status: paymentStatus === 'paid' ? 'completed' : 'partial',
       processedBy: req.user._id,
       processedByName: req.user.fullName || req.user.username || req.user.email || 'Sales account',
+      ...(checkoutId ? { checkoutId } : {}),
       createdAt: new Date().toISOString()
     });
 
-    const savedOrder = await order.save();
-
-    await createAuditEntry({
-      action: 'create_order',
-      entityType: 'Order',
-      entityId: savedOrder._id,
-      details: {
-        orderNumber: savedOrder.orderNumber,
-        totalAmount: savedOrder.totalAmount,
-        paymentMethod: savedOrder.paymentMethod,
-        amountPaid: savedOrder.amountPaid,
-        balanceDue: savedOrder.balanceDue,
-        paymentStatus: savedOrder.paymentStatus,
-        customer: savedOrder.customer
+    const orderItem = dynamodb.toDynamoItem('order', order.toJSON());
+    const savedOrder = new Order(dynamodb.fromDynamoItem(orderItem));
+    const transactionItems = [
+      ...productUpdates,
+      {
+        Put: {
+          Item: orderItem,
+          ConditionExpression: 'attribute_not_exists(pk)'
+        }
       }
-    });
+    ];
 
-    // Recompute and persist customer's creditBalance from outstanding credit orders
+    if (checkoutId) {
+      transactionItems.push({
+        Put: {
+          Item: dynamodb.toDynamoItem('checkout', {
+            _id: checkoutId,
+            checkoutId,
+            orderId: savedOrder._id,
+            barId: req.user.barId,
+            createdAt: new Date().toISOString()
+          }),
+          ConditionExpression: 'attribute_not_exists(pk)'
+        }
+      });
+    }
+
     if (customerDoc) {
-      await recomputeCustomerCreditBalance(customerDoc._id, req.user.barId);
+      const customerKey = {
+        pk: 'CUSTOMER',
+        sk: `CUSTOMER#${customerDoc._id}`
+      };
+      const customerUpdate = {
+        Key: customerKey,
+        UpdateExpression: 'SET #totalSpent = if_not_exists(#totalSpent, :zero) + :totalAmount, #loyaltyPoints = if_not_exists(#loyaltyPoints, :zero) + :loyaltyPoints, #creditBalance = if_not_exists(#creditBalance, :zero) + :remainingBalance, #updatedAt = :updatedAt',
+        ConditionExpression: '#barId = :barId',
+        ExpressionAttributeNames: {
+          '#totalSpent': 'totalSpent',
+          '#loyaltyPoints': 'loyaltyPoints',
+          '#creditBalance': 'creditBalance',
+          '#updatedAt': 'updatedAt',
+          '#barId': 'barId'
+        },
+        ExpressionAttributeValues: {
+          ':zero': 0,
+          ':totalAmount': totalAmount,
+          ':loyaltyPoints': Math.floor(totalAmount / 100),
+          ':remainingBalance': remainingBalance,
+          ':updatedAt': new Date().toISOString(),
+          ':barId': req.user.barId
+        }
+      };
+
+      if (paymentMethod === 'credit') {
+        customerUpdate.UpdateExpression += ', #lastCreditPayment = :lastCreditPayment';
+        customerUpdate.ExpressionAttributeNames['#lastCreditPayment'] = 'lastCreditPayment';
+        customerUpdate.ExpressionAttributeValues[':lastCreditPayment'] = Math.min(paidAmount, totalAmount);
+      }
+
+      transactionItems.push({ Update: customerUpdate });
+    }
+
+    // The order, stock, and customer totals either all commit or none do.
+    try {
+      await dynamodb.transactWrite(transactionItems);
+    } catch (transactionError) {
+      if (checkoutId) {
+        const committedOrder = await Order.findOne({ barId: req.user.barId, checkoutId });
+        if (committedOrder) {
+          return res.status(200).json(committedOrder);
+        }
+      }
+      throw transactionError;
+    }
+
+    try {
+      await createAuditEntry({
+        action: 'create_order',
+        entityType: 'Order',
+        entityId: savedOrder._id,
+        details: {
+          orderNumber: savedOrder.orderNumber,
+          totalAmount: savedOrder.totalAmount,
+          paymentMethod: savedOrder.paymentMethod,
+          amountPaid: savedOrder.amountPaid,
+          balanceDue: savedOrder.balanceDue,
+          paymentStatus: savedOrder.paymentStatus,
+          customer: savedOrder.customer
+        }
+      });
+    } catch (auditError) {
+      console.error('Order saved but audit entry failed:', auditError);
     }
 
     await savedOrder.populate('customer');

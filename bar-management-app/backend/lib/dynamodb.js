@@ -1,5 +1,5 @@
 const { DynamoDBClient, DescribeTableCommand, CreateTableCommand } = require('@aws-sdk/client-dynamodb');
-const { DynamoDBDocumentClient, PutCommand, GetCommand, QueryCommand, DeleteCommand } = require('@aws-sdk/lib-dynamodb');
+const { DynamoDBDocumentClient, PutCommand, GetCommand, QueryCommand, DeleteCommand, TransactWriteCommand } = require('@aws-sdk/lib-dynamodb');
 const crypto = require('crypto');
 const { getTenantId, isGlobalAdmin } = require('./tenantContext');
 
@@ -370,6 +370,18 @@ async function deleteEntity(entityType, id) {
   return existing;
 }
 
+async function transactWrite(items) {
+  await ensureTableExists();
+  if (!Array.isArray(items) || items.length === 0) {
+    throw new Error('A transaction requires at least one item');
+  }
+
+  return docClient.send(new TransactWriteCommand({
+    TableName: TABLE_NAME,
+    TransactItems: items
+  }));
+}
+
 async function findByField(entityType, field, value) {
   const records = await listEntities(entityType);
   return records.find((record) => record[field] === value) || null;
@@ -387,6 +399,7 @@ module.exports = {
   createEntity,
   updateEntity,
   deleteEntity,
+  transactWrite,
   findByField,
   fromDynamoItem,
   toDynamoItem
