@@ -204,7 +204,9 @@ const Dashboard = () => {
         setUnpaidCredit(summaryData.unpaidCredit || 0);
         setTotalCreditSales(summaryData.totalCreditSales || 0);
         setTotalImmediateReceipts(summaryData.directSales || summaryData.totalImmediateReceipts || 0);
-        setTotalOutstandingCredit(summaryData.totalOutstandingCredit || 0);
+        const outstandingCustomersTotal = (summaryData.outstandingCustomers || [])
+          .reduce((sum, customer) => sum + Number(customer.totalOutstandingBalance || customer.balance || 0), 0);
+        setTotalOutstandingCredit(summaryData.totalOutstandingCredit || summaryData.totalCreditOutstanding || outstandingCustomersTotal);
         setOutstandingCreditInPeriod(summaryData.outstandingCreditInPeriod || 0);
         setStats((prev) => ({
           ...prev,

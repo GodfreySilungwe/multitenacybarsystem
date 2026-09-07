@@ -11,6 +11,7 @@ const CashChest = () => {
   const canManage = ['owner', 'manager'].includes(user?.role);
   const [session, setSession] = useState(null);
   const [history, setHistory] = useState([]);
+  const [dashboardSummary, setDashboardSummary] = useState({});
   const [loading, setLoading] = useState(true);
   const [message, setMessage] = useState('');
   const [error, setError] = useState('');
@@ -23,8 +24,12 @@ const CashChest = () => {
   const loadData = async () => {
     try {
       setLoading(true);
-      const currentResponse = await api.get('/cash-chest/current');
+      const [currentResponse, dashboardResponse] = await Promise.all([
+        api.get('/cash-chest/current'),
+        api.get('/orders/summary', { params: { range: 'today', optimized: 'true' } })
+      ]);
       setSession(currentResponse.data?.session || null);
+      setDashboardSummary(dashboardResponse.data || {});
       if (canManage) {
         const historyResponse = await api.get('/cash-chest/history');
         setHistory(historyResponse.data?.sessions || []);
@@ -82,6 +87,8 @@ const CashChest = () => {
   };
 
   const summary = session?.summary;
+  const cashReceivedDisplay = dashboardSummary.expectedHandover ?? summary?.cashIn ?? 0;
+  const posCashSalesDisplay = dashboardSummary.directSales ?? summary?.cashSales ?? 0;
 
   if (loading) {
     return <PageContainer title="Cash Chest"><p>Loading cash chest...</p></PageContainer>;
@@ -123,7 +130,7 @@ const CashChest = () => {
         <>
           <div style={styles.summaryGrid}>
             <Summary label="Opening float" value={summary.openingFloat} />
-            <Summary label="Cash received" value={summary.cashIn} />
+            <Summary label="Cash received" value={cashReceivedDisplay} />
             <Summary label="Cash removed" value={summary.cashOut} />
             <Summary label="Expected cash" value={summary.expectedCash} emphasis />
             {summary.countedCash !== null && <Summary label="Counted cash" value={summary.countedCash} />}
@@ -131,9 +138,9 @@ const CashChest = () => {
           </div>
 
           <div style={styles.sourceGrid}>
-            <Source label="POS cash sales" value={summary.cashSales} />
+            <Source label="POS DIRECT SALES" value={posCashSalesDisplay} />
             <Source label="Initial cash on credit" value={summary.initialCreditCash} />
-            <Source label="Cash settlements" value={summary.cashSettlements} />
+            <Source label="Bill settlements" value={summary.cashSettlements} />
             <Source label="Manual cash in" value={summary.manualCashIn} />
           </div>
 

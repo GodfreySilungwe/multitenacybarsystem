@@ -146,15 +146,17 @@ const POS = () => {
     }
   };
 
-  const emitCustomerPortalEvent = (type, detail = null) => {
+  const emitCustomerPortalEvent = (type, detail = null, { dispatch = true } = {}) => {
     const eventDetail = { type, detail, timestamp: Date.now() };
-    try {
-      window.dispatchEvent(new CustomEvent(type, { detail }));
-    } catch (error) {
-      const event = document.createEvent('Event');
-      event.initEvent(type, true, true);
-      event.detail = detail;
-      window.dispatchEvent(event);
+    if (dispatch) {
+      try {
+        window.dispatchEvent(new CustomEvent(type, { detail }));
+      } catch (error) {
+        const event = document.createEvent('Event');
+        event.initEvent(type, true, true);
+        event.detail = detail;
+        window.dispatchEvent(event);
+      }
     }
 
     try {
@@ -271,6 +273,13 @@ const POS = () => {
       console.error('Error loading data:', err);
       setError('Failed to load data');
     }
+  };
+
+  const refreshAfterCheckout = async () => {
+    const customersResponse = await api.get('/customers');
+    const customersData = customersResponse.data || [];
+    setCustomers(Array.isArray(customersData) ? customersData : customersData.items || []);
+    await loadProductPage();
   };
 
   const resetPasswordModal = () => {
@@ -514,7 +523,7 @@ const POS = () => {
       emitCustomerPortalEvent('customer-request-updated', {
         customerId: selectedCustomer,
         order: newOrder
-      });
+      }, { dispatch: false });
     }
     setSuccess(`✅ Order ${newOrder.orderNumber} completed!`);
     setCart([]);
@@ -523,9 +532,9 @@ const POS = () => {
     setSelectedCustomer('');
     checkoutIdRef.current = null;
 
-    // The order is already committed. A refresh failure must not turn success into an error.
+    // The order is already committed. Refresh only state affected by the sale.
     try {
-      await loadData();
+      await refreshAfterCheckout();
     } catch (refreshError) {
       console.error('Order saved, but POS refresh failed:', refreshError);
       setFeedbackMessage('Order saved. POS data will refresh on the next reload.');
