@@ -37,6 +37,25 @@ const isOpenCreditOrder = (order) => (
   (order?.paymentMethod === 'credit' || order?.paymentStatus === 'partial' || order?.paymentStatus === 'credit')
 );
 
+const calculateExpectedHandoverValue = (totalSales = 0, outstandingCredit = 0, previousBillsCollected = 0) => {
+  const safeTotalSales = toNumber(totalSales, 0);
+  const safeOutstandingCredit = toNumber(outstandingCredit, 0);
+  const safePreviousBillsCollected = toNumber(previousBillsCollected, 0);
+  return Math.max(0, safeTotalSales - safeOutstandingCredit + safePreviousBillsCollected);
+};
+
+const getProductReferenceId = (productRef) => {
+  if (!productRef) {
+    return '';
+  }
+
+  if (typeof productRef === 'object') {
+    return String(productRef._id || productRef.id || productRef.productId || '');
+  }
+
+  return String(productRef);
+};
+
 const MALAWI_OFFSET_MINUTES = 120;
 
 const parseLocalDateBoundary = (value, endOfDay = false, offsetMinutes = MALAWI_OFFSET_MINUTES) => {
@@ -268,6 +287,21 @@ router.get('/summary', async (req, res) => {
       const productSalesMap = {};
       const products = await Product.find({ barId: req.user.barId });
       const productMap = new Map((products || []).map((product) => [String(product._id || product.id), product]));
+      const purchaseOrdersInRange = await PurchaseOrder.find({
+        barId: req.user.barId,
+        status: 'received',
+        ...(startDate ? { receivedDate: { $gte: startDate } } : {}),
+        ...(queryOptions.endDate ? { receivedDate: { ...(startDate ? { $gte: startDate } : {}), $lte: queryOptions.endDate } } : {})
+      });
+      const purchaseOrderQtyByProduct = {};
+      (purchaseOrdersInRange || []).forEach((purchaseOrder) => {
+        (purchaseOrder.items || []).forEach((item) => {
+          const productId = getProductReferenceId(item?.product || item?.productId || item?._id || item?.id || item?.productName);
+          if (!productId) return;
+          const quantity = Math.max(0, Number(item.quantity || 0));
+          purchaseOrderQtyByProduct[productId] = (purchaseOrderQtyByProduct[productId] || 0) + quantity;
+        });
+      });
       (enrichedOrders || []).forEach((order) => {
         if (order.reversed) return;
         (order.items || []).forEach((item) => {
@@ -287,9 +321,10 @@ router.get('/summary', async (req, res) => {
 
       Object.values(productSalesMap).forEach((productSale) => {
         const product = productMap.get(String(productSale.productId));
+        const purchaseQty = Math.max(0, Number(purchaseOrderQtyByProduct[String(productSale.productId)] || 0));
         productSale.closingQty = Number(product?.currentStock || 0);
         productSale.currentStock = productSale.closingQty;
-        productSale.purchaseOrdersQty = 0;
+        productSale.purchaseOrdersQty = purchaseQty;
       });
 
       const paymentRecords = await CustomerPaymentRequest.find({
@@ -445,6 +480,7 @@ router.get('/summary', async (req, res) => {
           .filter((method) => String(method.method).toLowerCase() === 'credit')
           .reduce((sum, method) => sum + Number(method.amount || 0), 0),
         totalSalesByMethodProceeds: summary.totalSales,
+        expectedHandoverValue: calculateExpectedHandoverValue(summary.totalSales, outstandingCreditInPeriod, previousBillsCollected),
         totalSettlementAmount,
         totalCreditCollected: previousBillsCollected,
         customerPreviousBillsPaid: previousBillsCollected,
@@ -465,10 +501,10 @@ router.get('/summary', async (req, res) => {
         productSales: Object.values(productSalesMap).sort((a, b) => b.totalAmount - a.totalAmount),
         productSalesHasMore: false,
         productSalesTotals: Object.values(productSalesMap).reduce((totals, product) => ({
-          soldQuantity: totals.soldQuantity + product.soldQuantity,
-          closingQty: totals.closingQty + product.closingQty,
-          purchaseOrdersQty: totals.purchaseOrdersQty + product.purchaseOrdersQty,
-          totalAmount: totals.totalAmount + product.totalAmount
+          soldQuantity: totals.soldQuantity + Math.max(0, Number(product.soldQuantity || 0)),
+          closingQty: totals.closingQty + Math.max(0, Number(product.closingQty || 0)),
+          purchaseOrdersQty: totals.purchaseOrdersQty + Math.max(0, Number(product.purchaseOrdersQty || 0)),
+          totalAmount: totals.totalAmount + Math.max(0, Number(product.totalAmount || 0))
         }), { soldQuantity: 0, purchaseOrdersQty: 0, closingQty: 0, totalAmount: 0 })
       });
     }
@@ -683,7 +719,7 @@ router.get('/summary', async (req, res) => {
       method: method.method,
       totalAmount: Number(method.amount || 0)
     }));
-    const expectedHandoverValue = summary.totalSales - unpaidCredit + totalCreditCollected;
+    const expectedHandoverValue = calculateExpectedHandoverValue(summary.totalSales, unpaidCredit, totalCreditCollected);
 
     const uniqueCustomerIds = new Set(
       (enrichedOrders || [])
