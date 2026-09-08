@@ -532,13 +532,11 @@ const POS = () => {
     setSelectedCustomer('');
     checkoutIdRef.current = null;
 
-    // The order is already committed. Refresh only state affected by the sale.
-    try {
-      await refreshAfterCheckout();
-    } catch (refreshError) {
+    // The order is already committed. Refresh affected lists in the background.
+    refreshAfterCheckout().catch((refreshError) => {
       console.error('Order saved, but POS refresh failed:', refreshError);
       setFeedbackMessage('Order saved. POS data will refresh on the next reload.');
-    }
+    });
 
     setTimeout(() => setSuccess(''), 5000);
   };
