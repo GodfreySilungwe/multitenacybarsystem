@@ -374,7 +374,11 @@ const Customers = () => {
               </div>
               <div style={styles.settlementSection} className="customer-card__settlements">
                 <div style={styles.creditHistoryHeader}>Recent settlements</div>
-                {(settlements || []).filter((entry) => String(entry.customerId || '') === String(customer._id)).slice(0, 5).map((entry) => (
+                {(settlements || [])
+                  .filter((entry) => String(entry.customerId || '') === String(customer._id))
+                  .filter((entry) => Number(entry.amount ?? entry.amountApplied ?? entry.amountRequested ?? 0) > 0)
+                  .slice(0, 5)
+                  .map((entry) => (
                   <div key={entry._id} style={styles.creditHistoryItem}>
                     <div style={styles.creditHistoryTopRow}>
                       <span style={styles.creditHistoryDate}>{entry.createdAt ? new Date(entry.createdAt).toLocaleString() : '—'}</span>
@@ -390,7 +394,10 @@ const Customers = () => {
                     {entry.reference || entry.paymentReference ? <div style={styles.creditHistoryProducts}>{entry.reference || entry.paymentReference}</div> : null}
                   </div>
                 ))}
-                {!(settlements || []).some((entry) => String(entry.customerId || '') === String(customer._id)) && (
+                {!(settlements || []).some((entry) => (
+                  String(entry.customerId || '') === String(customer._id)
+                  && Number(entry.amount ?? entry.amountApplied ?? entry.amountRequested ?? 0) > 0
+                )) && (
                   <div style={styles.creditHistoryProducts}>No settlement history yet.</div>
                 )}
               </div>
