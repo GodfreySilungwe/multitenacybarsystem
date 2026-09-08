@@ -24,6 +24,19 @@ function normalizeRecord(record) {
   return normalized;
 }
 
+function buildOrderGsiKeys(entityType, record) {
+  const normalizedEntityType = String(entityType || '').toLowerCase();
+  if (normalizedEntityType !== 'order' || !record || !record.barId || !record.id) {
+    return {};
+  }
+
+  const createdAt = record.createdAt || new Date().toISOString();
+  return {
+    GSI1PK: `BAR#${record.barId}#ORDER`,
+    GSI1SK: `${createdAt}#${record.id}`
+  };
+}
+
 function serializeValue(value) {
   if (value instanceof Date) {
     return value.toISOString();
@@ -67,6 +80,8 @@ function toDynamoItem(entityType, data) {
   if (record.id && !record._id) record._id = record.id;
   if (record._id && !record.id) record.id = record._id;
 
+  const gsiKeys = buildOrderGsiKeys(entityType, record);
+
   delete record.pk;
   delete record.sk;
   delete record.entityType;
@@ -79,7 +94,8 @@ function toDynamoItem(entityType, data) {
     _id: id,
     createdAt: record.createdAt,
     updatedAt: record.updatedAt,
-    ...record
+    ...record,
+    ...gsiKeys
   };
 }
 

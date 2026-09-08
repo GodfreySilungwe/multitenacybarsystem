@@ -36,7 +36,10 @@ const calculateSessionSummary = async (session) => {
       barId: session.barId,
       createdAt: dateQuery,
       status: 'confirmed',
-      paymentMethod: 'cash'
+      $or: [
+        { paymentMethod: 'cash' },
+        { creditPaymentMethod: 'credit_cash' }
+      ]
     }),
     CashChestEntry.find({ barId: session.barId, sessionId: session._id })
   ]);
