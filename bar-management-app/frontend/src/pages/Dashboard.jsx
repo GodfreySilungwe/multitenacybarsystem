@@ -147,8 +147,7 @@ const Dashboard = () => {
           if (customEndDate) params.endDate = customEndDate;
         }
 
-        const [todayRes, productsRes, customersRes, lowStockRes, ordersRes, usersSummaryRes, summaryRes] = await Promise.all([
-          api.get('/orders/today'),
+        const [productsRes, customersRes, lowStockRes, ordersRes, usersSummaryRes, summaryRes] = await Promise.all([
           api.get('/products'),
           api.get('/customers'),
           api.get('/products/low-stock'),
@@ -157,7 +156,6 @@ const Dashboard = () => {
           api.get('/orders/summary', { params })
         ].map((promise) => promise.catch((err) => err)));
 
-        const todayData = todayRes instanceof Error ? { count: 0, totalSales: 0, totalProfit: 0 } : todayRes.data;
         const products = productsRes instanceof Error ? [] : productsRes.data || [];
         // Handle both array and paginated response formats
         const customersData = customersRes instanceof Error ? [] : customersRes.data || [];

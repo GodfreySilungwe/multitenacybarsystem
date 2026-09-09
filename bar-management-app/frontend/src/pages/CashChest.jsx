@@ -87,7 +87,7 @@ const CashChest = () => {
   };
 
   const summary = session?.summary;
-  const cashReceivedDisplay = dashboardSummary.expectedHandover ?? summary?.cashIn ?? 0;
+  const cashReceivedDisplay = dashboardSummary.expectedHandoverValue ?? summary?.cashIn ?? 0;
   const posCashSalesDisplay = dashboardSummary.directSales ?? summary?.cashSales ?? 0;
 
   if (loading) {
