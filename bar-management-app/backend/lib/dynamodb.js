@@ -128,16 +128,25 @@ function decodeLastEvaluatedKey(token) {
 async function queryEntities(entityType, options = {}) {
   await ensureTableExists();
   const entityPartitionKey = String(entityType).toUpperCase();
+  const useOrderGsi = String(entityType).toLowerCase() === 'order'
+    && options.barId !== undefined
+    && options.barId !== null
+    && options.useGsi !== false;
   const params = {
     TableName: TABLE_NAME,
-    KeyConditionExpression: 'pk = :pk',
-    ExpressionAttributeValues: {
-      ':pk': entityPartitionKey
-    }
+    KeyConditionExpression: useOrderGsi ? 'GSI1PK = :gsiPk' : 'pk = :pk',
+    ExpressionAttributeValues: useOrderGsi
+      ? { ':gsiPk': `BAR#${options.barId}#ORDER` }
+      : { ':pk': entityPartitionKey },
+    ...(useOrderGsi ? { IndexName: 'GSI1' } : {})
   };
 
   if (options.limit && Number.isFinite(Number(options.limit))) {
     params.Limit = Number(options.limit);
+  }
+
+  if (useOrderGsi && options.scanIndexForward !== undefined) {
+    params.ScanIndexForward = Boolean(options.scanIndexForward);
   }
 
   if (options.lastEvaluatedKey) {
@@ -161,14 +170,30 @@ async function queryEntities(entityType, options = {}) {
     }
   }
 
-  if (options.startDate) {
-    filterExpressions.push('createdAt >= :startDate');
-    values[':startDate'] = options.startDate;
-  }
+  if (useOrderGsi && (options.startDate || options.endDate)) {
+    const startKey = options.startDate ? `${options.startDate}#` : null;
+    const endKey = options.endDate ? `${options.endDate}#\uFFFF` : null;
+    if (startKey && endKey) {
+      params.KeyConditionExpression += ' AND GSI1SK BETWEEN :gsiStart AND :gsiEnd';
+      values[':gsiStart'] = startKey;
+      values[':gsiEnd'] = endKey;
+    } else if (startKey) {
+      params.KeyConditionExpression += ' AND GSI1SK >= :gsiStart';
+      values[':gsiStart'] = startKey;
+    } else {
+      params.KeyConditionExpression += ' AND GSI1SK <= :gsiEnd';
+      values[':gsiEnd'] = endKey;
+    }
+  } else {
+    if (options.startDate) {
+      filterExpressions.push('createdAt >= :startDate');
+      values[':startDate'] = options.startDate;
+    }
 
-  if (options.endDate) {
-    filterExpressions.push('createdAt <= :endDate');
-    values[':endDate'] = options.endDate;
+    if (options.endDate) {
+      filterExpressions.push('createdAt <= :endDate');
+      values[':endDate'] = options.endDate;
+    }
   }
 
   if (options.includeReversed === false) {
@@ -181,6 +206,7 @@ async function queryEntities(entityType, options = {}) {
   }
 
   console.debug(`queryEntities(${entityType}):`, {
+    indexName: params.IndexName || 'PRIMARY',
     barId: options.barId,
     limit: options.limit,
     startDate: options.startDate,

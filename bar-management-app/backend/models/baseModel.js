@@ -66,7 +66,27 @@ class BaseModel {
 
   static _find(query = {}) {
     const entityType = this.entityType;
-    return dynamodb.listEntities(entityType).then((records) => {
+    const createdAtQuery = query?.createdAt;
+    const orderDateOptions = entityType === 'order' && query?.barId
+      ? {
+          barId: query.barId,
+          ...(createdAtQuery instanceof Date
+            ? { startDate: createdAtQuery.toISOString(), endDate: createdAtQuery.toISOString() }
+            : {}),
+          ...(createdAtQuery && typeof createdAtQuery === 'object' && !(createdAtQuery instanceof Date)
+            ? {
+                ...(createdAtQuery.$gte ? { startDate: new Date(createdAtQuery.$gte).toISOString() } : {}),
+                ...(createdAtQuery.$lte ? { endDate: new Date(createdAtQuery.$lte).toISOString() } : {})
+              }
+            : {})
+        }
+      : null;
+
+    const recordsPromise = orderDateOptions
+      ? dynamodb.queryEntities(entityType, orderDateOptions).then((result) => result.items)
+      : dynamodb.listEntities(entityType);
+
+    return recordsPromise.then((records) => {
       if (!query || Object.keys(query).length === 0) {
         return records;
       }

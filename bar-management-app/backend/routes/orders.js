@@ -8,9 +8,8 @@ const InventoryAdjustment = require('../models/InventoryAdjustment');
 const PurchaseOrder = require('../models/PurchaseOrder');
 const CustomerOrderRequest = require('../models/CustomerOrderRequest');
 const CustomerPaymentRequest = require('../models/CustomerPaymentRequest');
-const StockSnapshot = require('../models/StockSnapshot');
 const dynamodb = require('../lib/dynamodb');
-const { queryEntities, listEntities, decodeLastEvaluatedKey } = require('../lib/dynamodb');
+const { queryEntities, decodeLastEvaluatedKey } = require('../lib/dynamodb');
 const { buildOrderSummary, calculateOutstandingCreditInPeriod } = require('../lib/orderSummary');
 const { createAuditEntry } = require('../lib/audit');
 const { getInitialCreditPayment, classifyRepaymentAllocations } = require('../lib/creditPayments');
@@ -91,44 +90,6 @@ const getLocalTodayStartUtc = (offsetMinutes = MALAWI_OFFSET_MINUTES) => {
   return new Date(localMidnightUtcMs - offsetMinutes * 60000);
 };
 
-const getLocalDateKey = (dateValue, offsetMinutes = MALAWI_OFFSET_MINUTES) => {
-  const value = dateValue ? new Date(dateValue) : new Date();
-  const localMs = value.getTime() + offsetMinutes * 60000;
-  const localDate = new Date(localMs);
-  return localDate.toISOString().slice(0, 10);
-};
-
-const ensureOpeningStockSnapshot = async (barId, productId, productRecord, snapshotDate, source = 'daily_snapshot', recordedBy = 'system') => {
-  if (!barId || !productId) {
-    return null;
-  }
-
-  const existingSnapshot = await StockSnapshot.findOne({
-    barId,
-    productId,
-    snapshotDate,
-    source
-  });
-
-  if (existingSnapshot) {
-    return existingSnapshot;
-  }
-
-  const openingQty = Number(productRecord?.currentStock || 0);
-  const snapshot = new StockSnapshot({
-    barId,
-    productId,
-    snapshotDate,
-    openingQty,
-    source,
-    recordedBy,
-    createdAt: new Date().toISOString()
-  });
-
-  await snapshot.save();
-  return snapshot;
-};
-
 const cleanProductName = (value) => {
   if (value === null || value === undefined) {
     return '';
@@ -144,43 +105,28 @@ router.get('/', async (req, res) => {
   try {
     const limit = req.query.limit ? Number(req.query.limit) : 20;
     const pageToken = req.query.lastKey ? decodeLastEvaluatedKey(req.query.lastKey) : null;
-    // Get raw dates but don't pass to DynamoDB filter - will filter in app instead
     const startDateStr = req.query.startDate ? parseLocalDateBoundary(req.query.startDate, false) : null;
     const endDateStr = req.query.endDate ? parseLocalDateBoundary(req.query.endDate, true) : null;
     const includeReversed = req.query.includeReversed !== 'false';
 
-    const pageOffset = Number.isInteger(pageToken?.offset) && pageToken.offset >= 0 ? pageToken.offset : 0;
-    let orders = await listEntities('order');
+    const lastEvaluatedKey = pageToken?.pk && pageToken?.sk ? pageToken : null;
+    const { items: orders = [], lastEvaluatedKey: nextKey } = await queryEntities('order', {
+      barId: req.user.barId,
+      startDate: startDateStr,
+      endDate: endDateStr,
+      includeReversed,
+      limit,
+      scanIndexForward: false,
+      lastEvaluatedKey
+    });
 
-    if (!includeReversed) {
-      orders = orders.filter((order) => !order.reversed);
-    }
-    
-    // Filter by date in application layer
-    if (startDateStr || endDateStr) {
-      orders = orders.filter((order) => {
-        const orderDate = order.createdAt;
-        if (startDateStr && orderDate < startDateStr) return false;
-        if (endDateStr && orderDate > endDateStr) return false;
-        return true;
-      });
-      console.debug('DEBUG /orders -> after date filter:', orders.length, 'orders');
-    }
-    
-    const filteredOrders = orders.sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
-    const paginatedOrders = filteredOrders.slice(pageOffset, pageOffset + limit);
-    const enrichedOrders = paginatedOrders.map((order) => ({
+    const enrichedOrders = orders.map((order) => ({
       ...order,
       items: (order.items || []).map((item) => ({
         ...item,
         productName: item.productName || item.product?.name || 'Product'
       }))
     }));
-
-    const nextOffset = pageOffset + paginatedOrders.length;
-    const nextKey = nextOffset < filteredOrders.length
-      ? Buffer.from(JSON.stringify({ offset: nextOffset })).toString('base64')
-      : null;
 
     console.debug('DEBUG /orders -> returned:', enrichedOrders.length, 'orders, nextKey:', Boolean(nextKey));
 
@@ -287,6 +233,19 @@ router.get('/summary', async (req, res) => {
       const productSalesMap = {};
       const products = await Product.find({ barId: req.user.barId });
       const productMap = new Map((products || []).map((product) => [String(product._id || product.id), product]));
+      (products || []).forEach((product) => {
+        const productId = String(product._id || product.id || '').trim();
+        if (!productId) return;
+        productSalesMap[productId] = {
+          productId,
+          name: product.name || 'Product',
+          soldQuantity: 0,
+          totalAmount: 0,
+          closingQty: Number(product.currentStock || 0),
+          currentStock: Number(product.currentStock || 0),
+          purchaseOrdersQty: 0
+        };
+      });
       const purchaseOrdersInRange = await PurchaseOrder.find({
         barId: req.user.barId,
         status: 'received',
@@ -370,7 +329,7 @@ router.get('/summary', async (req, res) => {
       periodCreditOrders.forEach((order) => addOutstandingCustomer(order, 'periodOutstandingBalance'));
       const allOutstandingCustomers = Object.values(outstandingCustomersMap)
         .sort((a, b) => b.totalOutstandingBalance - a.totalOutstandingBalance);
-      const outstandingCustomers = allOutstandingCustomers.slice(0, 20);
+      const outstandingCustomers = allOutstandingCustomers;
       const totalCreditOutstanding = allTenantOrders
         .filter((order) => isOpenCreditOrder(order))
         .reduce((sum, order) => sum + getOutstandingBalance(order), 0);
@@ -776,22 +735,9 @@ router.get('/summary', async (req, res) => {
     });
 
     const productSalesMap = {};
-    const openingStockSnapshots = {};
-
     for (const product of products || []) {
       const productId = String(product._id || product.id || '');
       if (!productId) continue;
-
-      const snapshotDate = getLocalDateKey(startDate || new Date(), MALAWI_OFFSET_MINUTES);
-      const snapshot = await StockSnapshot.findOne({
-        barId: req.user.barId,
-        productId,
-        snapshotDate,
-        source: 'daily_snapshot'
-      });
-
-      const resolvedSnapshot = snapshot || await ensureOpeningStockSnapshot(req.user.barId, productId, product, snapshotDate, 'daily_snapshot', 'system');
-      openingStockSnapshots[productId] = resolvedSnapshot;
 
       if (productId && !productSalesMap[productId]) {
         productSalesMap[productId] = {
@@ -803,7 +749,7 @@ router.get('/summary', async (req, res) => {
           closingQty: 0,
           currentStock: Number(product.currentStock || 0),
           purchaseOrdersQty: 0,
-          snapshotOpeningQty: resolvedSnapshot ? Number(resolvedSnapshot.openingQty || 0) : null
+          snapshotOpeningQty: null
         };
       }
     }
@@ -862,13 +808,9 @@ router.get('/summary', async (req, res) => {
       const currentStock = Number(productRecord?.currentStock || productSalesMap[productId].currentStock || 0);
       const netChangeSinceStart = Number(stockChangesSinceStart[productId] || 0);
       const soldQuantity = Number(productSalesMap[productId].soldQuantity || 0);
-      const snapshot = openingStockSnapshots[productId];
-
       productSalesMap[productId].currentStock = currentStock;
       productSalesMap[productId].closingQty = currentStock;
-      productSalesMap[productId].startingQty = hasStartDate
-        ? (snapshot ? Number(snapshot.openingQty || 0) : currentStock + soldQuantity - netChangeSinceStart)
-        : (snapshot ? Number(snapshot.openingQty || 0) : null);
+      productSalesMap[productId].startingQty = null;
       productSalesMap[productId].purchaseOrdersQty = Number(productSalesMap[productId].purchaseOrdersQty || 0);
     });
 
