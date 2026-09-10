@@ -140,8 +140,8 @@ router.get('/', async (req, res) => {
   }
 });
 
-const resolveOrderProductNames = async (orders = [], barId) => {
-  const products = await Product.find({ barId });
+const resolveOrderProductNames = async (orders = [], barId, providedProducts = null) => {
+  const products = providedProducts || await Product.find({ barId });
   const productMap = new Map((products || []).map((product) => [String(product._id || product.id), product]));
 
   return (orders || []).map((order) => ({
@@ -210,10 +210,12 @@ router.get('/summary', async (req, res) => {
     }
 
     const { items: orders = [] } = await queryEntities('order', queryOptions);
-    const enrichedOrders = await resolveOrderProductNames(orders, req.user.barId);
+    const isLightSummary = String(req.query.light || '').toLowerCase() === 'true';
+    const summaryProducts = isLightSummary ? [] : await Product.find({ barId: req.user.barId });
+    const enrichedOrders = await resolveOrderProductNames(orders, req.user.barId, summaryProducts);
     const summary = buildOrderSummary(enrichedOrders);
 
-    if (String(req.query.light || '').toLowerCase() === 'true') {
+    if (isLightSummary) {
       return res.json({
         totalSales: summary.totalSales,
         totalProfit: summary.totalProfit,
@@ -231,9 +233,8 @@ router.get('/summary', async (req, res) => {
 
     if (optimizedSummary) {
       const productSalesMap = {};
-      const products = await Product.find({ barId: req.user.barId });
-      const productMap = new Map((products || []).map((product) => [String(product._id || product.id), product]));
-      (products || []).forEach((product) => {
+      const productMap = new Map((summaryProducts || []).map((product) => [String(product._id || product.id), product]));
+      (summaryProducts || []).forEach((product) => {
         const productId = String(product._id || product.id || '').trim();
         if (!productId) return;
         productSalesMap[productId] = {

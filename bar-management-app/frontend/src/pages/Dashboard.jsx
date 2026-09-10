@@ -147,13 +147,14 @@ const Dashboard = () => {
           if (customEndDate) params.endDate = customEndDate;
         }
 
-        const [productsRes, customersRes, lowStockRes, ordersRes, usersSummaryRes, summaryRes] = await Promise.all([
+        const [productsRes, customersRes, lowStockRes, ordersRes, usersSummaryRes, summaryRes, customersSummaryRes] = await Promise.all([
           api.get('/products'),
           api.get('/customers'),
           api.get('/products/low-stock'),
           api.get('/orders'),
           api.get('/users/summary'),
-          api.get('/orders/summary', { params })
+          api.get('/orders/summary', { params }),
+          api.get('/customers/summary')
         ].map((promise) => promise.catch((err) => err)));
 
         const products = productsRes instanceof Error ? [] : productsRes.data || [];
@@ -167,6 +168,7 @@ const Dashboard = () => {
         const recent = ordersArray.slice(0, 5);
         const userSummary = usersSummaryRes instanceof Error ? {} : usersSummaryRes.data || {};
         const summaryData = summaryRes instanceof Error ? {} : summaryRes.data || {};
+        const customersSummary = customersSummaryRes instanceof Error ? {} : customersSummaryRes.data || {};
         const activeSalesAccounts = Number(userSummary.activeSalesAccounts || 0);
 
         setStats({
@@ -179,7 +181,7 @@ const Dashboard = () => {
           reversedOrders: summaryData.reversedOrders || 0,
           lowStock: lowStock.length || 0,
           totalProducts: products.length || 0,
-          totalCustomers: customers.length || 0,
+          totalCustomers: Number(customersSummary.totalCustomerRecords ?? customers.length ?? 0),
           customersServed: summaryData.customersServedCount || 0,
           totalItemsSold: summaryData.totalQuantitySold || 0,
           activeSalesAccounts,

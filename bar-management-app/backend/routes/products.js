@@ -50,11 +50,11 @@ router.get('/', async (req, res) => {
       return res.json(enrichedProducts);
     }
 
-    if (lastKey) {
+    if (lastKey || limit) {
       const options = {
         barId: req.user.barId,
-        limit: limit || 20,
-        lastEvaluatedKey: lastKey
+        limit: Math.min(Math.max(Number(limit) || 20, 1), 100),
+        ...(lastKey ? { lastEvaluatedKey: lastKey } : {})
       };
       const result = await queryEntities('product', options);
       const products = (result.items || []).map((product) => ({

@@ -142,7 +142,7 @@ async function queryEntities(entityType, options = {}) {
   };
 
   if (options.limit && Number.isFinite(Number(options.limit))) {
-    params.Limit = Number(options.limit);
+    params.Limit = Math.min(Math.max(Math.floor(Number(options.limit)), 1), 100);
   }
 
   if (useOrderGsi && options.scanIndexForward !== undefined) {
@@ -311,29 +311,44 @@ async function ensureTableExists() {
   return tableReadyPromise;
 }
 
-async function listEntities(entityType) {
+async function listEntities(entityType, options = {}) {
   await ensureTableExists();
   const tenantBarId = getTenantId();
   const entityPartitionKey = String(entityType).toUpperCase();
+  const hasOptions = Object.keys(options).length > 0;
+  const hasLimit = Number.isFinite(Number(options.limit)) && Number(options.limit) > 0;
+  const limit = hasLimit ? Math.min(Math.floor(Number(options.limit)), 100) : null;
+  const exclusiveStartKey = options.lastEvaluatedKey || null;
   const items = [];
-  let exclusiveStartKey;
+  let nextKey = exclusiveStartKey;
+  let result;
 
   do {
-    const result = await docClient.send(new QueryCommand({
+    const expressionAttributeValues = {
+      ':pk': entityPartitionKey
+    };
+    const filterExpressions = [];
+
+    if (tenantBarId != null && !isGlobalAdmin()) {
+      filterExpressions.push('barId = :barId');
+      expressionAttributeValues[':barId'] = tenantBarId;
+    }
+
+    result = await docClient.send(new QueryCommand({
       TableName: TABLE_NAME,
-      ConsistentRead: true,
+      ConsistentRead: options.consistentRead === true,
       KeyConditionExpression: 'pk = :pk',
-      ExpressionAttributeValues: {
-        ':pk': entityPartitionKey
-      },
-      ...(exclusiveStartKey ? { ExclusiveStartKey: exclusiveStartKey } : {})
+      ExpressionAttributeValues: expressionAttributeValues,
+      ...(filterExpressions.length ? { FilterExpression: filterExpressions.join(' AND ') } : {}),
+      ...(limit ? { Limit: limit } : {}),
+      ...(nextKey ? { ExclusiveStartKey: nextKey } : {})
     }));
 
     items.push(...(result.Items || []));
-    exclusiveStartKey = result.LastEvaluatedKey;
-  } while (exclusiveStartKey);
+    nextKey = result.LastEvaluatedKey;
+  } while (nextKey && !limit);
 
-  return items
+  const filteredItems = items
     .map(fromDynamoItem)
     .filter((record) => {
       if (!record || record.entityType !== String(entityType).toLowerCase()) {
@@ -350,6 +365,13 @@ async function listEntities(entityType) {
       }
       return record.barId === tenantBarId;
     });
+
+  const paginatedResult = {
+    items: filteredItems,
+    lastEvaluatedKey: nextKey ? encodeLastEvaluatedKey(nextKey) : null
+  };
+
+  return hasOptions ? paginatedResult : paginatedResult.items;
 }
 
 async function listAllEntities(entityType) {
@@ -376,6 +398,37 @@ async function listAllEntities(entityType) {
   return items
     .map(fromDynamoItem)
     .filter((record) => record?.entityType === String(entityType).toLowerCase());
+}
+
+async function countEntities(entityType, options = {}) {
+  await ensureTableExists();
+  const entityPartitionKey = String(entityType).toUpperCase();
+  const tenantBarId = getTenantId();
+  const values = { ':pk': entityPartitionKey };
+  const filterExpressions = [];
+  let lastEvaluatedKey;
+  let count = 0;
+
+  if (tenantBarId != null && !isGlobalAdmin()) {
+    filterExpressions.push('barId = :barId');
+    values[':barId'] = tenantBarId;
+  }
+
+  do {
+    const result = await docClient.send(new QueryCommand({
+      TableName: TABLE_NAME,
+      Select: 'COUNT',
+      ConsistentRead: options.consistentRead === true,
+      KeyConditionExpression: 'pk = :pk',
+      ExpressionAttributeValues: values,
+      ...(filterExpressions.length ? { FilterExpression: filterExpressions.join(' AND ') } : {}),
+      ...(lastEvaluatedKey ? { ExclusiveStartKey: lastEvaluatedKey } : {})
+    }));
+    count += Number(result.Count || 0);
+    lastEvaluatedKey = result.LastEvaluatedKey;
+  } while (lastEvaluatedKey);
+
+  return count;
 }
 
 async function getEntity(entityType, id) {
@@ -482,6 +535,7 @@ module.exports = {
   generateId,
   listEntities,
   listAllEntities,
+  countEntities,
   queryEntities,
   decodeLastEvaluatedKey,
   getEntity,

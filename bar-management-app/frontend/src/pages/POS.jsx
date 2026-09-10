@@ -256,15 +256,35 @@ const POS = () => {
     };
   }, [productSearch, loadedProducts, selectedCategory]);
 
+  const loadAllCustomers = async () => {
+    const customers = [];
+    let lastKey = null;
+
+    do {
+      const response = await api.get('/customers', {
+        params: {
+          limit: 100,
+          ...(lastKey ? { lastKey } : {})
+        }
+      });
+      const data = response.data || {};
+      const page = Array.isArray(data) ? data : data.items || [];
+      customers.push(...page);
+      lastKey = Array.isArray(data) ? null : data.nextKey || null;
+    } while (lastKey);
+
+    return customers;
+  };
+
   const loadData = async () => {
     try {
-      const [customersRes, categoriesRes, requestsRes, paymentsRes] = await Promise.all([
-        api.get('/customers'),
+      const [customers, categoriesRes, requestsRes, paymentsRes] = await Promise.all([
+        loadAllCustomers(),
         api.get('/categories'),
         api.get('/customer-order-requests'),
         api.get('/customer-order-requests/payments')
       ]);
-      setCustomers(customersRes.data);
+      setCustomers(customers);
       setCategories(categoriesRes.data);
       setCustomerRequests((requestsRes.data || []).sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt)));
       setCustomerPayments(((paymentsRes.data || []).filter(p => (p.status || 'pending') === 'pending')).sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt)));
@@ -276,9 +296,7 @@ const POS = () => {
   };
 
   const refreshAfterCheckout = async () => {
-    const customersResponse = await api.get('/customers');
-    const customersData = customersResponse.data || [];
-    setCustomers(Array.isArray(customersData) ? customersData : customersData.items || []);
+    setCustomers(await loadAllCustomers());
     await loadProductPage();
   };
 

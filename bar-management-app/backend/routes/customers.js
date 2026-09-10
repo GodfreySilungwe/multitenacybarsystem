@@ -2,7 +2,7 @@ const express = require('express');
 const router = express.Router();
 const { protect, isBarOwnerOrSales } = require('../middleware/auth');
 const bcrypt = require('bcryptjs');
-const { listEntities, decodeLastEvaluatedKey } = require('../lib/dynamodb');
+const { listEntities, countEntities, decodeLastEvaluatedKey } = require('../lib/dynamodb');
 const Customer = require('../models/Customer');
 const Order = require('../models/Order');
 const Product = require('../models/Product');
@@ -24,6 +24,70 @@ const getOrderOutstandingBalance = (order) => {
   const amountPaid = toNumber(order?.amountPaid, 0);
   const recordedBalance = toNumber(order?.balanceDue, totalAmount - amountPaid);
   return Math.max(0, recordedBalance);
+};
+
+const buildCustomerCreditSummaries = async (customers, barId) => {
+  const customerIds = new Set((customers || []).map((customer) => String(customer._id || customer.id)));
+  if (customerIds.size === 0) {
+    return new Map();
+  }
+
+  const [orders, products] = await Promise.all([
+    Order.find({
+      barId,
+      reversed: { $ne: true },
+      paymentMethod: 'credit'
+    }),
+    Product.find({ barId })
+  ]);
+  const productMap = new Map((products || []).map((product) => [String(product._id || product.id), product]));
+  const ordersByCustomer = new Map();
+
+  for (const order of orders || []) {
+    const customerId = String(order.customer || order.customerId || '');
+    if (!customerIds.has(customerId)) continue;
+    if (!ordersByCustomer.has(customerId)) ordersByCustomer.set(customerId, []);
+    ordersByCustomer.get(customerId).push(order);
+  }
+
+  const summaries = new Map();
+  for (const [customerId, customerOrders] of ordersByCustomer.entries()) {
+    const summary = customerOrders
+      .sort((left, right) => String(left.createdAt || '').localeCompare(String(right.createdAt || '')))
+      .map((order) => {
+        const balanceDue = getOrderOutstandingBalance(order);
+        if (balanceDue <= 0) return null;
+
+        const orderProducts = (order.items || []).map((item) => {
+          const productId = item?.product?._id || item?.product || item?.productId;
+          const product = productId ? productMap.get(String(productId)) : null;
+          return {
+            name: product?.name || item.product?.name || 'Unknown product',
+            quantity: Number(item.quantity || 0),
+            price: Number(item.priceAtSale || 0),
+            subtotal: Number(item.subtotal || 0)
+          };
+        });
+
+        return {
+          _id: order._id,
+          orderNumber: order.orderNumber,
+          createdAt: order.createdAt,
+          date: order.createdAt ? new Date(order.createdAt).toLocaleDateString() : '',
+          totalAmount: Number(order.totalAmount || 0),
+          amountPaid: Number(order.amountPaid || 0),
+          balanceDue,
+          paymentStatus: order.paymentStatus || 'partial',
+          processedByName: order.processedByName || order.paymentProcessedByName || order.processedBy || order.paymentProcessedBy || 'Sales account',
+          salesAccount: order.processedByName || order.paymentProcessedByName || order.processedBy || order.paymentProcessedBy || 'Sales account',
+          products: orderProducts
+        };
+      })
+      .filter(Boolean);
+    summaries.set(customerId, summary);
+  }
+
+  return summaries;
 };
 
 const buildCustomerCreditSummary = async (customerId, barId) => {
@@ -136,25 +200,27 @@ const enrichCustomer = async (customer, barId) => {
 // Get all customers
 router.get('/', isBarOwnerOrSales, async (req, res) => {
   try {
-    const limit = req.query.limit ? Number(req.query.limit) : null;
-    const pageToken = req.query.lastKey ? decodeLastEvaluatedKey(req.query.lastKey) : null;
-    const allCustomers = await listEntities('customer');
-    const sortedCustomers = allCustomers.sort((a, b) => String(a.name || '').localeCompare(String(b.name || '')));
-    const pageOffset = Number.isInteger(pageToken?.offset) && pageToken.offset >= 0 ? pageToken.offset : 0;
-    const customers = limit
-      ? sortedCustomers.slice(pageOffset, pageOffset + limit)
-      : sortedCustomers;
-    const enrichedCustomers = await Promise.all(customers.map((customer) => enrichCustomer(customer, req.user.barId)));
+    const limit = Math.min(Math.max(Number(req.query.limit) || 50, 1), 100);
+    const lastEvaluatedKey = req.query.lastKey ? decodeLastEvaluatedKey(req.query.lastKey) : null;
+    const result = await listEntities('customer', {
+      barId: req.user.barId,
+      limit,
+      lastEvaluatedKey
+    });
+    const customers = (result.items || []).sort((a, b) => String(a.name || '').localeCompare(String(b.name || '')));
+    const summaries = await buildCustomerCreditSummaries(customers, req.user.barId);
+    const enrichedCustomers = customers.map((customer) => {
+      const creditSummary = summaries.get(String(customer._id || customer.id)) || [];
+      return {
+        ...customer,
+        creditBalance: creditSummary.reduce((sum, item) => sum + Number(item.balanceDue || 0), 0),
+        creditSummary,
+        accountUsername: customer.accountUsername || customer.username || '',
+        accountPassword: customer.accountPassword || customer.password || ''
+      };
+    });
 
-    if (limit || pageToken) {
-      const nextOffset = pageOffset + customers.length;
-      const nextKey = nextOffset < sortedCustomers.length
-        ? Buffer.from(JSON.stringify({ offset: nextOffset })).toString('base64')
-        : null;
-      return res.json({ items: enrichedCustomers, nextKey });
-    }
-
-    res.json(enrichedCustomers);
+    res.json({ items: enrichedCustomers, nextKey: result.lastEvaluatedKey });
   } catch (error) {
     res.status(500).json({ message: error.message });
   }
@@ -162,12 +228,15 @@ router.get('/', isBarOwnerOrSales, async (req, res) => {
 
 router.get('/summary', isBarOwnerOrSales, async (req, res) => {
   try {
-    const outstandingOrders = await Order.find({
+    const [outstandingOrders, totalCustomerRecords] = await Promise.all([
+      Order.find({
       barId: req.user.barId,
       reversed: { $ne: true },
       paymentMethod: 'credit',
       balanceDue: { $gt: 0 }
-    });
+      }),
+      countEntities('customer')
+    ]);
 
     const customerBalances = (outstandingOrders || []).reduce((acc, order) => {
       const customerId = String(order.customer || order.customerId || '').trim();
@@ -198,6 +267,7 @@ router.get('/summary', isBarOwnerOrSales, async (req, res) => {
 
     res.json({
       totalCustomers: customerIds.length,
+      totalCustomerRecords,
       customersWithCredit: creditAccounts.length,
       totalCreditOutstanding,
       topCreditAccounts: creditAccounts
