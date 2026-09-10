@@ -11,7 +11,6 @@ const CashChest = () => {
   const canManage = ['owner', 'manager'].includes(user?.role);
   const [session, setSession] = useState(null);
   const [history, setHistory] = useState([]);
-  const [dashboardSummary, setDashboardSummary] = useState({});
   const [loading, setLoading] = useState(true);
   const [message, setMessage] = useState('');
   const [error, setError] = useState('');
@@ -24,12 +23,8 @@ const CashChest = () => {
   const loadData = async () => {
     try {
       setLoading(true);
-      const [currentResponse, dashboardResponse] = await Promise.all([
-        api.get('/cash-chest/current'),
-        api.get('/orders/summary', { params: { range: 'today', optimized: 'true' } })
-      ]);
+      const currentResponse = await api.get('/cash-chest/current');
       setSession(currentResponse.data?.session || null);
-      setDashboardSummary(dashboardResponse.data || {});
       if (canManage) {
         const historyResponse = await api.get('/cash-chest/history');
         setHistory(historyResponse.data?.sessions || []);
@@ -87,8 +82,8 @@ const CashChest = () => {
   };
 
   const summary = session?.summary;
-  const cashReceivedDisplay = dashboardSummary.expectedHandoverValue ?? summary?.cashIn ?? 0;
-  const posCashSalesDisplay = dashboardSummary.directSales ?? summary?.cashSales ?? 0;
+  const cashReceivedDisplay = summary?.cashIn ?? 0;
+  const posCashSalesDisplay = summary?.cashSales ?? 0;
 
   if (loading) {
     return <PageContainer title="Cash Chest"><p>Loading cash chest...</p></PageContainer>;
