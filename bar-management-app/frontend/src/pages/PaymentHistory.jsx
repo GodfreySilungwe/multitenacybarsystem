@@ -41,7 +41,7 @@ const PaymentHistory = () => {
       try {
         const res = await api.get('/customer-order-requests/payments', { params: { summary: true } });
         const data = res.data || {};
-        setPayments(Array.isArray(data.payments) ? data.payments : []);
+        setPayments(Array.isArray(data) ? data : (Array.isArray(data.payments) ? data.payments : []));
       } catch (err) {
         console.error('Failed to load payments', err);
       } finally {
@@ -52,7 +52,12 @@ const PaymentHistory = () => {
     loadPayments();
   }, []);
 
-  const getEntryAmount = useCallback((entry) => Number(entry?.amount ?? entry?.amountRequested ?? entry?.amountApplied ?? 0), []);
+  const getEntryAmount = useCallback((entry) => {
+    const amount = [entry?.amountApplied, entry?.amountRequested, entry?.amount]
+      .map(Number)
+      .find((value) => Number.isFinite(value) && value > 0);
+    return amount || 0;
+  }, []);
 
   const visiblePayments = useMemo(() => {
     return (payments || []).filter((entry) => getEntryAmount(entry) > 0);
@@ -85,7 +90,7 @@ const PaymentHistory = () => {
 
   const groupPaymentsByMethod = useCallback((paymentItems = []) => {
     const aggregates = paymentItems.reduce((acc, payment) => {
-      const amount = Number(payment.amount || 0);
+      const amount = getEntryAmount(payment);
       if (amount <= 0) return acc;
       const method = formatMethodLabel(payment.paymentMethod || 'cash');
       acc[method] = (acc[method] || 0) + amount;
@@ -95,7 +100,7 @@ const PaymentHistory = () => {
     return Object.keys(aggregates)
       .map((method) => ({ method, amount: aggregates[method] }))
       .sort((a, b) => b.amount - a.amount);
-  }, [formatMethodLabel]);
+  }, [formatMethodLabel, getEntryAmount]);
 
   const summaryCards = useMemo(() => {
     const totals = {
@@ -108,7 +113,7 @@ const PaymentHistory = () => {
     (filteredPayments || []).forEach((entry) => {
       const status = entry.status || 'pending';
       if (totals[status] !== undefined) {
-        totals[status] += Number(entry.amount || entry.amountRequested || entry.amountApplied || 0);
+        totals[status] += getEntryAmount(entry);
       }
     });
 
@@ -118,7 +123,7 @@ const PaymentHistory = () => {
       { label: 'Rejected requests', value: totals.rejected, color: '#2ecc71' },
       { label: 'Reversed payments', value: totals.reversed, color: '#f39c12' }
     ];
-  }, [filteredPayments]);
+  }, [filteredPayments, getEntryAmount]);
 
   const directSalesByMethod = useMemo(() => {
     return groupPaymentsByMethod(visiblePayments.filter((entry) => entry.source === 'pos_sale'));
@@ -288,11 +293,11 @@ const PaymentHistory = () => {
                       <div style={styles.customerName}>{entry.customerName || 'Walk-in customer'}</div>
                       <div style={styles.meta}>Method: {entry.paymentMethod || 'cash'}</div>
                     </div>
-                    <div style={styles.amount}>{formatPriceMK(entry.amount || entry.amountRequested || entry.amountApplied || 0)}</div>
+                    <div style={styles.amount}>{formatPriceMK(getEntryAmount(entry))}</div>
                   </div>
                   <div style={styles.row}>
                     <div style={styles.meta}>Type: {entry.source === 'pos_sale' ? 'POS sale' : entry.source === 'bill_settlement' ? 'Bill settlement' : 'Account payment'}</div>
-                    <div style={styles.meta}>Processed by: {entry.approvedBy || entry.processedByName || entry.approvedByName || '—'}</div>
+                    <div style={styles.meta}>Processed by: {entry.approvedByName || entry.processedByName || entry.approvedBy || '—'}</div>
                   </div>
                   <div style={styles.row}>
                     <div style={styles.meta}>{entry.reference || 'No reference provided'}</div>

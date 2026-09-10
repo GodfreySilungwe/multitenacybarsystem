@@ -113,6 +113,8 @@ const Customers = () => {
     await loadCustomers({ reset: false, lastKey: nextKey });
   };
 
+  const getSettlementAmount = (entry) => Number(entry?.amount ?? entry?.amountApplied ?? entry?.amountRequested ?? 0);
+
   const handleSubmit = async (e) => {
     e.preventDefault();
     try {
@@ -376,7 +378,7 @@ const Customers = () => {
                 <div style={styles.creditHistoryHeader}>Recent settlements</div>
                 {(settlements || [])
                   .filter((entry) => String(entry.customerId || '') === String(customer._id))
-                  .filter((entry) => Number(entry.amount ?? entry.amountApplied ?? entry.amountRequested ?? 0) > 0)
+                  .filter((entry) => getSettlementAmount(entry) > 0)
                   .slice(0, 5)
                   .map((entry) => (
                   <div key={entry._id} style={styles.creditHistoryItem}>
@@ -385,8 +387,8 @@ const Customers = () => {
                       <span style={styles.creditHistoryOrder}>{entry.paymentMethod || 'cash'}</span>
                     </div>
                     <div style={styles.creditHistoryMeta}>
-                      <span>Amount: {formatPriceMK(entry.amount || 0)}</span>
-                      <span style={styles.approverBadge}>Sales: {entry.approvedBy || entry.processedByName || entry.salesAccount || '—'}</span>
+                      <span>Amount: {formatPriceMK(getSettlementAmount(entry))}</span>
+                      <span style={styles.approverBadge}>Sales: {entry.approvedByName || entry.processedByName || entry.salesAccount || 'Sales account'}</span>
                     </div>
                     <div style={styles.creditHistoryMeta}>
                       <span>Status: {entry.status || 'confirmed'}</span>
@@ -396,7 +398,7 @@ const Customers = () => {
                 ))}
                 {!(settlements || []).some((entry) => (
                   String(entry.customerId || '') === String(customer._id)
-                  && Number(entry.amount ?? entry.amountApplied ?? entry.amountRequested ?? 0) > 0
+                  && getSettlementAmount(entry) > 0
                 )) && (
                   <div style={styles.creditHistoryProducts}>No settlement history yet.</div>
                 )}
