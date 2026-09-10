@@ -6,6 +6,7 @@ const CustomerPaymentRequest = require('../models/CustomerPaymentRequest');
 const Product = require('../models/Product');
 const Customer = require('../models/Customer');
 const Order = require('../models/Order');
+const User = require('../models/User');
 const { recomputeCustomerCreditBalance } = require('../lib/credit');
 
 router.use(protect);
@@ -42,7 +43,7 @@ const validateCustomerOrderItems = async (items = [], barId) => {
   };
 };
 
-const enrichPaymentRequest = async (paymentRequest) => {
+const enrichPaymentRequest = async (paymentRequest, salesUsers = new Map()) => {
   if (!paymentRequest) {
     return paymentRequest;
   }
@@ -51,6 +52,13 @@ const enrichPaymentRequest = async (paymentRequest) => {
     const customer = await Customer.findOne({ _id: paymentRequest.customerId, barId: paymentRequest.barId });
     if (customer) {
       paymentRequest.customerName = customer.name || customer.fullName || paymentRequest.customerName || 'Customer';
+    }
+  }
+
+  if (!paymentRequest.approvedByName && paymentRequest.approvedBy) {
+    const approvedByUser = salesUsers.get(String(paymentRequest.approvedBy));
+    if (approvedByUser) {
+      paymentRequest.approvedByName = approvedByUser.fullName || approvedByUser.username || approvedByUser.email || 'Sales account';
     }
   }
 
@@ -379,7 +387,9 @@ router.get('/payments', async (req, res) => {
       query.customerId = customerId;
     }
     const payments = await CustomerPaymentRequest.find(query).sort({ createdAt: -1 });
-    const enrichedPayments = await Promise.all((payments || []).map(enrichPaymentRequest));
+    const users = await User.find({ barId: req.user.barId });
+    const salesUsers = new Map((users || []).map((user) => [String(user._id || user.id), user]));
+    const enrichedPayments = await Promise.all((payments || []).map((payment) => enrichPaymentRequest(payment, salesUsers)));
     res.json(enrichedPayments);
   } catch (error) {
     res.status(500).json({ message: error.message });
@@ -463,6 +473,8 @@ router.patch('/payments/:id/confirm', isBarOwnerOrSales, async (req, res) => {
 
     paymentRequest.status = 'confirmed';
     paymentRequest.amountApplied = appliedAmount;
+    paymentRequest.approvedBy = req.user._id || req.user.id;
+    paymentRequest.approvedByName = req.user.fullName || req.user.username || req.user.email || 'Sales account';
     paymentRequest.confirmedAt = new Date().toISOString();
     await paymentRequest.save();
 
