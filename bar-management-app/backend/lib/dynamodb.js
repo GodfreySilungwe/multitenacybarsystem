@@ -346,7 +346,7 @@ async function listEntities(entityType, options = {}) {
 
     items.push(...(result.Items || []));
     nextKey = result.LastEvaluatedKey;
-  } while (nextKey && !limit);
+  } while (nextKey && (!limit || items.length < limit));
 
   const filteredItems = items
     .map(fromDynamoItem)
