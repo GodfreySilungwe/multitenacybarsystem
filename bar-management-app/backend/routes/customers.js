@@ -261,7 +261,7 @@ router.get('/summary', isBarOwnerOrSales, async (req, res) => {
       };
     })
       .sort((a, b) => b.balance - a.balance)
-      .slice(0, 10);
+      .slice(0, 20);
 
     const totalCreditOutstanding = creditAccounts.reduce((sum, customer) => sum + customer.balance, 0);
 
