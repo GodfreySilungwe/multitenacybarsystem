@@ -120,13 +120,8 @@ router.get('/', async (req, res) => {
       lastEvaluatedKey
     });
 
-    const enrichedOrders = orders.map((order) => ({
-      ...order,
-      items: (order.items || []).map((item) => ({
-        ...item,
-        productName: item.productName || item.product?.name || 'Product'
-      }))
-    }));
+    const products = await Product.find({ barId: req.user.barId });
+    const enrichedOrders = await resolveOrderProductNames(orders, req.user.barId, products);
 
     console.debug('DEBUG /orders -> returned:', enrichedOrders.length, 'orders, nextKey:', Boolean(nextKey));
 

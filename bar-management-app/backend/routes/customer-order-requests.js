@@ -237,6 +237,7 @@ const product = await Product.findOne({ _id: item.productId || item.product || i
 
         orderItems.push({
           product: product._id,
+          productName: product.name,
           quantity,
           priceAtSale: sellingPrice,
           subtotal
