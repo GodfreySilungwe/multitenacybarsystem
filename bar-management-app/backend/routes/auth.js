@@ -4,7 +4,7 @@ const bcrypt = require('bcryptjs');
 const router = express.Router();
 const User = require('../models/User');
 const Customer = require('../models/Customer');
-const { protect } = require('../middleware/auth');
+const { protect, hasSubscriptionAccess } = require('../middleware/auth');
 
 const DEFAULT_JWT_SECRET = 'secret_key';
 const JWT_SECRET = process.env.JWT_SECRET || process.env.JWT_SECRET_KEY || DEFAULT_JWT_SECRET;
@@ -188,6 +188,10 @@ router.post('/login', async (req, res) => {
       const bar = await require('../models/Bar').findById(user.barId);
       if (!bar || bar.status === 'suspended' || bar.status === 'deleted') {
         return res.status(403).json({ message: 'This bar is currently suspended and cannot operate.' });
+      }
+
+      if (!(await hasSubscriptionAccess(user.barId))) {
+        return res.status(403).json({ message: 'This bar subscription has expired. Please contact the system owner.' });
       }
     }
 

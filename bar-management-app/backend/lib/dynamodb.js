@@ -531,6 +531,7 @@ async function findByField(entityType, field, value) {
 
 module.exports = {
   TABLE_NAME,
+  toDynamoItem,
   ensureTableExists,
   generateId,
   listEntities,
@@ -544,6 +545,5 @@ module.exports = {
   deleteEntity,
   transactWrite,
   findByField,
-  fromDynamoItem,
-  toDynamoItem
+  fromDynamoItem
 };

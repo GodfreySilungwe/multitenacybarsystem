@@ -134,6 +134,7 @@ const customerOrderRequestRoutes = require('./routes/customer-order-requests');
 const userRoutes = require('./routes/users');
 const auditRoutes = require('./routes/audit');
 const cashChestRoutes = require('./routes/cash-chest');
+const subscriptionRoutes = require('./routes/subscriptions');
 
 // Use routes
 app.use(['/api/auth', '/auth'], authRoutes);
@@ -148,6 +149,7 @@ app.use(['/api/customer-order-requests', '/customer-order-requests'], customerOr
 app.use(['/api/users', '/users'], userRoutes);
 app.use(['/api/audit', '/audit'], auditRoutes);
 app.use(['/api/cash-chest', '/cash-chest'], cashChestRoutes);
+app.use(['/api/subscriptions', '/subscriptions'], subscriptionRoutes);
 
 // Root info route
 app.get('/', (req, res) => {

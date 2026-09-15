@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { Fragment, useState, useEffect } from 'react';
 import { useAuth } from '../context/AuthContext';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 import { 
@@ -47,6 +47,11 @@ const Dashboard = () => {
     pendingApplicationRatio: 0
   });
   const [globalBars, setGlobalBars] = useState([]);
+  const [subscriptions, setSubscriptions] = useState([]);
+  const [subscriptionForm, setSubscriptionForm] = useState(null);
+  const [subscriptionHistory, setSubscriptionHistory] = useState({});
+  const [historyBarId, setHistoryBarId] = useState(null);
+  const [subscriptionMessage, setSubscriptionMessage] = useState('');
   const [recentOrders, setRecentOrders] = useState([]);
   const [lowStockProducts, setLowStockProducts] = useState([]);
   const [creditSettlementSummary, setCreditSettlementSummary] = useState([]);
@@ -105,13 +110,15 @@ const Dashboard = () => {
       setError(null);
 
       if (isGlobalOwner) {
-        const [barsRes, applicationsRes] = await Promise.all([
+        const [barsRes, applicationsRes, subscriptionsRes] = await Promise.all([
           api.get('/bars'),
-          api.get('/bar-applications')
+          api.get('/bar-applications'),
+          api.get('/subscriptions')
         ]);
 
         const bars = barsRes.data || [];
         const applications = applicationsRes.data || [];
+        const subscriptionData = subscriptionsRes.data || [];
         const activeBars = bars.filter((bar) => bar.status === 'active').length;
         const suspendedBars = bars.filter((bar) => bar.status === 'suspended').length;
         const deletedBars = bars.filter((bar) => bar.status === 'deleted').length;
@@ -133,6 +140,7 @@ const Dashboard = () => {
           pendingApplicationRatio
         }));
         setGlobalBars(bars.slice(0, 5));
+        setSubscriptions(subscriptionData);
         setRecentOrders([]);
         setLowStockProducts([]);
         setLastUpdated(new Date().toLocaleTimeString());
@@ -224,6 +232,49 @@ const Dashboard = () => {
       } else {
         setLoading(false);
       }
+    }
+  };
+
+  const openSubscriptionForm = (subscription) => {
+    setSubscriptionMessage('');
+    setSubscriptionForm({
+      barId: subscription.barId,
+      barName: subscription.barName,
+      paymentDate: new Date().toISOString().slice(0, 10),
+      amount: '',
+      billingMonths: '1',
+      paymentMethod: 'bank transfer',
+      reference: '',
+      note: ''
+    });
+  };
+
+  const confirmSubscriptionPayment = async (event) => {
+    event.preventDefault();
+    if (!subscriptionForm) return;
+
+    try {
+      await api.post(`/subscriptions/${subscriptionForm.barId}/confirm-payment`, subscriptionForm);
+      setSubscriptionForm(null);
+      setSubscriptionMessage(`Payment confirmed for ${subscriptionForm.barName}. Access period updated.`);
+      await fetchDashboardData();
+    } catch (err) {
+      setSubscriptionMessage(err.response?.data?.message || 'Failed to confirm subscription payment.');
+    }
+  };
+
+  const loadSubscriptionHistory = async (barId) => {
+    if (historyBarId === barId) {
+      setHistoryBarId(null);
+      return;
+    }
+
+    try {
+      const response = await api.get(`/subscriptions/${barId}/history`);
+      setSubscriptionHistory((previous) => ({ ...previous, [barId]: response.data || [] }));
+      setHistoryBarId(barId);
+    } catch (err) {
+      setSubscriptionMessage(err.response?.data?.message || 'Failed to load payment history.');
     }
   };
 
@@ -391,6 +442,75 @@ const Dashboard = () => {
                         <td>{bar.code || '-'}</td>
                         <td>{bar.status || 'active'}</td>
                       </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </UnifiedCard>
+
+          <UnifiedCard title="Subscription Payments">
+            {subscriptionMessage && <p style={styles.subscriptionMessage}>{subscriptionMessage}</p>}
+            <div style={styles.subscriptionSummary}>
+              {[
+                ['Active', subscriptions.filter((item) => item.status === 'active').length, styles.subscriptionActive],
+                ['Grace period', subscriptions.filter((item) => item.status === 'grace_period').length, styles.subscriptionGrace],
+                ['Awaiting payment', subscriptions.filter((item) => item.status === 'awaiting_payment').length, styles.subscriptionPending],
+                ['Expired', subscriptions.filter((item) => item.status === 'expired').length, styles.subscriptionExpired]
+              ].map(([label, value, style]) => (
+                <div key={label} style={{ ...styles.subscriptionMetric, ...style }}>
+                  <span>{label}</span><strong>{value}</strong>
+                </div>
+              ))}
+            </div>
+            {subscriptions.length === 0 ? (
+              <p style={styles.emptyStateText}>No bars available for subscription management.</p>
+            ) : (
+              <div style={styles.tableWrapper}>
+                <table style={styles.table}>
+                  <thead><tr><th>Bar</th><th>Status</th><th>Paid through</th><th>Grace ends</th><th>Action</th></tr></thead>
+                  <tbody>
+                    {subscriptions.map((subscription) => (
+                      <Fragment key={subscription.barId}>
+                        <tr style={styles.tableRow}>
+                          <td><strong>{subscription.barName}</strong><br /><small>{subscription.ownerName}</small></td>
+                          <td><span style={{ ...styles.statusBadge, ...(subscription.status === 'active' ? styles.confirmed : subscription.status === 'expired' ? styles.subscriptionExpired : styles.pending) }}>{subscription.status.replace('_', ' ')}</span></td>
+                          <td>{subscription.paidThrough ? new Date(subscription.paidThrough).toLocaleDateString() : '-'}</td>
+                          <td>{subscription.graceEndsAt ? new Date(subscription.graceEndsAt).toLocaleDateString() : '-'}</td>
+                          <td style={styles.subscriptionActions}>
+                            <button type="button" style={styles.confirmBtn} onClick={() => openSubscriptionForm(subscription)}>Confirm payment</button>
+                            <button type="button" style={styles.cancelBtn} onClick={() => loadSubscriptionHistory(subscription.barId)}>{historyBarId === subscription.barId ? 'Hide history' : 'History'}</button>
+                          </td>
+                        </tr>
+                        {subscriptionForm?.barId === subscription.barId && (
+                          <tr><td colSpan="5" style={styles.subscriptionFormCell}>
+                            <form onSubmit={confirmSubscriptionPayment} style={styles.subscriptionForm}>
+                              <strong>Confirm payment for {subscriptionForm.barName}</strong>
+                              <input type="date" required value={subscriptionForm.paymentDate} onChange={(event) => setSubscriptionForm({ ...subscriptionForm, paymentDate: event.target.value })} />
+                              <input type="number" required min="0.01" step="0.01" placeholder="Amount" value={subscriptionForm.amount} onChange={(event) => setSubscriptionForm({ ...subscriptionForm, amount: event.target.value })} />
+                              <select value={subscriptionForm.billingMonths} onChange={(event) => setSubscriptionForm({ ...subscriptionForm, billingMonths: event.target.value })}><option value="1">1 month</option><option value="3">3 months</option><option value="6">6 months</option><option value="12">12 months</option></select>
+                              <input type="text" placeholder="Payment method" value={subscriptionForm.paymentMethod} onChange={(event) => setSubscriptionForm({ ...subscriptionForm, paymentMethod: event.target.value })} />
+                              <input type="text" required placeholder="Payment reference" value={subscriptionForm.reference} onChange={(event) => setSubscriptionForm({ ...subscriptionForm, reference: event.target.value })} />
+                              <button type="submit" style={styles.confirmBtn}>Save confirmation</button>
+                              <button type="button" style={styles.cancelBtn} onClick={() => setSubscriptionForm(null)}>Cancel</button>
+                            </form>
+                          </td></tr>
+                        )}
+                        {historyBarId === subscription.barId && (
+                          <tr><td colSpan="5" style={styles.subscriptionHistoryCell}>
+                            {(subscriptionHistory[subscription.barId] || []).length === 0 ? 'No payment history recorded.' : (
+                              <div style={styles.historyList}>
+                                {subscriptionHistory[subscription.barId].map((payment) => (
+                                  <div key={payment._id || payment.id} style={styles.historyItem}>
+                                    <span>{payment.paymentDate ? new Date(payment.paymentDate).toLocaleDateString() : '-'} · {payment.paymentMethod || 'manual'} · {payment.reference}</span>
+                                    <strong>{Number(payment.amount || 0).toLocaleString()}</strong>
+                                  </div>
+                                ))}
+                              </div>
+                            )}
+                          </td></tr>
+                        )}
+                      </Fragment>
                     ))}
                   </tbody>
                 </table>
@@ -984,6 +1104,78 @@ const styles = {
     color: '#444',
     lineHeight: '1.7',
     marginBottom: '12px'
+  },
+  subscriptionMessage: {
+    padding: '10px 12px',
+    borderRadius: '8px',
+    backgroundColor: '#ecfdf5',
+    color: '#166534',
+    marginTop: 0
+  },
+  subscriptionSummary: {
+    display: 'grid',
+    gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))',
+    gap: '10px',
+    marginBottom: '18px'
+  },
+  subscriptionMetric: {
+    display: 'flex',
+    justifyContent: 'space-between',
+    gap: '8px',
+    padding: '12px',
+    borderRadius: '8px',
+    border: '1px solid #e5e7eb',
+    color: '#374151',
+    fontSize: '13px'
+  },
+  subscriptionActive: { backgroundColor: '#ecfdf5' },
+  subscriptionGrace: { backgroundColor: '#fffbeb' },
+  subscriptionPending: { backgroundColor: '#fefce8' },
+  subscriptionExpired: { backgroundColor: '#fef2f2', color: '#991b1b' },
+  subscriptionFormCell: {
+    padding: '12px',
+    backgroundColor: '#f8fafc',
+    borderBottom: '1px solid #e5e7eb'
+  },
+  subscriptionForm: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: '8px',
+    flexWrap: 'wrap'
+  },
+  subscriptionActions: {
+    display: 'flex',
+    gap: '6px',
+    flexWrap: 'wrap'
+  },
+  subscriptionHistoryCell: {
+    padding: '10px 12px',
+    backgroundColor: '#f8fafc',
+    color: '#475569',
+    fontSize: '13px'
+  },
+  historyList: {
+    display: 'flex',
+    flexDirection: 'column',
+    gap: '6px'
+  },
+  historyItem: {
+    display: 'flex',
+    justifyContent: 'space-between',
+    gap: '12px',
+    padding: '7px 9px',
+    borderRadius: '6px',
+    backgroundColor: 'white',
+    border: '1px solid #e2e8f0'
+  },
+  cancelBtn: {
+    padding: '6px 10px',
+    borderRadius: '8px',
+    border: '1px solid #cbd5e1',
+    backgroundColor: 'white',
+    color: '#334155',
+    cursor: 'pointer',
+    fontSize: '12px'
   },
   bulletList: {
     marginLeft: '20px',

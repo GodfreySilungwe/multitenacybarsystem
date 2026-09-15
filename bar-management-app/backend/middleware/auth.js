@@ -2,6 +2,7 @@ const jwt = require('jsonwebtoken');
 const User = require('../models/User');
 const Customer = require('../models/Customer');
 const Bar = require('../models/Bar');
+const BarSubscription = require('../models/BarSubscription');
 const { setTenantContext } = require('../lib/tenantContext');
 
 const DEFAULT_JWT_SECRET = 'secret_key';
@@ -20,6 +21,16 @@ const verifyToken = (token) => {
   }
 
   throw lastError;
+};
+
+const hasSubscriptionAccess = async (barId) => {
+  const subscription = await BarSubscription.findOne({ barId });
+  if (!subscription) {
+    return true;
+  }
+
+  const graceEndsAt = new Date(subscription.graceEndsAt || subscription.paidThrough || 0);
+  return !Number.isNaN(graceEndsAt.getTime()) && new Date() <= graceEndsAt;
 };
 
 const optionalAuth = async (req, res, next) => {
@@ -79,6 +90,10 @@ const protect = async (req, res, next) => {
     // Only block requests when the bar exists and is explicitly suspended or deleted.
     if (bar && (bar.status === 'suspended' || bar.status === 'deleted')) {
       return res.status(403).json({ message: 'This bar is currently suspended and cannot operate.' });
+    }
+
+    if (!(await hasSubscriptionAccess(req.user.barId))) {
+      return res.status(403).json({ message: 'This bar subscription has expired. Please contact the system owner.' });
     }
   }
 
@@ -146,4 +161,4 @@ const isManagerOrOwner = (req, res, next) => {
   }
 };
 
-module.exports = { optionalAuth, protect, isOwner, isBarOwner, isBarOwnerOrManager, isBarOwnerOrSales, isGlobalOwner, isSalesOrOwner, isManagerOrOwner };
+module.exports = { optionalAuth, protect, isOwner, isBarOwner, isBarOwnerOrManager, isBarOwnerOrSales, isGlobalOwner, isSalesOrOwner, isManagerOrOwner, hasSubscriptionAccess };
