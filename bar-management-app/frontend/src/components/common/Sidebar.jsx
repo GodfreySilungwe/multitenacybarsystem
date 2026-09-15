@@ -92,7 +92,7 @@ const Sidebar = ({ isMobileOpen = false, onClose = () => {} }) => {
     }
 
     if (showGlobalOwner) {
-      return item.globalOnly === true || item.path === '/' || item.ownerOnly === true;
+      return item.globalOnly === true || item.path === '/dashboard' || item.path === '/' || item.ownerOnly === true;
     }
 
     if (isBarOwner) {

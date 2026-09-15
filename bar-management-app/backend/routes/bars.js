@@ -65,7 +65,14 @@ router.get('/', async (req, res) => {
           rejectedAt: application.rejectedAt,
           rejectionReason: application.rejectionReason
         } : null,
-        activeSalesAccounts: salesAccounts.length
+        activeSalesAccounts: salesAccounts.length,
+        salesAccounts: salesAccounts.map((salesAccount) => ({
+          id: salesAccount._id,
+          username: salesAccount.username,
+          fullName: salesAccount.fullName,
+          email: salesAccount.email,
+          phone: salesAccount.phone
+        }))
       };
     }));
 

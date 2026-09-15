@@ -39,7 +39,13 @@ const Bars = () => {
         bar.owner?.fullName,
         bar.owner?.username,
         bar.owner?.email,
-        bar.owner?.phone
+        bar.owner?.phone,
+        ...(bar.salesAccounts || []).flatMap((salesAccount) => [
+          salesAccount.fullName,
+          salesAccount.username,
+          salesAccount.email,
+          salesAccount.phone
+        ])
       ]
         .filter(Boolean)
         .join(' ')
@@ -395,6 +401,14 @@ const Bars = () => {
                       <div style={styles.detailItem}>
                         <span style={styles.detailLabel}>Sales Accounts</span>
                         <span style={styles.detailValue}>{bar.activeSalesAccounts ?? 0}</span>
+                      </div>
+                      <div style={styles.detailItem}>
+                        <span style={styles.detailLabel}>Sales Account Names</span>
+                        <span style={styles.detailValue}>
+                          {bar.salesAccounts?.length
+                            ? bar.salesAccounts.map((salesAccount) => salesAccount.fullName || salesAccount.username).join(', ')
+                            : 'None'}
+                        </span>
                       </div>
                       <div style={styles.detailItem}>
                         <span style={styles.detailLabel}>Owner ID</span>
