@@ -315,8 +315,8 @@ const Reports = () => {
 
       {/* Export Buttons */}
       <div style={styles.exportSection}>
-        <ExportButton type="sales" label="Export Sales (Excel)" icon="📊" variant="success" />
-        <ExportButton type="sales-pdf" label="Export Sales (PDF)" icon="📄" variant="info" />
+        <ExportButton type="sales" label="Export Sales (Excel)" icon="📊" variant="success" dateRange={dateRange} customStartDate={customStartDate} customEndDate={customEndDate} />
+        <ExportButton type="sales-pdf" label="Export Sales (PDF)" icon="📄" variant="info" dateRange={dateRange} customStartDate={customStartDate} customEndDate={customEndDate} />
         <ExportButton type="inventory" label="Export Inventory" icon="📦" variant="warning" />
         <ExportButton type="customers" label="Export Customers" icon="👤" variant="secondary" />
       </div>

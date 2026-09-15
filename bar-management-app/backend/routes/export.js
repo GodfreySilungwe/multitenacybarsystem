@@ -20,6 +20,68 @@ const formatDate = (date) => {
   });
 };
 
+const MALAWI_OFFSET_MINUTES = 120;
+
+const parseLocalDateBoundary = (value, endOfDay = false) => {
+  if (!value) {
+    return null;
+  }
+
+  if (/^\d{4}-\d{2}-\d{2}$/.test(value)) {
+    const [year, month, day] = value.split('-').map(Number);
+    const utcValue = Date.UTC(year, month - 1, day, endOfDay ? 23 : 0, endOfDay ? 59 : 0, endOfDay ? 59 : 0, endOfDay ? 999 : 0);
+    return new Date(utcValue - MALAWI_OFFSET_MINUTES * 60000).toISOString();
+  }
+
+  const parsed = new Date(value);
+  return Number.isNaN(parsed.getTime()) ? null : parsed.toISOString();
+};
+
+const getSalesDateFilter = (query) => {
+  const range = String(query.range || '').toLowerCase();
+  let startDate = null;
+  let endDate = new Date().toISOString();
+
+  if (range === 'today') {
+    const now = new Date();
+    const localNow = new Date(now.getTime() + MALAWI_OFFSET_MINUTES * 60000);
+    const localMidnightUtc = Date.UTC(localNow.getUTCFullYear(), localNow.getUTCMonth(), localNow.getUTCDate());
+    startDate = new Date(localMidnightUtc - MALAWI_OFFSET_MINUTES * 60000).toISOString();
+  } else if (range === 'week') {
+    const weekAgo = new Date();
+    weekAgo.setDate(weekAgo.getDate() - 7);
+    startDate = weekAgo.toISOString();
+  } else if (range === 'month') {
+    const monthAgo = new Date();
+    monthAgo.setMonth(monthAgo.getMonth() - 1);
+    startDate = monthAgo.toISOString();
+  } else if (range === 'year') {
+    const yearAgo = new Date();
+    yearAgo.setFullYear(yearAgo.getFullYear() - 1);
+    startDate = yearAgo.toISOString();
+  } else if (range === 'custom') {
+    startDate = parseLocalDateBoundary(query.startDate, false);
+    endDate = parseLocalDateBoundary(query.endDate, true) || endDate;
+  }
+
+  return {
+    ...(startDate ? { createdAt: { $gte: startDate } } : {}),
+    ...(endDate ? { createdAt: { ...(startDate ? { $gte: startDate } : {}), $lte: endDate } } : {})
+  };
+};
+
+const getSalesOrders = async (req) => {
+  const orders = await Order.find({
+    barId: req.user.barId,
+    ...getSalesDateFilter(req.query)
+  })
+    .populate('customer', 'name phone')
+    .populate('items.product', 'name')
+    .sort({ createdAt: -1 });
+
+  return orders.filter(order => !order.reversed);
+};
+
 // Test route
 router.get('/test', (req, res) => {
   res.json({ message: 'Export routes are working!' });
@@ -28,10 +90,7 @@ router.get('/test', (req, res) => {
 // Export Sales Report as Excel
 router.get('/sales/excel', async (req, res) => {
   try {
-    const orders = await Order.find({ barId: req.user.barId })
-      .populate('customer', 'name phone')
-      .populate('items.product', 'name')
-      .sort({ createdAt: -1 });
+    const orders = await getSalesOrders(req);
 
     const workbook = new ExcelJS.Workbook();
     const worksheet = workbook.addWorksheet('Sales Report');
@@ -205,10 +264,7 @@ router.get('/customers/excel', async (req, res) => {
 // Export Sales Report as PDF
 router.get('/sales/pdf', async (req, res) => {
   try {
-    const orders = await Order.find({ barId: req.user.barId })
-      .populate('customer', 'name phone')
-      .populate('items.product', 'name')
-      .sort({ createdAt: -1 });
+    const orders = await getSalesOrders(req);
 
     const doc = new PDFDocument({ margin: 50 });
     res.setHeader('Content-Type', 'application/pdf');

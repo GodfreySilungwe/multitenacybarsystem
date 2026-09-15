@@ -191,7 +191,10 @@ if (require.main === module) {
   });
 }
 
-const lambdaServer = awsServerlessExpress.createServer(app);
+const lambdaServer = awsServerlessExpress.createServer(app, null, [
+  'application/pdf',
+  'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+]);
 function normalizeLambdaEvent(event) {
   if (!event.path) {
     event.path = event.rawPath || event.requestContext?.http?.path || event.path;

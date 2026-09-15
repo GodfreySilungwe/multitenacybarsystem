@@ -2,7 +2,7 @@ import { useState } from 'react';
 import api from '../../api/api';
 import { saveAs } from 'file-saver';
 
-const ExportButton = ({ type, label, icon = '📤', variant = 'primary' }) => {
+const ExportButton = ({ type, label, icon = '📤', variant = 'primary', dateRange, customStartDate, customEndDate }) => {
   const [loading, setLoading] = useState(false);
 
   const handleExport = async () => {
@@ -33,7 +33,21 @@ const ExportButton = ({ type, label, icon = '📤', variant = 'primary' }) => {
           throw new Error('Unknown export type');
       }
 
+      const params = {};
+      if (type === 'sales' || type === 'sales-pdf') {
+        if (dateRange === 'custom' && (!customStartDate || !customEndDate)) {
+          throw new Error('Select both custom dates before exporting sales');
+        }
+
+        params.range = dateRange;
+        if (dateRange === 'custom') {
+          params.startDate = customStartDate;
+          params.endDate = customEndDate;
+        }
+      }
+
       const response = await api.get(endpoint, {
+        params,
         responseType: 'arraybuffer'
       });
 
