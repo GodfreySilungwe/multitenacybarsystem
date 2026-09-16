@@ -106,7 +106,7 @@ router.get('/:id', async (req, res) => {
 // Create product
 router.post('/', isBarOwnerOrSales, async (req, res) => {
   try {
-    const product = new Product(req.body);
+    const product = new Product({ ...req.body, reservedStock: 0 });
     await product.save();
     res.status(201).json(product);
   } catch (error) {
@@ -163,7 +163,8 @@ router.post('/batch', isBarOwnerOrSales, async (req, res) => {
         name,
         category: category._id || category.id,
         barId: req.user.barId,
-        ...calculateProductPricing(row, rowNumber)
+        ...calculateProductPricing(row, rowNumber),
+        reservedStock: 0
       };
     });
 
@@ -199,6 +200,9 @@ router.put('/:id', isBarOwnerOrSales, async (req, res) => {
     product.category = category || product.category;
     product.costPrice = costPrice !== undefined ? costPrice : product.costPrice;
     product.sellingPrice = sellingPrice !== undefined ? sellingPrice : product.sellingPrice;
+    if (currentStock !== undefined && Number(currentStock) < Number(product.reservedStock || 0)) {
+      return res.status(400).json({ message: `Current stock cannot be below reserved stock (${product.reservedStock || 0}).` });
+    }
     product.currentStock = currentStock !== undefined ? currentStock : product.currentStock;
     product.lowStockThreshold = lowStockThreshold !== undefined ? lowStockThreshold : product.lowStockThreshold;
     product.unit = unit || product.unit;

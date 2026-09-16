@@ -46,6 +46,7 @@ function calculateProductPricing(row, rowNumber = 1) {
     costPrice: Number((purchaseCost / conversionQuantity).toFixed(2)),
     sellingPrice,
     currentStock,
+    reservedStock: 0,
     lowStockThreshold,
     unit: sellingUnit
   };

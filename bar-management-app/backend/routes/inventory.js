@@ -43,13 +43,14 @@ router.post('/', async (req, res) => {
     }
 
     let newStock = productData.currentStock;
+    const reservedStock = Number(productData.reservedStock || 0);
 
     // Apply adjustment
     if (type === 'wastage' || type === 'damage' || type === 'return') {
       // These decrease stock
-      if (productData.currentStock < quantity) {
+      if (productData.currentStock - reservedStock < quantity) {
         return res.status(400).json({ 
-          message: `Insufficient stock. Available: ${productData.currentStock}` 
+          message: `Insufficient unreserved stock. Available: ${Math.max(0, productData.currentStock - reservedStock)}`
         });
       }
       newStock = productData.currentStock - quantity;
@@ -58,6 +59,11 @@ router.post('/', async (req, res) => {
       newStock = productData.currentStock + quantity;
     } else if (type === 'count_correction') {
       // This sets stock to the new value
+      if (quantity < reservedStock) {
+        return res.status(400).json({
+          message: `Count correction cannot be below reserved stock (${reservedStock}).`
+        });
+      }
       newStock = quantity;
     }
 

@@ -13,6 +13,11 @@ function getInitialCreditPayment(order = {}) {
   };
 }
 
+function normalizeCreditPaymentMethod(payment = {}) {
+  const rawMethod = String(payment.creditPaymentMethod || payment.paymentMethod || 'cash').toLowerCase();
+  return rawMethod.startsWith('credit_') ? rawMethod : `credit_${rawMethod}`;
+}
+
 function summarizeCreditPaymentEvents(order, settlements = []) {
   const summary = {
     credit_cash: 0,
@@ -32,8 +37,7 @@ function summarizeCreditPaymentEvents(order, settlements = []) {
     }
 
     const amount = normalizeAmount(settlement.amountApplied ?? settlement.amountRequested ?? settlement.amount);
-    const rawMethod = String(settlement.creditPaymentMethod || settlement.paymentMethod || 'cash').toLowerCase();
-    const paymentMethod = rawMethod.startsWith('credit_') ? rawMethod : `credit_${rawMethod}`;
+    const paymentMethod = normalizeCreditPaymentMethod(settlement);
     if (amount > 0 && summary[paymentMethod] !== undefined) {
       summary[paymentMethod] += amount;
     }
@@ -66,6 +70,7 @@ function classifyRepaymentAllocations(payment, rangeStartTime = 0, rangeEndTime 
 
 module.exports = {
   getInitialCreditPayment,
+  normalizeCreditPaymentMethod,
   summarizeCreditPaymentEvents,
   classifyRepaymentAllocations
 };

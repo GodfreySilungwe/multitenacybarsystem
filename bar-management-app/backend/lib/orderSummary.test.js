@@ -2,7 +2,7 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 const { buildOrderSummary, calculateOutstandingCreditInPeriod } = require('./orderSummary');
 const Product = require('../models/Product');
-const { validateCustomerOrderItems } = require('../routes/customer-order-requests');
+const { validateCustomerOrderItems, requestItemsByProduct, reservationUpdate } = require('../routes/customer-order-requests');
 
 test('buildOrderSummary excludes reversed orders and calculates totals from the filtered dataset', () => {
   const orders = [
@@ -116,6 +116,48 @@ test('validateCustomerOrderItems rejects customer orders when stock is insuffici
   } finally {
     Product.findOne = originalFindOne;
   }
+});
+
+test('validateCustomerOrderItems counts reserved stock against available stock', async () => {
+  const originalFindOne = Product.findOne;
+  Product.findOne = async ({ _id }) => ({
+    _id,
+    name: 'Beer',
+    currentStock: 5,
+    reservedStock: 4
+  });
+
+  try {
+    const result = await validateCustomerOrderItems([
+      { productId: 'product-1', quantity: 2 }
+    ], 'bar-1');
+
+    assert.equal(result.valid, false);
+    assert.match(result.errors.join(' '), /Available: 1/i);
+  } finally {
+    Product.findOne = originalFindOne;
+  }
+});
+
+test('reservation quantities are grouped by product for one atomic update', () => {
+  assert.deepEqual(requestItemsByProduct([
+    { productId: 'product-1', quantity: 2 },
+    { productId: 'product-1', quantity: 3 },
+    { productId: 'product-2', quantity: 1 }
+  ]), {
+    'product-1': 5,
+    'product-2': 1
+  });
+});
+
+test('reservation update uses available stock as its conditional boundary', () => {
+  const update = reservationUpdate('product-1', 5, 'bar-1', 'reserve', 5, 0).Update;
+
+  assert.equal(update.ExpressionAttributeNames['#stock'], 'currentStock');
+  assert.equal(update.ExpressionAttributeNames['#reserved'], 'reservedStock');
+  assert.match(update.ConditionExpression, /#stock = :expectedStock/);
+  assert.match(update.ConditionExpression, /#reserved = :expectedReserved/);
+  assert.equal(update.ExpressionAttributeValues[':quantity'], 5);
 });
 
 test('buildOrderSummary ignores placeholder product names and keeps the real product label', () => {

@@ -12,7 +12,7 @@ const dynamodb = require('../lib/dynamodb');
 const { queryEntities, decodeLastEvaluatedKey } = require('../lib/dynamodb');
 const { buildOrderSummary, calculateOutstandingCreditInPeriod } = require('../lib/orderSummary');
 const { createAuditEntry } = require('../lib/audit');
-const { getInitialCreditPayment, classifyRepaymentAllocations } = require('../lib/creditPayments');
+const { getInitialCreditPayment, normalizeCreditPaymentMethod, classifyRepaymentAllocations } = require('../lib/creditPayments');
 
 router.use(protect, isBarOwnerOrSales);
 
@@ -371,7 +371,7 @@ router.get('/summary', async (req, res) => {
       const creditSettlementSummary = settlementMethods.map((method) => ({
         method: method.replace('credit_', 'Credit ').replace(/_/g, ' ').replace(/\b\w/g, (character) => character.toUpperCase()),
         amount: periodPayments
-          .filter((payment) => String(payment.creditPaymentMethod || payment.paymentMethod || 'cash').toLowerCase() === method)
+          .filter((payment) => normalizeCreditPaymentMethod(payment) === method)
           .reduce((sum, payment) => sum + Number(payment.amountApplied || payment.amountRequested || payment.amount || 0), 0)
       }));
       const outstandingCreditBySalesAccountMap = {};
@@ -543,9 +543,7 @@ router.get('/summary', async (req, res) => {
     });
 
     inRangePayments.forEach((payment) => {
-      const methodKey = settlementMethods.includes(String(payment.creditPaymentMethod || payment.paymentMethod || '').toLowerCase())
-        ? String(payment.creditPaymentMethod || payment.paymentMethod || '').toLowerCase()
-        : 'credit_cash';
+      const methodKey = normalizeCreditPaymentMethod(payment);
       const amount = Number(payment.amountApplied || payment.amountRequested || payment.amount || 0);
       if (amount > 0) {
         currentPeriodSettlementMap[methodKey] += amount;
@@ -1056,11 +1054,15 @@ router.post('/', async (req, res) => {
       }
 
       const quantity = item.quantity;
+      const currentStock = Number(product.currentStock || 0);
+      const reservedStock = Number(product.reservedStock || 0);
+      const availableStock = currentStock - reservedStock;
+      const hasReservedStock = product.reservedStock !== undefined;
 
-      // Check if enough stock
-      if (product.currentStock < quantity) {
+      // Reserved customer-request stock cannot be sold through the regular POS.
+      if (availableStock < quantity) {
         return res.status(400).json({ 
-          message: `Insufficient stock for ${product.name}. Available: ${product.currentStock}`
+          message: `Insufficient available stock for ${product.name}. Available: ${Math.max(0, availableStock)}`
         });
       }
 
@@ -1077,16 +1079,22 @@ router.post('/', async (req, res) => {
             sk: `PRODUCT#${product._id}`
           },
           UpdateExpression: 'SET #stock = #stock - :quantity, #updatedAt = :updatedAt',
-          ConditionExpression: '#stock >= :quantity AND #barId = :barId',
+          ConditionExpression: hasReservedStock
+            ? '#barId = :barId AND #stock = :expectedStock AND #reserved = :expectedReserved AND #stock >= :requiredStock'
+            : '#barId = :barId AND #stock = :expectedStock AND attribute_not_exists(#reserved) AND #stock >= :requiredStock',
           ExpressionAttributeNames: {
             '#stock': 'currentStock',
+            '#reserved': 'reservedStock',
             '#updatedAt': 'updatedAt',
             '#barId': 'barId'
           },
           ExpressionAttributeValues: {
             ':quantity': quantity,
+            ':expectedStock': currentStock,
+            ':requiredStock': reservedStock + quantity,
             ':updatedAt': new Date().toISOString(),
-            ':barId': req.user.barId
+            ':barId': req.user.barId,
+            ...(hasReservedStock ? { ':expectedReserved': reservedStock } : {})
           }
         }
       });

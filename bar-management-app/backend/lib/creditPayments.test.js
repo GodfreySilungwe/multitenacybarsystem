@@ -1,6 +1,14 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const { getInitialCreditPayment, summarizeCreditPaymentEvents, classifyRepaymentAllocations } = require('./creditPayments');
+const { getInitialCreditPayment, normalizeCreditPaymentMethod, summarizeCreditPaymentEvents, classifyRepaymentAllocations } = require('./creditPayments');
+
+test('customer repayment methods are normalized to credit settlement methods', () => {
+  assert.equal(normalizeCreditPaymentMethod({ paymentMethod: 'cash' }), 'credit_cash');
+  assert.equal(normalizeCreditPaymentMethod({ paymentMethod: 'airtel_money' }), 'credit_airtel_money');
+  assert.equal(normalizeCreditPaymentMethod({ paymentMethod: 'mpamba' }), 'credit_mpamba');
+  assert.equal(normalizeCreditPaymentMethod({ paymentMethod: 'bank_account' }), 'credit_bank_account');
+  assert.equal(normalizeCreditPaymentMethod({ creditPaymentMethod: 'credit_cash' }), 'credit_cash');
+});
 
 test('credit order with initial cash and later Airtel repayment is counted once per method', () => {
   const order = {

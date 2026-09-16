@@ -7,6 +7,7 @@ const Product = require('../models/Product');
 const Customer = require('../models/Customer');
 const Order = require('../models/Order');
 const User = require('../models/User');
+const dynamodb = require('../lib/dynamodb');
 const { recomputeCustomerCreditBalance } = require('../lib/credit');
 
 router.use(protect);
@@ -14,6 +15,130 @@ router.use(protect);
 const toNumber = (value, fallback = 0) => {
   const numericValue = Number(value);
   return Number.isFinite(numericValue) ? numericValue : fallback;
+};
+
+const RESERVATION_TTL_MS = 30 * 60 * 1000;
+
+const productKey = (productId) => ({
+  pk: 'PRODUCT',
+  sk: `PRODUCT#${productId}`
+});
+
+const requestKey = (requestId) => ({
+  pk: 'CUSTOMERORDERREQUEST',
+  sk: `CUSTOMERORDERREQUEST#${requestId}`
+});
+
+const requestItemsByProduct = (items = []) => items.reduce((quantities, item) => {
+  const productId = item.productId || item.product || item._id;
+  const quantity = Math.max(1, Math.floor(toNumber(item.quantity, 1)));
+  if (productId) {
+    quantities[productId] = (quantities[productId] || 0) + quantity;
+  }
+  return quantities;
+}, {});
+
+const reservationUpdate = (productId, quantity, barId, operation, expectedStock, expectedReserved) => {
+  const isRelease = operation === 'release';
+  const hasExpectedValues = expectedStock !== undefined;
+  return {
+    Update: {
+      Key: productKey(productId),
+      UpdateExpression: isRelease
+        ? 'SET #reserved = if_not_exists(#reserved, :zero) - :quantity, #updatedAt = :updatedAt'
+        : 'SET #reserved = if_not_exists(#reserved, :zero) + :quantity, #updatedAt = :updatedAt',
+      ConditionExpression: isRelease
+        ? '#barId = :barId AND #reserved >= :quantity'
+        : hasExpectedValues
+          ? expectedReserved === undefined
+            ? '#barId = :barId AND #stock = :expectedStock AND attribute_not_exists(#reserved)'
+            : '#barId = :barId AND #stock = :expectedStock AND #reserved = :expectedReserved'
+          : '#barId = :barId AND #stock >= :quantity',
+      ExpressionAttributeNames: {
+        '#reserved': 'reservedStock',
+        '#updatedAt': 'updatedAt',
+        '#barId': 'barId',
+        ...(isRelease ? {} : { '#stock': 'currentStock' })
+      },
+      ExpressionAttributeValues: {
+        ':quantity': quantity,
+        ':zero': 0,
+        ':updatedAt': new Date().toISOString(),
+        ':barId': barId,
+        ...(hasExpectedValues ? { ':expectedStock': expectedStock } : {}),
+        ...(expectedReserved !== undefined ? { ':expectedReserved': expectedReserved } : {})
+      }
+    }
+  };
+};
+
+const inventoryConversionUpdate = (productId, quantity, barId) => ({
+  Update: {
+    Key: productKey(productId),
+    UpdateExpression: 'SET #stock = #stock - :quantity, #reserved = #reserved - :quantity, #updatedAt = :updatedAt',
+    ConditionExpression: '#barId = :barId AND #stock >= :quantity AND #reserved >= :quantity',
+    ExpressionAttributeNames: {
+      '#stock': 'currentStock',
+      '#reserved': 'reservedStock',
+      '#updatedAt': 'updatedAt',
+      '#barId': 'barId'
+    },
+    ExpressionAttributeValues: {
+      ':quantity': quantity,
+      ':updatedAt': new Date().toISOString(),
+      ':barId': barId
+    }
+  }
+});
+
+const releaseRequestReservation = async (request, barId, status = 'expired') => {
+  if (!request || request.status !== 'pending' || request.reservationReleased) {
+    return request;
+  }
+
+  const quantities = requestItemsByProduct(request.items);
+  const requestData = request.toJSON();
+  requestData.status = status;
+  requestData.paymentStatus = 'cancelled';
+  requestData.reservationReleased = true;
+  requestData.releasedAt = new Date().toISOString();
+  if (status === 'expired') {
+    requestData.expiredAt = requestData.releasedAt;
+  } else {
+    requestData.rejectedAt = requestData.releasedAt;
+  }
+
+  const requestRecord = dynamodb.toDynamoItem('customerorderrequest', requestData);
+  await dynamodb.transactWrite([
+    ...Object.entries(quantities).map(([productId, quantity]) => reservationUpdate(productId, quantity, barId, 'release')),
+    {
+      Put: {
+        Item: requestRecord,
+        ConditionExpression: '#status = :pending',
+        ExpressionAttributeNames: { '#status': 'status' },
+        ExpressionAttributeValues: { ':pending': 'pending' }
+      }
+    }
+  ]);
+
+  Object.assign(request, requestData);
+  return request;
+};
+
+const releaseExpiredReservations = async (barId) => {
+  const requests = await CustomerOrderRequest.find({ barId, status: 'pending' });
+  const now = Date.now();
+  for (const request of requests || []) {
+    if (request.reservationExpiresAt && Date.parse(request.reservationExpiresAt) <= now) {
+      try {
+        await releaseRequestReservation(request, barId, 'expired');
+      } catch (error) {
+        if (error?.name !== 'TransactionCanceledException') {
+          throw error;
+        }
+      }
+    }
+  }
 };
 
 const validateCustomerOrderItems = async (items = [], barId) => {
@@ -32,8 +157,9 @@ const validateCustomerOrderItems = async (items = [], barId) => {
     }
 
     const quantity = Math.max(1, Math.floor(toNumber(rawItem?.quantity, 1)));
-    if (Number(product.currentStock || 0) <= 0 || Number(product.currentStock || 0) < quantity) {
-      errors.push(`Insufficient stock for ${product.name}. Available: ${product.currentStock}`);
+    const availableStock = Number(product.currentStock || 0) - Number(product.reservedStock || 0);
+    if (availableStock <= 0 || availableStock < quantity) {
+      errors.push(`Insufficient stock for ${product.name}. Available: ${Math.max(0, availableStock)}`);
     }
   }
 
@@ -148,6 +274,7 @@ const enrichRequest = async (request, barId) => {
 
 router.get('/', async (req, res) => {
   try {
+    await releaseExpiredReservations(req.user.barId);
     const query = { barId: req.user.barId };
     if (req.user.role === 'customer') {
       query.customerId = req.user.customerId;
@@ -178,12 +305,12 @@ router.post('/', async (req, res) => {
       return res.status(400).json({ message: 'No valid products were selected.' });
     }
 
-    const stockValidation = await validateCustomerOrderItems(normalizedItems, req.user.barId);
-    if (!stockValidation.valid) {
-      return res.status(400).json({ message: stockValidation.errors.join(' | ') });
-    }
+    await releaseExpiredReservations(req.user.barId);
 
+    const requestId = dynamodb.generateId();
     const request = new CustomerOrderRequest({
+      _id: requestId,
+      id: requestId,
       barId: req.user.barId,
       customerId,
       customerName,
@@ -195,10 +322,51 @@ router.post('/', async (req, res) => {
       amountPaid: 0,
       status: 'pending',
       paymentStatus: 'pending',
+      reservationExpiresAt: new Date(Date.now() + RESERVATION_TTL_MS).toISOString(),
       createdAt: new Date().toISOString()
     });
 
-    await request.save();
+    const requestRecord = dynamodb.toDynamoItem('customerorderrequest', request.toJSON());
+    const quantities = requestItemsByProduct(normalizedItems);
+    const reservationProducts = await Promise.all(Object.keys(quantities).map(async (productId) => {
+      const product = await Product.findOne({ _id: productId, barId: req.user.barId });
+      return { productId, product };
+    }));
+    const unavailableProduct = reservationProducts.find(({ product, productId }) => {
+      const quantity = quantities[productId];
+      const availableStock = Number(product?.currentStock || 0) - Number(product?.reservedStock || 0);
+      return !product || availableStock < quantity;
+    });
+    if (unavailableProduct) {
+      const productName = unavailableProduct.product?.name || 'selected product';
+      const availableStock = Math.max(0, Number(unavailableProduct.product?.currentStock || 0) - Number(unavailableProduct.product?.reservedStock || 0));
+      return res.status(400).json({ message: `Insufficient available stock for ${productName}. Available: ${availableStock}` });
+    }
+
+    try {
+      await dynamodb.transactWrite([
+        ...reservationProducts.map(({ productId, product }) => reservationUpdate(
+          productId,
+          quantities[productId],
+          req.user.barId,
+          'reserve',
+          Number(product.currentStock || 0),
+          product.reservedStock === undefined ? undefined : Number(product.reservedStock || 0)
+        )),
+        {
+          Put: {
+            Item: requestRecord,
+            ConditionExpression: 'attribute_not_exists(pk)'
+          }
+        }
+      ]);
+    } catch (error) {
+      if (error?.name === 'TransactionCanceledException') {
+        return res.status(400).json({ message: 'Insufficient available stock for one or more requested products.' });
+      }
+      throw error;
+    }
+
     res.status(201).json({ message: 'Order request submitted successfully.', request });
   } catch (error) {
     res.status(400).json({ message: error.message });
@@ -207,6 +375,7 @@ router.post('/', async (req, res) => {
 
 router.patch('/:id/confirm', isBarOwnerOrSales, async (req, res) => {
   try {
+    await releaseExpiredReservations(req.user.barId);
     const request = await CustomerOrderRequest.findOne({ _id: req.params.id, barId: req.user.barId });
     if (!request) {
       return res.status(404).json({ message: 'Request not found.' });
@@ -248,32 +417,8 @@ const product = await Product.findOne({ _id: item.productId || item.product || i
         return res.status(400).json({ message: 'No valid items were found to create a credit order for this request.' });
       }
 
-      // Ensure inventory is reserved when customer order is confirmed
-      const inventoryIssues = [];
-      for (const item of request.items || []) {
-        const product = await Product.findOne({ _id: item.productId || item.product || item._id, barId: req.user.barId });
-        const quantity = Math.max(1, Math.floor(toNumber(item.quantity, 1)));
-        if (!product) {
-          inventoryIssues.push(`Product not found for ${item.productName || 'item'}`);
-          continue;
-        }
-        if (product.currentStock < quantity) {
-          inventoryIssues.push(`Insufficient stock for ${product.name}. Available: ${product.currentStock}`);
-        }
-      }
-
-      if (inventoryIssues.length > 0) {
-        return res.status(400).json({ message: inventoryIssues.join(' | ') });
-      }
-
-      for (const item of request.items || []) {
-        const product = await Product.findOne({ _id: item.productId || item.product || item._id, barId: req.user.barId });
-        const quantity = Math.max(1, Math.floor(toNumber(item.quantity, 1)));
-        product.currentStock = Math.max(0, toNumber(product.currentStock, 0) - quantity);
-        await product.save();
-      }
-
       const creditOrder = new Order({
+        _id: dynamodb.generateId(),
         barId: req.user.barId,
         customer: request.customerId,
         items: orderItems,
@@ -287,17 +432,51 @@ const product = await Product.findOne({ _id: item.productId || item.product || i
         sourceRequestId: request._id
       });
 
-      await creditOrder.save();
-      request.linkedOrderId = creditOrder._id;
+      const quantities = requestItemsByProduct(request.items);
+      const requestData = request.toJSON();
+      requestData.linkedOrderId = creditOrder._id;
+      requestData.status = 'confirmed';
+      requestData.paymentStatus = 'partial';
+      requestData.paymentMethod = 'credit';
+      requestData.amountPaid = 0;
+      requestData.amountDue = toNumber(request.totalAmount, 0);
+      requestData.confirmedAt = new Date().toISOString();
+      requestData.reservationReleased = true;
+      requestData.reservationConvertedAt = requestData.confirmedAt;
+
+      const orderRecord = dynamodb.toDynamoItem('order', creditOrder.toJSON());
+      const requestRecord = dynamodb.toDynamoItem('customerorderrequest', requestData);
+      await dynamodb.transactWrite([
+        ...Object.entries(quantities).map(([productId, quantity]) => inventoryConversionUpdate(productId, quantity, req.user.barId)),
+        {
+          Put: {
+            Item: orderRecord,
+            ConditionExpression: 'attribute_not_exists(pk)'
+          }
+        },
+        {
+          Put: {
+            Item: requestRecord,
+            ConditionExpression: '#status = :pending AND attribute_not_exists(#linkedOrderId)',
+            ExpressionAttributeNames: { '#status': 'status', '#linkedOrderId': 'linkedOrderId' },
+            ExpressionAttributeValues: { ':pending': 'pending' }
+          }
+        }
+      ]);
+
+      Object.assign(creditOrder, dynamodb.fromDynamoItem(orderRecord));
+      Object.assign(request, requestData);
     }
 
-    request.status = 'confirmed';
-    request.paymentStatus = 'partial';
-    request.paymentMethod = 'credit';
-    request.amountPaid = 0;
-    request.amountDue = toNumber(request.totalAmount, 0);
-    request.confirmedAt = new Date().toISOString();
-    await request.save();
+    if (request.status !== 'confirmed') {
+      request.status = 'confirmed';
+      request.paymentStatus = 'partial';
+      request.paymentMethod = 'credit';
+      request.amountPaid = 0;
+      request.amountDue = toNumber(request.totalAmount, 0);
+      request.confirmedAt = new Date().toISOString();
+      await request.save();
+    }
 
     if (request.customerId) {
       await recomputeCustomerCreditBalance(request.customerId, req.user.barId);
@@ -320,10 +499,7 @@ router.patch('/:id/reject', isBarOwnerOrSales, async (req, res) => {
       return res.status(400).json({ message: 'Only pending requests can be rejected.' });
     }
 
-    request.status = 'rejected';
-    request.paymentStatus = 'cancelled';
-    request.rejectedAt = new Date().toISOString();
-    await request.save();
+    await releaseRequestReservation(request, req.user.barId, 'rejected');
 
     res.json({ message: 'Order request rejected.', request });
   } catch (error) {
@@ -425,6 +601,7 @@ router.patch('/payments/:id/confirm', isBarOwnerOrSales, async (req, res) => {
 
     let remainingPayment = toNumber(paymentRequest.amountRequested, 0);
     let appliedAmount = 0;
+    const allocations = [];
     const updatedRequests = [];
     const updatedRequestIds = new Set();
 
@@ -439,6 +616,11 @@ router.patch('/payments/:id/confirm', isBarOwnerOrSales, async (req, res) => {
       }
 
       const paymentApplied = Math.min(remainingPayment, amountDue);
+      allocations.push({
+        orderId: order._id,
+        amount: paymentApplied,
+        orderCreatedAt: order.createdAt
+      });
       order.balanceDue = Math.max(0, amountDue - paymentApplied);
       order.amountPaid = toNumber(order.amountPaid, 0) + paymentApplied;
       order.paymentStatus = order.balanceDue > 0 ? 'partial' : 'paid';
@@ -474,6 +656,8 @@ router.patch('/payments/:id/confirm', isBarOwnerOrSales, async (req, res) => {
 
     paymentRequest.status = 'confirmed';
     paymentRequest.amountApplied = appliedAmount;
+    paymentRequest.creditPaymentMethod = `credit_${paymentRequest.paymentMethod || 'cash'}`;
+    paymentRequest.allocations = allocations;
     paymentRequest.approvedBy = req.user._id || req.user.id;
     paymentRequest.approvedByName = req.user.fullName || req.user.username || req.user.email || 'Sales account';
     paymentRequest.confirmedAt = new Date().toISOString();
@@ -513,3 +697,5 @@ router.patch('/payments/:id/reject', isBarOwnerOrSales, async (req, res) => {
 
 module.exports = router;
 module.exports.validateCustomerOrderItems = validateCustomerOrderItems;
+module.exports.requestItemsByProduct = requestItemsByProduct;
+module.exports.reservationUpdate = reservationUpdate;
