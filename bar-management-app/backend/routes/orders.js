@@ -122,11 +122,28 @@ router.get('/', async (req, res) => {
 
     const products = await Product.find({ barId: req.user.barId });
     const enrichedOrders = await resolveOrderProductNames(orders, req.user.barId, products);
+    const customerIds = Array.from(new Set(enrichedOrders
+      .map((order) => typeof order.customer === 'string' ? order.customer : order.customer?._id)
+      .filter(Boolean)
+      .map(String)));
+    const customers = customerIds.length > 0
+      ? await Customer.find({ _id: { $in: customerIds }, barId: req.user.barId })
+      : [];
+    const customerMap = new Map(customers.map((customer) => [String(customer._id || customer.id), customer]));
+    const ordersWithCustomerNames = enrichedOrders.map((order) => {
+      const customerId = typeof order.customer === 'string' ? order.customer : order.customer?._id;
+      const customer = customerId ? customerMap.get(String(customerId)) : null;
+      return {
+        ...order,
+        customerName: order.customerName || customer?.name || customer?.fullName || null,
+        customer: customer || order.customer
+      };
+    });
 
-    console.debug('DEBUG /orders -> returned:', enrichedOrders.length, 'orders, nextKey:', Boolean(nextKey));
+    console.debug('DEBUG /orders -> returned:', ordersWithCustomerNames.length, 'orders, nextKey:', Boolean(nextKey));
 
     return res.json({
-      items: enrichedOrders,
+      items: ordersWithCustomerNames,
       nextKey
     });
   } catch (error) {

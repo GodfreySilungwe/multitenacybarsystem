@@ -421,6 +421,7 @@ const product = await Product.findOne({ _id: item.productId || item.product || i
         _id: dynamodb.generateId(),
         barId: req.user.barId,
         customer: request.customerId,
+        customerName: request.customerName || 'Customer',
         items: orderItems,
         totalAmount,
         profit: totalAmount - totalCost,
