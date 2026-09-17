@@ -58,7 +58,8 @@ const Reports = () => {
   });
 
   const canLoadCustomRange = dateRange !== 'custom'
-    || Boolean(customStartDate && customStartTime && customEndDate && customEndTime);
+    || (Boolean(customStartDate && customEndDate)
+      && ((!customStartTime && !customEndTime) || Boolean(customStartTime && customEndTime)));
 
   useEffect(() => {
     if (!canLoadCustomRange) {
@@ -75,7 +76,7 @@ const Reports = () => {
 
       const params = { range: dateRange, optimized: 'true' };
       if (dateRange === 'custom') {
-        if (!customStartDate || !customStartTime || !customEndDate || !customEndTime) {
+        if (!customStartDate || !customEndDate) {
           setLoading(false);
           return;
         }
@@ -303,7 +304,7 @@ const Reports = () => {
               onChange={(e) => setCustomStartDate(e.target.value)}
               style={styles.dateInput}
             />
-            <input type="time" value={customStartTime} onChange={(e) => setCustomStartTime(e.target.value)} aria-label="Start time (optional)" />
+            <label>Start time (optional)<input type="time" value={customStartTime} onChange={(e) => setCustomStartTime(e.target.value)} aria-label="Start time (optional)" /></label>
           </label>
           <label style={styles.customRangeLabel}>
             End
@@ -313,7 +314,7 @@ const Reports = () => {
               onChange={(e) => setCustomEndDate(e.target.value)}
               style={styles.dateInput}
             />
-            <input type="time" value={customEndTime} onChange={(e) => setCustomEndTime(e.target.value)} aria-label="End time (optional)" />
+            <label>End time (optional)<input type="time" value={customEndTime} onChange={(e) => setCustomEndTime(e.target.value)} aria-label="End time (optional)" /></label>
           </label>
         </div>
       )}

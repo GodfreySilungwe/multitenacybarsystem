@@ -35,7 +35,8 @@ const Orders = () => {
   const showProfitColumn = canManageOrders;
   const orderFilterOptions = isSales ? ['today', 'custom'] : ['all', 'today', 'custom'];
   const customRangeReady = filter !== 'custom'
-    || Boolean(customStartDate && customStartTime && customEndDate && customEndTime);
+    || (Boolean(customStartDate && customEndDate)
+      && ((!customStartTime && !customEndTime) || Boolean(customStartTime && customEndTime)));
 
   useEffect(() => {
     if (filter !== 'custom') {
@@ -164,8 +165,8 @@ const Orders = () => {
       return;
     }
 
-    if (!customStartDate || !customStartTime || !customEndDate || !customEndTime) {
-      setError('Select start and end dates and times for custom range');
+    if (!customStartDate || !customEndDate) {
+      setError('Select both start and end dates for custom range');
       setTimeout(() => setError(''), 5000);
       return;
     }
@@ -257,7 +258,7 @@ const Orders = () => {
               onChange={(e) => setCustomStartDate(e.target.value)}
               style={styles.dateInput}
             />
-            <input type="time" value={customStartTime} onChange={(e) => setCustomStartTime(e.target.value)} aria-label="Start time (optional)" />
+            <label>Start time (optional)<input type="time" value={customStartTime} onChange={(e) => setCustomStartTime(e.target.value)} aria-label="Start time (optional)" /></label>
           </label>
           <label style={styles.customRangeLabel}>
             End
@@ -267,7 +268,7 @@ const Orders = () => {
               onChange={(e) => setCustomEndDate(e.target.value)}
               style={styles.dateInput}
             />
-            <input type="time" value={customEndTime} onChange={(e) => setCustomEndTime(e.target.value)} aria-label="End time (optional)" />
+            <label>End time (optional)<input type="time" value={customEndTime} onChange={(e) => setCustomEndTime(e.target.value)} aria-label="End time (optional)" /></label>
           </label>
           <button style={styles.applyCustomBtn} onClick={handleCustomRangeApply}>Apply</button>
         </div>

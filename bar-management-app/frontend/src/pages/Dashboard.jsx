@@ -79,7 +79,8 @@ const Dashboard = () => {
   const [productSalesCurrentPage, setProductSalesCurrentPage] = useState(1);
   const PRODUCT_SALES_PAGE_SIZE = 30;
   const customRangeReady = dateRange !== 'custom'
-    || Boolean(customStartDate && customStartTime && customEndDate && customEndTime);
+    || (Boolean(customStartDate && customEndDate)
+      && ((!customStartTime && !customEndTime) || Boolean(customStartTime && customEndTime)));
 
   useEffect(() => {
     if (!customRangeReady) {
@@ -548,7 +549,7 @@ const Dashboard = () => {
                     onChange={(e) => setCustomStartDate(e.target.value)}
                     style={styles.dateInput}
                   />
-                  <input type="time" value={customStartTime} onChange={(e) => setCustomStartTime(e.target.value)} aria-label="Start time (optional)" />
+                  <label>Start time (optional)<input type="time" value={customStartTime} onChange={(e) => setCustomStartTime(e.target.value)} aria-label="Start time (optional)" /></label>
                 </label>
                 <label style={styles.customRangeLabel}>
                   End
@@ -558,7 +559,7 @@ const Dashboard = () => {
                     onChange={(e) => setCustomEndDate(e.target.value)}
                     style={styles.dateInput}
                   />
-                  <input type="time" value={customEndTime} onChange={(e) => setCustomEndTime(e.target.value)} aria-label="End time (optional)" />
+                  <label>End time (optional)<input type="time" value={customEndTime} onChange={(e) => setCustomEndTime(e.target.value)} aria-label="End time (optional)" /></label>
                 </label>
               </div>
             )}
