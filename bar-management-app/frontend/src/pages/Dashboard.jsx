@@ -71,12 +71,15 @@ const Dashboard = () => {
   const [dateRange, setDateRange] = useState('today');
   const [customStartDate, setCustomStartDate] = useState('');
   const [customEndDate, setCustomEndDate] = useState('');
+  const [customStartTime, setCustomStartTime] = useState('');
+  const [customEndTime, setCustomEndTime] = useState('');
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [lastUpdated, setLastUpdated] = useState(null);
   const [productSalesCurrentPage, setProductSalesCurrentPage] = useState(1);
   const PRODUCT_SALES_PAGE_SIZE = 30;
-  const customRangeReady = dateRange !== 'custom' || Boolean(customStartDate && customEndDate);
+  const customRangeReady = dateRange !== 'custom'
+    || Boolean(customStartDate && customStartTime && customEndDate && customEndTime);
 
   useEffect(() => {
     if (!customRangeReady) {
@@ -85,7 +88,7 @@ const Dashboard = () => {
 
     fetchDashboardData();
     setProductSalesCurrentPage(1);
-  }, [dateRange, customStartDate, customEndDate, customRangeReady]);
+  }, [dateRange, customStartDate, customEndDate, customStartTime, customEndTime, customRangeReady]);
 
   useEffect(() => {
     const handleRefresh = () => {
@@ -98,7 +101,7 @@ const Dashboard = () => {
 
     window.addEventListener('payment-updated', handleRefresh);
     return () => window.removeEventListener('payment-updated', handleRefresh);
-  }, [dateRange, customStartDate, customEndDate, customRangeReady]);
+  }, [dateRange, customStartDate, customEndDate, customStartTime, customEndTime, customRangeReady]);
 
   const fetchDashboardData = async ({ appendProductSales = false } = {}) => {
     try {
@@ -151,8 +154,8 @@ const Dashboard = () => {
           params.productSalesLimit = PRODUCT_SALES_PAGE_SIZE;
         }
         if (dateRange === 'custom') {
-          if (customStartDate) params.startDate = customStartDate;
-          if (customEndDate) params.endDate = customEndDate;
+          if (customStartDate) params.startDate = customStartTime ? `${customStartDate}T${customStartTime}` : customStartDate;
+          if (customEndDate) params.endDate = customEndTime ? `${customEndDate}T${customEndTime}` : customEndDate;
         }
 
         const [productsRes, customersRes, lowStockRes, ordersRes, usersSummaryRes, summaryRes, customersSummaryRes] = await Promise.all([
@@ -545,6 +548,7 @@ const Dashboard = () => {
                     onChange={(e) => setCustomStartDate(e.target.value)}
                     style={styles.dateInput}
                   />
+                  <input type="time" value={customStartTime} onChange={(e) => setCustomStartTime(e.target.value)} aria-label="Start time (optional)" />
                 </label>
                 <label style={styles.customRangeLabel}>
                   End
@@ -554,6 +558,7 @@ const Dashboard = () => {
                     onChange={(e) => setCustomEndDate(e.target.value)}
                     style={styles.dateInput}
                   />
+                  <input type="time" value={customEndTime} onChange={(e) => setCustomEndTime(e.target.value)} aria-label="End time (optional)" />
                 </label>
               </div>
             )}

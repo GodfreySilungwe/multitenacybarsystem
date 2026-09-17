@@ -35,6 +35,8 @@ const Reports = () => {
   const [dateRange, setDateRange] = useState('week');
   const [customStartDate, setCustomStartDate] = useState('');
   const [customEndDate, setCustomEndDate] = useState('');
+  const [customStartTime, setCustomStartTime] = useState('');
+  const [customEndTime, setCustomEndTime] = useState('');
   const [reportData, setReportData] = useState({
     sales: [],
     topProducts: [],
@@ -55,7 +57,8 @@ const Reports = () => {
     grossMarginRatio: 0
   });
 
-  const canLoadCustomRange = dateRange !== 'custom' || (customStartDate && customEndDate);
+  const canLoadCustomRange = dateRange !== 'custom'
+    || Boolean(customStartDate && customStartTime && customEndDate && customEndTime);
 
   useEffect(() => {
     if (!canLoadCustomRange) {
@@ -63,7 +66,7 @@ const Reports = () => {
     }
 
     loadReportData();
-  }, [dateRange, customStartDate, customEndDate, canLoadCustomRange]);
+  }, [dateRange, customStartDate, customEndDate, customStartTime, customEndTime, canLoadCustomRange]);
 
   const loadReportData = async () => {
     try {
@@ -72,13 +75,13 @@ const Reports = () => {
 
       const params = { range: dateRange, optimized: 'true' };
       if (dateRange === 'custom') {
-        if (!customStartDate || !customEndDate) {
+        if (!customStartDate || !customStartTime || !customEndDate || !customEndTime) {
           setLoading(false);
           return;
         }
 
-        params.startDate = customStartDate;
-        params.endDate = customEndDate;
+        params.startDate = customStartTime ? `${customStartDate}T${customStartTime}` : customStartDate;
+        params.endDate = customEndTime ? `${customEndDate}T${customEndTime}` : customEndDate;
       }
 
       const [ordersRes, customersRes] = await Promise.all([
@@ -300,6 +303,7 @@ const Reports = () => {
               onChange={(e) => setCustomStartDate(e.target.value)}
               style={styles.dateInput}
             />
+            <input type="time" value={customStartTime} onChange={(e) => setCustomStartTime(e.target.value)} aria-label="Start time (optional)" />
           </label>
           <label style={styles.customRangeLabel}>
             End
@@ -309,6 +313,7 @@ const Reports = () => {
               onChange={(e) => setCustomEndDate(e.target.value)}
               style={styles.dateInput}
             />
+            <input type="time" value={customEndTime} onChange={(e) => setCustomEndTime(e.target.value)} aria-label="End time (optional)" />
           </label>
         </div>
       )}
@@ -377,7 +382,7 @@ const Reports = () => {
                 <tbody>
                   {reportData.paymentMethodProceeds.map((method, index) => (
                     <tr key={index} style={styles.tableRow}>
-                      <td style={styles.productName}>{method.method}</td>
+                      <td style={styles.productName}>{method.method === 'Credit' ? 'Bill Management Sales' : method.method}</td>
                       <td style={styles.revenue}>{formatPriceMK(method.totalAmount)}</td>
                     </tr>
                   ))}

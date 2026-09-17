@@ -14,6 +14,8 @@ const Orders = () => {
   const [filter, setFilter] = useState('today');
   const [customStartDate, setCustomStartDate] = useState('');
   const [customEndDate, setCustomEndDate] = useState('');
+  const [customStartTime, setCustomStartTime] = useState('');
+  const [customEndTime, setCustomEndTime] = useState('');
   const [expandedOrder, setExpandedOrder] = useState(null);
   const [reversingOrderId, setReversingOrderId] = useState(null);
   const [error, setError] = useState('');
@@ -32,6 +34,8 @@ const Orders = () => {
   const canReverseOrders = canManageOrders;
   const showProfitColumn = canManageOrders;
   const orderFilterOptions = isSales ? ['today', 'custom'] : ['all', 'today', 'custom'];
+  const customRangeReady = filter !== 'custom'
+    || Boolean(customStartDate && customStartTime && customEndDate && customEndTime);
 
   useEffect(() => {
     if (filter !== 'custom') {
@@ -39,12 +43,12 @@ const Orders = () => {
       return;
     }
 
-    if (!customStartDate || !customEndDate) {
+    if (!customRangeReady) {
       return;
     }
 
     loadOrders({ reset: true });
-  }, [filter, customStartDate, customEndDate]);
+  }, [filter, customStartDate, customStartTime, customEndDate, customEndTime, customRangeReady]);
 
   const getLocalDateString = (date = new Date()) => {
     const MALAWI_OFFSET_MINUTES = 120;
@@ -69,11 +73,11 @@ const Orders = () => {
     }
 
     if (filter === 'custom' && customStartDate) {
-      params.startDate = customStartDate;
+      params.startDate = customStartTime ? `${customStartDate}T${customStartTime}` : customStartDate;
     }
 
     if (filter === 'custom' && customEndDate) {
-      params.endDate = customEndDate;
+      params.endDate = customEndTime ? `${customEndDate}T${customEndTime}` : customEndDate;
     }
 
     if (options.lastKey) {
@@ -96,7 +100,9 @@ const Orders = () => {
         range: filter === 'all' ? 'all' : filter,
         light: 'true',
         ...(filter === 'custom' && customStartDate ? { startDate: customStartDate } : {}),
-        ...(filter === 'custom' && customEndDate ? { endDate: customEndDate } : {})
+        ...(filter === 'custom' && customEndDate ? { endDate: customEndDate } : {}),
+        ...(filter === 'custom' && customStartDate && customStartTime ? { startDate: `${customStartDate}T${customStartTime}` } : {}),
+        ...(filter === 'custom' && customEndDate && customEndTime ? { endDate: `${customEndDate}T${customEndTime}` } : {})
       };
 
       const [ordersRes, summaryRes] = await Promise.all([
@@ -158,8 +164,8 @@ const Orders = () => {
       return;
     }
 
-    if (!customStartDate || !customEndDate) {
-      setError('Select both start and end dates for custom range');
+    if (!customStartDate || !customStartTime || !customEndDate || !customEndTime) {
+      setError('Select start and end dates and times for custom range');
       setTimeout(() => setError(''), 5000);
       return;
     }
@@ -251,6 +257,7 @@ const Orders = () => {
               onChange={(e) => setCustomStartDate(e.target.value)}
               style={styles.dateInput}
             />
+            <input type="time" value={customStartTime} onChange={(e) => setCustomStartTime(e.target.value)} aria-label="Start time (optional)" />
           </label>
           <label style={styles.customRangeLabel}>
             End
@@ -260,6 +267,7 @@ const Orders = () => {
               onChange={(e) => setCustomEndDate(e.target.value)}
               style={styles.dateInput}
             />
+            <input type="time" value={customEndTime} onChange={(e) => setCustomEndTime(e.target.value)} aria-label="End time (optional)" />
           </label>
           <button style={styles.applyCustomBtn} onClick={handleCustomRangeApply}>Apply</button>
         </div>

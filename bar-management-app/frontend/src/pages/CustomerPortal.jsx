@@ -13,7 +13,7 @@ const CustomerPortal = () => {
   const [submitting, setSubmitting] = useState(false);
   const [submittingBillRequest, setSubmittingBillRequest] = useState(false);
   const [requestMessage, setRequestMessage] = useState('');
-  const [orderItems, setOrderItems] = useState([{ productId: '', quantity: '1' }]);
+  const [orderItems, setOrderItems] = useState([{ productId: '', productSearch: '', quantity: '1' }]);
   const [customerRequests, setCustomerRequests] = useState([]);
   const [paymentMethod, setPaymentMethod] = useState('cash');
   const [paymentReference, setPaymentReference] = useState('');
@@ -36,7 +36,7 @@ const CustomerPortal = () => {
           api.get('/customer-order-requests')
         ]);
         setCustomer(customerRes.data);
-        setProducts(productsRes.data || []);
+        setProducts((productsRes.data || []).slice().sort((left, right) => String(left.name || '').localeCompare(String(right.name || ''))));
         setCustomerRequests((requestsRes.data || []).filter((request) => request.customerId === user.customerId));
       } catch (err) {
         console.error('Error loading customer portal:', err);
@@ -169,7 +169,7 @@ const CustomerPortal = () => {
       });
 
       setRequestMessage(response.data?.message || 'Order request sent successfully.');
-      setOrderItems([{ productId: '', quantity: '1' }]);
+      setOrderItems([{ productId: '', productSearch: '', quantity: '1' }]);
       emitCustomerPortalEvent('customer-request-updated');
       emitCustomerPortalEvent('customer-request-created', response.data?.request || null);
     } catch (err) {
@@ -277,22 +277,31 @@ const CustomerPortal = () => {
             <div style={responsiveStyles.orderList}>
               {orderItems.map((item, index) => (
                 <div key={index} style={responsiveStyles.orderRow}>
-                  <select
+                  <input
+                    type="search"
                     style={responsiveStyles.selectInput}
-                    value={item.productId}
+                    list={`customer-products-${index}`}
+                    placeholder="Search products"
+                    value={item.productSearch || products.find((product) => product._id === item.productId)?.name || ''}
                     onChange={(e) => setOrderItems((prev) => prev.map((row, rowIndex) => (
-                      rowIndex === index
-                        ? { ...row, productId: e.target.value }
-                        : row
+                      rowIndex !== index
+                        ? row
+                        : (() => {
+                            const searchValue = e.target.value;
+                            const selectedProduct = products.find((product) => String(product.name || '').toLowerCase() === searchValue.trim().toLowerCase());
+                            return {
+                              ...row,
+                              productSearch: searchValue,
+                              productId: selectedProduct?._id || ''
+                            };
+                          })()
                     )))}
-                  >
-                    <option value="">Select a product</option>
+                  />
+                  <datalist id={`customer-products-${index}`}>
                     {products.map((product) => (
-                      <option key={product._id} value={product._id}>
-                        {product.name} - {formatPriceMK(product.sellingPrice)}
-                      </option>
+                      <option key={product._id} value={product.name} label={formatPriceMK(product.sellingPrice)} />
                     ))}
-                  </select>
+                  </datalist>
                   <input
                     type="number"
                     min="1"
@@ -319,7 +328,7 @@ const CustomerPortal = () => {
             <button
               type="button"
               style={responsiveStyles.addRowBtn}
-              onClick={() => setOrderItems((prev) => [...prev, { productId: '', quantity: '1' }])}
+              onClick={() => setOrderItems((prev) => [...prev, { productId: '', productSearch: '', quantity: '1' }])}
             >
               + Add another item
             </button>
