@@ -443,7 +443,8 @@ const POS = () => {
   };
 
   const addToCart = (product) => {
-    if (product.currentStock <= 0) {
+    const availableStock = Math.max(0, Number(product.currentStock || 0) - Number(product.reservedStock || 0));
+    if (availableStock <= 0) {
       setError(`⚠️ ${product.name} is out of stock!`);
       setTimeout(() => setError(''), 3000);
       return;
@@ -452,7 +453,7 @@ const POS = () => {
     setCart(prev => {
       const existing = prev.find(item => item._id === product._id);
       if (existing) {
-        if (existing.quantity >= product.currentStock) {
+        if (existing.quantity >= availableStock) {
           setError(`⚠️ Not enough stock for ${product.name}`);
           setTimeout(() => setError(''), 3000);
           return prev;
@@ -949,13 +950,13 @@ const POS = () => {
                     className="pos-mobile-product-btn"
                     style={{
                       ...styles.productBtn,
-                      ...(product.currentStock <= 0 ? styles.productOutOfStock : {}),
+                      ...((Number(product.currentStock || 0) - Number(product.reservedStock || 0)) <= 0 ? styles.productOutOfStock : {}),
                       ...(activeAddedProductId === product._id ? styles.productAdded : {})
                     }}
                     onClick={() => addToCart(product)}
-                    disabled={product.currentStock <= 0}
+                    disabled={(Number(product.currentStock || 0) - Number(product.reservedStock || 0)) <= 0}
                     onMouseEnter={(e) => {
-                      if (product.currentStock > 0) {
+                      if ((Number(product.currentStock || 0) - Number(product.reservedStock || 0)) > 0) {
                         e.currentTarget.style.transform = 'translateY(-6px)';
                         e.currentTarget.style.boxShadow = '0 8px 30px rgba(0,0,0,0.12)';
                         e.currentTarget.style.borderColor = '#e94560';
@@ -971,7 +972,9 @@ const POS = () => {
                     <div style={styles.productPrice}>{formatPriceMK(product.sellingPrice)}</div>
                     <div style={styles.productUnit}>{product.unit || 'piece'}</div>
                     <div style={styles.productStock}>
-                      {product.currentStock > 0 ? `📦 ${product.currentStock}` : '❌ Out of Stock'}
+                      {(Number(product.currentStock || 0) - Number(product.reservedStock || 0)) > 0
+                        ? `📦 ${Math.max(0, Number(product.currentStock || 0) - Number(product.reservedStock || 0))}`
+                        : '❌ Out of Stock'}
                     </div>
                   </button>
                 ))
@@ -1056,7 +1059,7 @@ const POS = () => {
                       <button
                         style={styles.cartItemBtn}
                         onClick={() => addToCart(item)}
-                        disabled={item.quantity >= item.currentStock}
+                        disabled={item.quantity >= Math.max(0, Number(item.currentStock || 0) - Number(item.reservedStock || 0))}
                         onMouseEnter={(e) => {
                           e.currentTarget.style.backgroundColor = '#f0f0f0';
                         }}
