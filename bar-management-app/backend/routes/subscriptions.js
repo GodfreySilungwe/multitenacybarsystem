@@ -251,8 +251,20 @@ router.patch('/:barId/history/:paymentId', async (req, res) => {
     }
 
     const payments = await SubscriptionPayment.find({ barId: req.params.barId });
+    const paymentInHistory = payments.find((entry) => String(entry._id || entry.id) === String(payment._id || payment.id));
+    if (paymentInHistory) {
+      paymentInHistory.durationUnit = payment.durationUnit;
+      paymentInHistory.durationValue = payment.durationValue;
+      if (durationUnit === 'months') {
+        paymentInHistory.billingMonths = durationValue;
+        delete paymentInHistory.billingDays;
+      } else {
+        paymentInHistory.billingDays = durationValue;
+        delete paymentInHistory.billingMonths;
+      }
+    }
     const updatedSubscription = await rebuildSubscriptionFromPayments(req.params.barId, payments);
-    res.json({ subscription: updatedSubscription, payment });
+    res.json({ subscription: updatedSubscription, payment: paymentInHistory || payment });
   } catch (error) {
     console.error('Error updating subscription payment period:', error);
     res.status(400).json({ message: error.message });
