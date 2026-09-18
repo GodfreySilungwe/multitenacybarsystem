@@ -70,6 +70,23 @@ const parseLocalDateBoundary = (value, endOfDay = false, offsetMinutes = MALAWI_
     return new Date(adjusted).toISOString();
   }
 
+  const localDateTimeMatch = /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})(?::(\d{2})(?:\.(\d{1,3}))?)?$/.exec(value);
+  if (localDateTimeMatch) {
+    const [, year, month, day, hour, minute, explicitSecond, explicitMilliseconds] = localDateTimeMatch;
+    const second = explicitSecond || (endOfDay ? '59' : '0');
+    const milliseconds = explicitMilliseconds || (endOfDay ? '999' : '0');
+    const utcValue = Date.UTC(
+      Number(year),
+      Number(month) - 1,
+      Number(day),
+      Number(hour),
+      Number(minute),
+      Number(second),
+      Number(milliseconds.padEnd(3, '0'))
+    );
+    return new Date(utcValue - offsetMinutes * 60000).toISOString();
+  }
+
   const parsed = new Date(value);
   if (Number.isNaN(parsed.getTime())) {
     return null;
