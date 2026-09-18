@@ -191,7 +191,7 @@ router.post('/login', async (req, res) => {
       }
 
       if (!(await hasSubscriptionAccess(user.barId))) {
-        return res.status(403).json({ message: 'This bar subscription has expired. Please contact the system owner.' });
+        return res.status(403).json({ message: 'This bar subscription has expired. Please contact support on +265 995 718 815.' });
       }
     }
 

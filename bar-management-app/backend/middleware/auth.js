@@ -93,7 +93,7 @@ const protect = async (req, res, next) => {
     }
 
     if (!(await hasSubscriptionAccess(req.user.barId))) {
-      return res.status(403).json({ message: 'This bar subscription has expired. Please contact support on 0995718815.' });
+      return res.status(403).json({ message: 'This bar subscription has expired. Please contact support on +265 995 718 815.' });
     }
   }
 
