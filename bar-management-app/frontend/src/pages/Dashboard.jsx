@@ -52,6 +52,7 @@ const Dashboard = () => {
   const [subscriptionHistory, setSubscriptionHistory] = useState({});
   const [historyBarId, setHistoryBarId] = useState(null);
   const [subscriptionMessage, setSubscriptionMessage] = useState('');
+  const [editingSubscriptionPayment, setEditingSubscriptionPayment] = useState(null);
   const [recentOrders, setRecentOrders] = useState([]);
   const [lowStockProducts, setLowStockProducts] = useState([]);
   const [creditSettlementSummary, setCreditSettlementSummary] = useState([]);
@@ -246,11 +247,37 @@ const Dashboard = () => {
       barName: subscription.barName,
       paymentDate: new Date().toISOString().slice(0, 10),
       amount: '',
-      billingMonths: '1',
+      durationValue: '1',
+      durationUnit: 'months',
       paymentMethod: 'bank transfer',
       reference: '',
       note: ''
     });
+  };
+
+  const openSubscriptionPaymentEditor = (subscription, payment) => {
+    setSubscriptionMessage('');
+    setEditingSubscriptionPayment({
+      barId: subscription.barId,
+      barName: subscription.barName,
+      paymentId: payment._id || payment.id,
+      durationValue: payment.durationValue || payment.billingDays || payment.billingMonths || 1,
+      durationUnit: payment.durationUnit || (payment.billingDays ? 'days' : 'months')
+    });
+  };
+
+  const updateSubscriptionPaymentPeriod = async (event) => {
+    event.preventDefault();
+    if (!editingSubscriptionPayment) return;
+    try {
+      await api.patch(`/subscriptions/${editingSubscriptionPayment.barId}/history/${editingSubscriptionPayment.paymentId}`, editingSubscriptionPayment);
+      setEditingSubscriptionPayment(null);
+      setSubscriptionMessage(`Subscription period updated for ${editingSubscriptionPayment.barName}.`);
+      await fetchDashboardData();
+      await loadSubscriptionHistory(editingSubscriptionPayment.barId);
+    } catch (err) {
+      setSubscriptionMessage(err.response?.data?.message || 'Failed to update subscription period.');
+    }
   };
 
   const confirmSubscriptionPayment = async (event) => {
@@ -492,7 +519,8 @@ const Dashboard = () => {
                               <strong>Confirm payment for {subscriptionForm.barName}</strong>
                               <input type="date" required value={subscriptionForm.paymentDate} onChange={(event) => setSubscriptionForm({ ...subscriptionForm, paymentDate: event.target.value })} />
                               <input type="number" required min="0.01" step="0.01" placeholder="Amount" value={subscriptionForm.amount} onChange={(event) => setSubscriptionForm({ ...subscriptionForm, amount: event.target.value })} />
-                              <select value={subscriptionForm.billingMonths} onChange={(event) => setSubscriptionForm({ ...subscriptionForm, billingMonths: event.target.value })}><option value="1">1 month</option><option value="3">3 months</option><option value="6">6 months</option><option value="12">12 months</option></select>
+                              <input type="number" required min="1" step="1" placeholder="Period" value={subscriptionForm.durationValue} onChange={(event) => setSubscriptionForm({ ...subscriptionForm, durationValue: event.target.value })} />
+                              <select value={subscriptionForm.durationUnit} onChange={(event) => setSubscriptionForm({ ...subscriptionForm, durationUnit: event.target.value })}><option value="months">Months</option><option value="days">Days</option></select>
                               <input type="text" placeholder="Payment method" value={subscriptionForm.paymentMethod} onChange={(event) => setSubscriptionForm({ ...subscriptionForm, paymentMethod: event.target.value })} />
                               <input type="text" required placeholder="Payment reference" value={subscriptionForm.reference} onChange={(event) => setSubscriptionForm({ ...subscriptionForm, reference: event.target.value })} />
                               <button type="submit" style={styles.confirmBtn}>Save confirmation</button>
@@ -506,12 +534,26 @@ const Dashboard = () => {
                               <div style={styles.historyList}>
                                 {subscriptionHistory[subscription.barId].map((payment) => (
                                   <div key={payment._id || payment.id} style={styles.historyItem}>
-                                    <span>{payment.paymentDate ? new Date(payment.paymentDate).toLocaleDateString() : '-'} · {payment.paymentMethod || 'manual'} · {payment.reference}</span>
-                                    <strong>{Number(payment.amount || 0).toLocaleString()}</strong>
+                                    <span>{payment.paymentDate ? new Date(payment.paymentDate).toLocaleDateString() : '-'} · {payment.paymentMethod || 'manual'} · {payment.reference} · {payment.durationValue || payment.billingMonths || 1} {payment.durationUnit || 'months'}</span>
+                                    <span style={styles.historyActions}>
+                                      <strong>{Number(payment.amount || 0).toLocaleString()}</strong>
+                                      <button type="button" style={styles.cancelBtn} onClick={() => openSubscriptionPaymentEditor(subscription, payment)}>Edit period</button>
+                                    </span>
                                   </div>
                                 ))}
                               </div>
                             )}
+                          </td></tr>
+                        )}
+                        {editingSubscriptionPayment?.barId === subscription.barId && historyBarId === subscription.barId && (
+                          <tr><td colSpan="5" style={styles.subscriptionFormCell}>
+                            <form onSubmit={updateSubscriptionPaymentPeriod} style={styles.subscriptionForm}>
+                              <strong>Edit period for {editingSubscriptionPayment.barName}</strong>
+                              <input type="number" min="1" step="1" required value={editingSubscriptionPayment.durationValue} onChange={(event) => setEditingSubscriptionPayment({ ...editingSubscriptionPayment, durationValue: event.target.value })} />
+                              <select value={editingSubscriptionPayment.durationUnit} onChange={(event) => setEditingSubscriptionPayment({ ...editingSubscriptionPayment, durationUnit: event.target.value })}><option value="months">Months</option><option value="days">Days</option></select>
+                              <button type="submit" style={styles.confirmBtn}>Update period</button>
+                              <button type="button" style={styles.cancelBtn} onClick={() => setEditingSubscriptionPayment(null)}>Cancel</button>
+                            </form>
                           </td></tr>
                         )}
                       </Fragment>

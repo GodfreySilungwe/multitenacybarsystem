@@ -26,6 +26,57 @@ const addMonths = (date, months) => {
 
 const addDays = (date, days) => new Date(date.getTime() + days * 24 * 60 * 60 * 1000);
 
+const getDuration = (body = {}) => {
+  const durationUnit = String(body.durationUnit || (body.billingDays ? 'days' : 'months')).toLowerCase() === 'days' ? 'days' : 'months';
+  const rawValue = durationUnit === 'days' ? body.durationValue ?? body.billingDays : body.durationValue ?? body.billingMonths;
+  const durationValue = Math.max(1, Math.floor(Number(rawValue || 1)));
+  return { durationUnit, durationValue };
+};
+
+const extendDate = (date, durationUnit, durationValue) => (
+  durationUnit === 'days' ? addDays(date, durationValue) : addMonths(date, durationValue)
+);
+
+const rebuildSubscriptionFromPayments = async (barId, payments) => {
+  let paidThrough = null;
+  let lastPayment = null;
+  for (const payment of payments.sort((left, right) => new Date(left.paymentDate || left.createdAt) - new Date(right.paymentDate || right.createdAt))) {
+    const paymentDate = toDate(payment.paymentDate || payment.createdAt);
+    if (!paymentDate) continue;
+    const extensionStart = paidThrough && paidThrough > paymentDate ? paidThrough : paymentDate;
+    const durationUnit = payment.durationUnit || 'months';
+    const durationValue = Number(payment.durationValue || payment.billingMonths || 1);
+    paidThrough = extendDate(extensionStart, durationUnit, durationValue);
+    payment.extensionStart = extensionStart.toISOString();
+    payment.paidThrough = paidThrough.toISOString();
+    payment.graceEndsAt = addDays(paidThrough, GRACE_PERIOD_DAYS).toISOString();
+    if (durationUnit === 'months') {
+      payment.billingMonths = durationValue;
+      delete payment.billingDays;
+    } else {
+      payment.billingDays = durationValue;
+      delete payment.billingMonths;
+    }
+    lastPayment = payment;
+  }
+
+  const subscription = await BarSubscription.findOne({ barId });
+  if (!subscription || !lastPayment) return subscription;
+  Object.assign(subscription, {
+    paidThrough: lastPayment.paidThrough,
+    graceEndsAt: lastPayment.graceEndsAt,
+    lastPaymentDate: lastPayment.paymentDate,
+    lastPaymentAmount: lastPayment.amount,
+    paymentMethod: lastPayment.paymentMethod,
+    updatedAt: new Date().toISOString()
+  });
+  await subscription.save();
+  for (const payment of payments) {
+    await payment.save();
+  }
+  return subscription;
+};
+
 const getStatus = (subscription, now = new Date()) => {
   if (!subscription?.paidThrough) return 'awaiting_payment';
   const paidThrough = new Date(subscription.paidThrough);
@@ -98,7 +149,7 @@ router.post('/:barId/confirm-payment', async (req, res) => {
     const body = req.body || {};
     const paymentDate = toDate(body.paymentDate);
     const amount = Number(body.amount || 0);
-    const billingMonths = Math.max(1, Math.min(12, Math.floor(Number(body.billingMonths || 1))));
+    const { durationUnit, durationValue } = getDuration(body);
     const paymentMethod = String(body.paymentMethod || 'manual').trim();
     const reference = String(body.reference || req.get('x-idempotency-key') || '').trim();
     if (!paymentDate || paymentDate > new Date()) {
@@ -114,7 +165,7 @@ router.post('/:barId/confirm-payment', async (req, res) => {
     const subscription = await BarSubscription.findOne({ barId: bar._id });
     const currentPaidThrough = subscription?.paidThrough ? toDate(subscription.paidThrough, paymentDate) : null;
     const extensionStart = currentPaidThrough && currentPaidThrough > paymentDate ? currentPaidThrough : paymentDate;
-    const paidThrough = addMonths(extensionStart, billingMonths);
+    const paidThrough = extendDate(extensionStart, durationUnit, durationValue);
     const graceEndsAt = addDays(paidThrough, GRACE_PERIOD_DAYS);
     const now = new Date().toISOString();
 
@@ -134,7 +185,8 @@ router.post('/:barId/confirm-payment', async (req, res) => {
       paymentDate: paymentDate.toISOString(),
       amount,
       paymentMethod,
-      billingMonths,
+      durationUnit,
+      durationValue,
       extensionStart: extensionStart.toISOString(),
       paidThrough: paidThrough.toISOString(),
       graceEndsAt: graceEndsAt.toISOString(),
@@ -145,6 +197,11 @@ router.post('/:barId/confirm-payment', async (req, res) => {
       confirmedByName: req.user.fullName || req.user.username,
       confirmedAt: now
     });
+    if (durationUnit === 'months') {
+      payment.billingMonths = durationValue;
+    } else {
+      payment.billingDays = durationValue;
+    }
     try {
       await dynamodb.transactWrite([
         {
@@ -173,6 +230,31 @@ router.post('/:barId/confirm-payment', async (req, res) => {
     res.status(201).json({ subscription: record, payment });
   } catch (error) {
     console.error('Error confirming subscription payment:', error);
+    res.status(400).json({ message: error.message });
+  }
+});
+
+router.patch('/:barId/history/:paymentId', async (req, res) => {
+  try {
+    const payment = await SubscriptionPayment.findOne({ _id: req.params.paymentId, barId: req.params.barId });
+    if (!payment) return res.status(404).json({ message: 'Subscription payment not found.' });
+
+    const { durationUnit, durationValue } = getDuration(req.body);
+    payment.durationUnit = durationUnit;
+    payment.durationValue = durationValue;
+    if (durationUnit === 'months') {
+      payment.billingMonths = durationValue;
+      delete payment.billingDays;
+    } else {
+      payment.billingDays = durationValue;
+      delete payment.billingMonths;
+    }
+
+    const payments = await SubscriptionPayment.find({ barId: req.params.barId });
+    const updatedSubscription = await rebuildSubscriptionFromPayments(req.params.barId, payments);
+    res.json({ subscription: updatedSubscription, payment });
+  } catch (error) {
+    console.error('Error updating subscription payment period:', error);
     res.status(400).json({ message: error.message });
   }
 });

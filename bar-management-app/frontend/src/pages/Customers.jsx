@@ -427,29 +427,31 @@ const Customers = () => {
                       ));
                     })()}
                   </div>
-                  {customer.creditSummary.map((entry) => (
-                    <div key={entry._id} style={styles.creditHistoryItem}>
-                      <div style={styles.creditHistoryTopRow}>
-                        <span style={styles.creditHistoryDate}>{entry.date || '—'}</span>
-                        <span style={styles.creditHistoryOrder}>{entry.orderNumber}</span>
+                  <div style={styles.creditHistoryList}>
+                    {customer.creditSummary.map((entry) => (
+                      <div key={entry._id} style={styles.creditHistoryItem}>
+                        <div style={styles.creditHistoryTopRow}>
+                          <span style={styles.creditHistoryDate}>{entry.date || '—'}</span>
+                          <span style={styles.creditHistoryOrder}>{entry.orderNumber}</span>
+                        </div>
+                        <div style={styles.creditHistoryProducts}>
+                          {entry.products.map((product, index) => (
+                            <div key={`${entry._id}-${index}`} style={styles.creditHistoryProductRow}>
+                              <span>{product.name}</span>
+                              <span>x{product.quantity}</span>
+                            </div>
+                          ))}
+                        </div>
+                        <div style={styles.creditHistoryMeta}>
+                          <span>Balance: {formatPriceMK(entry.balanceDue || 0)}</span>
+                          <span>Paid: {formatPriceMK(entry.amountPaid || 0)}</span>
+                        </div>
+                        <div style={styles.creditHistoryMeta}>
+                          <span>Sales account: {entry.processedByName || entry.salesAccount || 'Sales account'}</span>
+                        </div>
                       </div>
-                      <div style={styles.creditHistoryProducts}>
-                        {entry.products.map((product, index) => (
-                          <div key={`${entry._id}-${index}`} style={styles.creditHistoryProductRow}>
-                            <span>{product.name}</span>
-                            <span>x{product.quantity}</span>
-                          </div>
-                        ))}
-                      </div>
-                      <div style={styles.creditHistoryMeta}>
-                        <span>Balance: {formatPriceMK(entry.balanceDue || 0)}</span>
-                        <span>Paid: {formatPriceMK(entry.amountPaid || 0)}</span>
-                      </div>
-                      <div style={styles.creditHistoryMeta}>
-                        <span>Sales account: {entry.processedByName || entry.salesAccount || 'Sales account'}</span>
-                      </div>
-                    </div>
-                  ))}
+                    ))}
+                  </div>
                 </div>
               )}
               {Number(customer.creditBalance || 0) > 0 && (
@@ -752,6 +754,12 @@ const styles = {
     display: 'flex',
     flexDirection: 'column',
     gap: '8px'
+  },
+  creditHistoryList: {
+    maxHeight: '320px',
+    overflowY: 'auto',
+    paddingRight: '4px',
+    overscrollBehavior: 'contain'
   },
   creditHistoryHeader: {
     fontSize: '13px',
