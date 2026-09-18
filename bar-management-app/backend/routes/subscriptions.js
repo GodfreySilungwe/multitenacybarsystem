@@ -27,10 +27,17 @@ const addMonths = (date, months) => {
 const addDays = (date, days) => new Date(date.getTime() + days * 24 * 60 * 60 * 1000);
 
 const getDuration = (body = {}) => {
-  const durationUnit = String(body.durationUnit || (body.billingDays ? 'days' : 'months')).toLowerCase() === 'days' ? 'days' : 'months';
+  const durationUnit = String(body.durationUnit || (body.billingDays !== undefined ? 'days' : 'months')).toLowerCase() === 'days' ? 'days' : 'months';
   const rawValue = durationUnit === 'days' ? body.durationValue ?? body.billingDays : body.durationValue ?? body.billingMonths;
-  const durationValue = Math.max(1, Math.floor(Number(rawValue || 1)));
+  const durationValue = Math.max(0, Math.floor(Number(rawValue ?? 1)));
   return { durationUnit, durationValue };
+};
+
+const getGracePeriodDays = (body = {}, fallback = GRACE_PERIOD_DAYS) => {
+  const rawValue = body.gracePeriodDays;
+  if (rawValue === undefined || rawValue === null || rawValue === '') return fallback;
+  const numericValue = Number(rawValue);
+  return Number.isFinite(numericValue) ? Math.max(0, Math.floor(numericValue)) : fallback;
 };
 
 const extendDate = (date, durationUnit, durationValue) => (
@@ -45,11 +52,13 @@ const rebuildSubscriptionFromPayments = async (barId, payments) => {
     if (!paymentDate) continue;
     const extensionStart = paidThrough && paidThrough > paymentDate ? paidThrough : paymentDate;
     const durationUnit = payment.durationUnit || 'months';
-    const durationValue = Number(payment.durationValue || payment.billingMonths || 1);
+    const durationValue = Number(payment.durationValue ?? payment.billingMonths ?? payment.billingDays ?? 1);
+    const gracePeriodDays = getGracePeriodDays(payment);
     paidThrough = extendDate(extensionStart, durationUnit, durationValue);
     payment.extensionStart = extensionStart.toISOString();
     payment.paidThrough = paidThrough.toISOString();
-    payment.graceEndsAt = addDays(paidThrough, GRACE_PERIOD_DAYS).toISOString();
+    payment.gracePeriodDays = gracePeriodDays;
+    payment.graceEndsAt = addDays(paidThrough, gracePeriodDays).toISOString();
     if (durationUnit === 'months') {
       payment.billingMonths = durationValue;
       delete payment.billingDays;
@@ -150,6 +159,7 @@ router.post('/:barId/confirm-payment', async (req, res) => {
     const paymentDate = toDate(body.paymentDate);
     const amount = Number(body.amount || 0);
     const { durationUnit, durationValue } = getDuration(body);
+    const gracePeriodDays = getGracePeriodDays(body);
     const paymentMethod = String(body.paymentMethod || 'manual').trim();
     const reference = String(body.reference || req.get('x-idempotency-key') || '').trim();
     if (!paymentDate || paymentDate > new Date()) {
@@ -166,7 +176,7 @@ router.post('/:barId/confirm-payment', async (req, res) => {
     const currentPaidThrough = subscription?.paidThrough ? toDate(subscription.paidThrough, paymentDate) : null;
     const extensionStart = currentPaidThrough && currentPaidThrough > paymentDate ? currentPaidThrough : paymentDate;
     const paidThrough = extendDate(extensionStart, durationUnit, durationValue);
-    const graceEndsAt = addDays(paidThrough, GRACE_PERIOD_DAYS);
+    const graceEndsAt = addDays(paidThrough, gracePeriodDays);
     const now = new Date().toISOString();
 
     const record = subscription || new BarSubscription({ _id: dynamodb.generateId(), barId: bar._id });
@@ -187,6 +197,7 @@ router.post('/:barId/confirm-payment', async (req, res) => {
       paymentMethod,
       durationUnit,
       durationValue,
+      gracePeriodDays,
       extensionStart: extensionStart.toISOString(),
       paidThrough: paidThrough.toISOString(),
       graceEndsAt: graceEndsAt.toISOString(),
@@ -240,8 +251,10 @@ router.patch('/:barId/history/:paymentId', async (req, res) => {
     if (!payment) return res.status(404).json({ message: 'Subscription payment not found.' });
 
     const { durationUnit, durationValue } = getDuration(req.body);
+    const gracePeriodDays = getGracePeriodDays(req.body);
     payment.durationUnit = durationUnit;
     payment.durationValue = durationValue;
+    payment.gracePeriodDays = gracePeriodDays;
     if (durationUnit === 'months') {
       payment.billingMonths = durationValue;
       delete payment.billingDays;
@@ -255,6 +268,7 @@ router.patch('/:barId/history/:paymentId', async (req, res) => {
     if (paymentInHistory) {
       paymentInHistory.durationUnit = payment.durationUnit;
       paymentInHistory.durationValue = payment.durationValue;
+      paymentInHistory.gracePeriodDays = gracePeriodDays;
       if (durationUnit === 'months') {
         paymentInHistory.billingMonths = durationValue;
         delete paymentInHistory.billingDays;
