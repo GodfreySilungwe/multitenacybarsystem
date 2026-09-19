@@ -383,6 +383,7 @@ const POS = () => {
   };
 
   const handleConfirmRequest = async (requestId) => {
+    if (confirmingId || rejectingId) return;
     try {
       setConfirmingId(requestId);
       await api.patch(`/customer-order-requests/${requestId}/confirm`);
@@ -400,6 +401,7 @@ const POS = () => {
   };
 
   const handleRejectRequest = async (requestId) => {
+    if (confirmingId || rejectingId) return;
     try {
       setRejectingId(requestId);
       await api.patch(`/customer-order-requests/${requestId}/reject`);
@@ -756,14 +758,14 @@ const POS = () => {
                     <button
                       style={styles.confirmBtn}
                       onClick={() => handleConfirmRequest(request._id)}
-                      disabled={confirmingId === request._id || rejectingId === request._id}
+                      disabled={Boolean(confirmingId || rejectingId)}
                     >
                       {confirmingId === request._id ? 'Confirming...' : 'Confirm'}
                     </button>
                     <button
                       style={{ ...styles.confirmBtn, ...styles.rejectBtn }}
                       onClick={() => handleRejectRequest(request._id)}
-                      disabled={confirmingId === request._id || rejectingId === request._id}
+                      disabled={Boolean(confirmingId || rejectingId)}
                     >
                       {rejectingId === request._id ? 'Rejecting...' : 'Reject'}
                     </button>

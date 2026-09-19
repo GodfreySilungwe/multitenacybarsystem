@@ -312,6 +312,34 @@ button:focus-visible {
   .page-container .btn-modern {
     width: 100% !important;
   }
+
+  .page-container .purchase-order-search-box {
+    width: 100% !important;
+    min-width: 0;
+  }
+
+  .page-container .purchase-order-search-input {
+    width: auto !important;
+    min-width: 0;
+  }
+
+  .page-container .purchase-order-clear-search {
+    width: 28px !important;
+    min-width: 28px;
+    flex: 0 0 28px;
+  }
+
+  .page-container .purchase-order-product-results {
+    grid-template-columns: 1fr;
+    max-height: 320px;
+    overflow-y: auto;
+    -webkit-overflow-scrolling: touch;
+  }
+
+  .page-container .purchase-order-product-result {
+    width: 100% !important;
+    min-height: 52px;
+  }
 }
 @media (max-width: 600px) {
   .page-container {

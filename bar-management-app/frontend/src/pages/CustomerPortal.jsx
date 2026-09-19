@@ -78,13 +78,20 @@ const CustomerPortal = () => {
     .reduce((sum, request) => sum + Number(request.amountDue || request.totalAmount || 0), 0);
   const creditOutstandingBill = unpaidCreditPurchases.reduce((sum, purchase) => sum + Number(purchase.balanceDue || 0), 0);
   const outstandingBill = requestOutstandingBill + creditOutstandingBill;
-  // Show requests in the account until they are fully paid; remove paid ones from the visible list
+  const recentExpiredRequestIds = new Set(
+    (customerRequests || [])
+      .filter((request) => request.status === 'expired')
+      .slice(0, 2)
+      .map((request) => request._id)
+  );
+  // Show active requests and only the two most recent expired requests.
   const visibleRequests = (customerRequests || []).filter((r) => {
     const normalizedStatus = (r.paymentStatus || '').toLowerCase();
     const isPaid = normalizedStatus === 'paid';
     const isRejectedAndCleared = r.status === 'rejected' && Number(r.amountDue || 0) === 0;
     const isConfirmedCreditOrder = r.status === 'confirmed' && r.linkedOrderId;
-    return !isPaid && !isRejectedAndCleared && !isConfirmedCreditOrder;
+    const isRecentExpired = r.status !== 'expired' || recentExpiredRequestIds.has(r._id);
+    return !isPaid && !isRejectedAndCleared && !isConfirmedCreditOrder && isRecentExpired;
   });
   const hasOutstandingBill = outstandingBill > 0;
   const paymentMethods = [
@@ -283,19 +290,22 @@ const CustomerPortal = () => {
                     list={`customer-products-${index}`}
                     placeholder="Search products"
                     value={item.productSearch || products.find((product) => product._id === item.productId)?.name || ''}
-                    onChange={(e) => setOrderItems((prev) => prev.map((row, rowIndex) => (
-                      rowIndex !== index
-                        ? row
-                        : (() => {
-                            const searchValue = e.target.value;
-                            const selectedProduct = products.find((product) => String(product.name || '').toLowerCase() === searchValue.trim().toLowerCase());
-                            return {
-                              ...row,
-                              productSearch: searchValue,
-                              productId: selectedProduct?._id || ''
-                            };
-                          })()
-                    )))}
+                    onChange={(e) => {
+                      setRequestMessage('');
+                      setOrderItems((prev) => prev.map((row, rowIndex) => (
+                        rowIndex !== index
+                          ? row
+                          : (() => {
+                              const searchValue = e.target.value;
+                              const selectedProduct = products.find((product) => String(product.name || '').toLowerCase() === searchValue.trim().toLowerCase());
+                              return {
+                                ...row,
+                                productSearch: searchValue,
+                                productId: selectedProduct?._id || ''
+                              };
+                            })()
+                      )));
+                    }}
                   />
                   <datalist id={`customer-products-${index}`}>
                     {products.map((product) => (
@@ -306,18 +316,24 @@ const CustomerPortal = () => {
                     type="number"
                     min="1"
                     value={item.quantity}
-                    onChange={(e) => setOrderItems((prev) => prev.map((row, rowIndex) => (
-                      rowIndex === index
-                        ? { ...row, quantity: e.target.value }
-                        : row
-                    )))}
+                    onChange={(e) => {
+                      setRequestMessage('');
+                      setOrderItems((prev) => prev.map((row, rowIndex) => (
+                        rowIndex === index
+                          ? { ...row, quantity: e.target.value }
+                          : row
+                      )));
+                    }}
                     style={responsiveStyles.quantityInput}
                   />
                   {orderItems.length > 1 && (
                     <button
                       type="button"
                       style={responsiveStyles.removeRowBtn}
-                      onClick={() => setOrderItems((prev) => prev.filter((_, rowIndex) => rowIndex !== index))}
+                      onClick={() => {
+                        setRequestMessage('');
+                        setOrderItems((prev) => prev.filter((_, rowIndex) => rowIndex !== index));
+                      }}
                     >
                       Remove
                     </button>
@@ -328,7 +344,10 @@ const CustomerPortal = () => {
             <button
               type="button"
               style={responsiveStyles.addRowBtn}
-              onClick={() => setOrderItems((prev) => [...prev, { productId: '', productSearch: '', quantity: '1' }])}
+              onClick={() => {
+                setRequestMessage('');
+                setOrderItems((prev) => [...prev, { productId: '', productSearch: '', quantity: '1' }]);
+              }}
             >
               + Add another item
             </button>
@@ -354,8 +373,8 @@ const CustomerPortal = () => {
                 <div key={request._id} style={responsiveStyles.requestStatusCard}>
                   <div style={responsiveStyles.requestStatusHeader}>
                     <span style={responsiveStyles.requestTitle}>{request.productName || 'Order'}</span>
-                    <span style={{ ...responsiveStyles.statusBadge, ...(request.status === 'confirmed' ? responsiveStyles.confirmed : request.status === 'rejected' ? responsiveStyles.rejected : responsiveStyles.pending) }}>
-                      {request.status === 'confirmed' ? 'Confirmed' : request.status === 'rejected' ? 'Rejected' : 'Pending'}
+                    <span style={{ ...responsiveStyles.statusBadge, ...(request.status === 'confirmed' ? responsiveStyles.confirmed : request.status === 'rejected' ? responsiveStyles.rejected : request.status === 'expired' ? responsiveStyles.expired : responsiveStyles.pending) }}>
+                      {request.status === 'confirmed' ? 'Confirmed' : request.status === 'rejected' ? 'Rejected' : request.status === 'expired' ? 'Expired' : 'Pending'}
                     </span>
                   </div>
                   {request.items?.length > 0 ? (
@@ -374,7 +393,7 @@ const CustomerPortal = () => {
                     </div>
                   )}
                     <div style={responsiveStyles.requestStatusBody}>
-                    <span>Payment: {request.status === 'rejected' ? 'Cancelled' : request.paymentStatus === 'paid' ? 'Paid' : request.paymentStatus === 'partial' ? 'Partially paid' : 'Pending'}</span>
+                    <span>Payment: {request.status === 'rejected' || request.status === 'expired' ? 'Cancelled' : request.paymentStatus === 'paid' ? 'Paid' : request.paymentStatus === 'partial' ? 'Partially paid' : 'Pending'}</span>
                     <span>Paid: {formatPriceMK(request.amountPaid || 0)}</span>
                     <span>Due: {formatPriceMK(request.amountDue || 0)}</span>
                   </div>
@@ -768,6 +787,10 @@ const baseStyles = {
   rejected: {
     backgroundColor: '#fee2e2',
     color: '#991b1b'
+  },
+  expired: {
+    backgroundColor: '#e5e7eb',
+    color: '#374151'
   },
   pending: {
     backgroundColor: '#fef3c7',

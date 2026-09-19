@@ -249,6 +249,7 @@ const Dashboard = () => {
       amount: '',
       durationValue: '1',
       durationUnit: 'months',
+      gracePeriodDays: '',
       paymentMethod: 'bank transfer',
       reference: '',
       note: ''
@@ -261,8 +262,9 @@ const Dashboard = () => {
       barId: subscription.barId,
       barName: subscription.barName,
       paymentId: payment._id || payment.id,
-      durationValue: payment.durationValue || payment.billingDays || payment.billingMonths || 1,
-      durationUnit: payment.durationUnit || (payment.billingDays ? 'days' : 'months')
+      durationValue: payment.durationValue ?? payment.billingDays ?? payment.billingMonths ?? 1,
+      durationUnit: payment.durationUnit || (payment.billingDays !== undefined ? 'days' : 'months'),
+      gracePeriodDays: payment.gracePeriodDays ?? ''
     });
   };
 
@@ -274,7 +276,9 @@ const Dashboard = () => {
       setEditingSubscriptionPayment(null);
       setSubscriptionMessage(`Subscription period updated for ${editingSubscriptionPayment.barName}.`);
       await fetchDashboardData();
-      await loadSubscriptionHistory(editingSubscriptionPayment.barId);
+      const historyResponse = await api.get(`/subscriptions/${editingSubscriptionPayment.barId}/history`);
+      setSubscriptionHistory((previous) => ({ ...previous, [editingSubscriptionPayment.barId]: historyResponse.data || [] }));
+      setHistoryBarId(editingSubscriptionPayment.barId);
     } catch (err) {
       setSubscriptionMessage(err.response?.data?.message || 'Failed to update subscription period.');
     }
@@ -519,8 +523,9 @@ const Dashboard = () => {
                               <strong>Confirm payment for {subscriptionForm.barName}</strong>
                               <input type="date" required value={subscriptionForm.paymentDate} onChange={(event) => setSubscriptionForm({ ...subscriptionForm, paymentDate: event.target.value })} />
                               <input type="number" required min="0.01" step="0.01" placeholder="Amount" value={subscriptionForm.amount} onChange={(event) => setSubscriptionForm({ ...subscriptionForm, amount: event.target.value })} />
-                              <input type="number" required min="1" step="1" placeholder="Period" value={subscriptionForm.durationValue} onChange={(event) => setSubscriptionForm({ ...subscriptionForm, durationValue: event.target.value })} />
+                              <input type="number" required min="0" step="1" placeholder="Period" value={subscriptionForm.durationValue} onChange={(event) => setSubscriptionForm({ ...subscriptionForm, durationValue: event.target.value })} />
                               <select value={subscriptionForm.durationUnit} onChange={(event) => setSubscriptionForm({ ...subscriptionForm, durationUnit: event.target.value })}><option value="months">Months</option><option value="days">Days</option></select>
+                              <input type="number" min="0" step="1" placeholder="Grace days (default 10)" value={subscriptionForm.gracePeriodDays} onChange={(event) => setSubscriptionForm({ ...subscriptionForm, gracePeriodDays: event.target.value })} />
                               <input type="text" placeholder="Payment method" value={subscriptionForm.paymentMethod} onChange={(event) => setSubscriptionForm({ ...subscriptionForm, paymentMethod: event.target.value })} />
                               <input type="text" required placeholder="Payment reference" value={subscriptionForm.reference} onChange={(event) => setSubscriptionForm({ ...subscriptionForm, reference: event.target.value })} />
                               <button type="submit" style={styles.confirmBtn}>Save confirmation</button>
@@ -549,8 +554,9 @@ const Dashboard = () => {
                           <tr><td colSpan="5" style={styles.subscriptionFormCell}>
                             <form onSubmit={updateSubscriptionPaymentPeriod} style={styles.subscriptionForm}>
                               <strong>Edit period for {editingSubscriptionPayment.barName}</strong>
-                              <input type="number" min="1" step="1" required value={editingSubscriptionPayment.durationValue} onChange={(event) => setEditingSubscriptionPayment({ ...editingSubscriptionPayment, durationValue: event.target.value })} />
+                              <input type="number" min="0" step="1" required value={editingSubscriptionPayment.durationValue} onChange={(event) => setEditingSubscriptionPayment({ ...editingSubscriptionPayment, durationValue: event.target.value })} />
                               <select value={editingSubscriptionPayment.durationUnit} onChange={(event) => setEditingSubscriptionPayment({ ...editingSubscriptionPayment, durationUnit: event.target.value })}><option value="months">Months</option><option value="days">Days</option></select>
+                              <input type="number" min="0" step="1" placeholder="Grace days (default 10)" value={editingSubscriptionPayment.gracePeriodDays} onChange={(event) => setEditingSubscriptionPayment({ ...editingSubscriptionPayment, gracePeriodDays: event.target.value })} />
                               <button type="submit" style={styles.confirmBtn}>Update period</button>
                               <button type="button" style={styles.cancelBtn} onClick={() => setEditingSubscriptionPayment(null)}>Cancel</button>
                             </form>

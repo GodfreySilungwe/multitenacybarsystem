@@ -15,6 +15,7 @@ const PurchaseOrders = () => {
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
   const [currentPage, setCurrentPage] = useState(1);
+  const [activeItemIndex, setActiveItemIndex] = useState(0);
   const ORDERS_PAGE_SIZE = 5;
   const [formData, setFormData] = useState({
     supplier: '',
@@ -45,16 +46,19 @@ const PurchaseOrders = () => {
   };
 
   const handleAddItem = () => {
+    const newItemIndex = formData.items.length;
     setFormData({
       ...formData,
       items: [...formData.items, { product: '', quantity: '', costPrice: '' }]
     });
+    setActiveItemIndex(newItemIndex);
   };
 
   const handleRemoveItem = (index) => {
     if (formData.items.length === 1) return;
     const newItems = formData.items.filter((_, i) => i !== index);
     setFormData({ ...formData, items: newItems });
+    setActiveItemIndex((currentIndex) => Math.min(currentIndex, newItems.length - 1));
   };
 
   const handleItemChange = (index, field, value) => {
@@ -144,6 +148,14 @@ const PurchaseOrders = () => {
     (currentPage - 1) * ORDERS_PAGE_SIZE,
     currentPage * ORDERS_PAGE_SIZE
   );
+  const normalizedProductSearch = productSearch.trim().toLowerCase();
+  const filteredProducts = products.filter((product) => {
+    if (!normalizedProductSearch) return true;
+    return (
+      product.name?.toLowerCase().includes(normalizedProductSearch) ||
+      product.category?.name?.toLowerCase().includes(normalizedProductSearch)
+    );
+  });
 
   if (loading) {
     return (
@@ -188,36 +200,65 @@ const PurchaseOrders = () => {
               </div>
 
               <div style={styles.itemsSection}>
-                <label style={styles.label}>Items *</label>
-                <input
-                  type="search"
-                  placeholder="Search products for this order"
-                  value={productSearch}
-                  onChange={(e) => setProductSearch(e.target.value)}
-                  style={styles.searchInput}
-                />
-                {formData.items.map((item, index) => (
-                  <div key={index} style={styles.itemRow}>
-                    <select
-                      required
-                      style={{...styles.input, flex: 2}}
-                      value={item.product}
-                      onChange={(e) => handleItemChange(index, 'product', e.target.value)}
+                <div style={styles.itemsHeader}>
+                  <label style={styles.label}>Items *</label>
+                  <span style={styles.searchSummary}>
+                    {normalizedProductSearch ? `${filteredProducts.length} matches` : `${products.length} products`}
+                  </span>
+                </div>
+                <div className="purchase-order-search-box" style={styles.searchBox}>
+                  <span aria-hidden="true" style={styles.searchIcon}>⌕</span>
+                  <input
+                    type="search"
+                    aria-label="Search products for this order"
+                    placeholder="Search by product or category..."
+                    value={productSearch}
+                    onChange={(e) => setProductSearch(e.target.value)}
+                    className="purchase-order-search-input"
+                    style={styles.searchInput}
+                  />
+                  {productSearch && (
+                    <button
+                      type="button"
+                      aria-label="Clear product search"
+                      onClick={() => setProductSearch('')}
+                      className="purchase-order-clear-search"
+                      style={styles.clearSearch}
                     >
-                      <option value="">Select Product</option>
-                      {products
-                        .filter((product) => {
-                          const search = productSearch.trim().toLowerCase();
-                          if (!search) return true;
-                          return (
-                            product.name?.toLowerCase().includes(search) ||
-                            product.category?.name?.toLowerCase().includes(search)
-                          );
-                        })
-                        .map(p => (
-                          <option key={p._id} value={p._id}>{p.name}</option>
-                        ))}
-                    </select>
+                      ✕
+                    </button>
+                  )}
+                </div>
+                <p style={styles.searchHint}>Select a product below for Item {activeItemIndex + 1}.</p>
+                <div className="purchase-order-product-results" style={styles.productResults}>
+                  {filteredProducts.length === 0 ? (
+                    <p style={styles.noResults}>No products match your search.</p>
+                  ) : (
+                    filteredProducts.map((product) => (
+                      <button
+                        key={product._id}
+                        type="button"
+                        className="purchase-order-product-result"
+                        style={styles.productResult}
+                        onClick={() => handleItemChange(activeItemIndex, 'product', product._id)}
+                      >
+                        <span style={styles.productResultName}>{product.name}</span>
+                        <span style={styles.productResultCategory}>{product.category?.name || 'Uncategorized'}</span>
+                      </button>
+                    ))
+                  )}
+                </div>
+                {formData.items.map((item, index) => (
+                  <div key={index} style={{...styles.itemRow, ...(activeItemIndex === index ? styles.activeItemRow : {})}}>
+                    <button
+                      type="button"
+                      style={{...styles.productPicker, flex: 2}}
+                      onClick={() => setActiveItemIndex(index)}
+                    >
+                      {item.product
+                        ? products.find((product) => product._id === item.product)?.name || 'Selected product'
+                        : 'Choose product from results'}
+                    </button>
                     <input
                       type="number"
                       required
@@ -560,6 +601,33 @@ const styles = {
     flexDirection: 'column',
     gap: '10px'
   },
+  itemsHeader: {
+    display: 'flex',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    gap: '10px'
+  },
+  searchSummary: {
+    color: '#667085',
+    fontSize: '12px',
+    fontWeight: '600'
+  },
+  searchBox: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: '8px',
+    width: '100%',
+    padding: '0 10px',
+    border: '1px solid #cfd4dc',
+    borderRadius: '10px',
+    backgroundColor: '#f8fafc',
+    transition: 'border-color 0.2s ease, box-shadow 0.2s ease'
+  },
+  searchIcon: {
+    color: '#667085',
+    fontSize: '22px',
+    lineHeight: 1
+  },
   itemRow: {
     display: 'flex',
     gap: '10px',
@@ -576,13 +644,75 @@ const styles = {
     minHeight: '44px'
   },
   searchInput: {
+    flex: 1,
     width: '100%',
-    padding: '12px 14px',
-    borderRadius: '8px',
-    border: '1px solid #ddd',
+    padding: '12px 2px',
+    border: 'none',
+    outline: 'none',
+    backgroundColor: 'transparent',
     fontSize: '15px',
-    marginBottom: '10px',
     minHeight: '44px'
+  },
+  clearSearch: {
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    width: '28px',
+    height: '28px',
+    padding: 0,
+    border: 'none',
+    borderRadius: '50%',
+    backgroundColor: '#e5e7eb',
+    color: '#475467',
+    cursor: 'pointer',
+    fontSize: '12px'
+  },
+  searchHint: {
+    margin: '-3px 0 2px',
+    color: '#667085',
+    fontSize: '12px'
+  },
+  productResults: {
+    display: 'grid',
+    gridTemplateColumns: 'repeat(auto-fill, minmax(180px, 1fr))',
+    gap: '8px',
+    maxHeight: '220px',
+    overflowY: 'auto',
+    padding: '4px',
+    border: '1px solid #e4e7ec',
+    borderRadius: '10px',
+    backgroundColor: '#f8fafc'
+  },
+  productResult: {
+    display: 'flex',
+    flexDirection: 'column',
+    alignItems: 'flex-start',
+    gap: '4px',
+    minHeight: '62px',
+    padding: '10px 12px',
+    border: '1px solid #d0d5dd',
+    borderRadius: '8px',
+    backgroundColor: 'white',
+    color: '#1d2939',
+    cursor: 'pointer',
+    textAlign: 'left',
+    transition: 'border-color 0.2s ease, background-color 0.2s ease'
+  },
+  productResultName: {
+    fontSize: '14px',
+    fontWeight: '600'
+  },
+  productResultCategory: {
+    color: '#667085',
+    fontSize: '12px'
+  },
+  noResults: {
+    gridColumn: '1 / -1',
+    margin: 0,
+    padding: '14px',
+    color: '#667085',
+    fontSize: '13px',
+    textAlign: 'center'
   },
   label: {
     fontSize: '14px',
@@ -597,6 +727,26 @@ const styles = {
     cursor: 'pointer',
     fontSize: '14px',
     transition: 'all 0.3s ease'
+  },
+  activeItemRow: {
+    padding: '8px',
+    borderRadius: '10px',
+    backgroundColor: '#fff6f7',
+    outline: '1px solid #f4b4bf'
+  },
+  productPicker: {
+    display: 'flex',
+    alignItems: 'center',
+    minHeight: '44px',
+    padding: '12px 14px',
+    borderRadius: '8px',
+    border: '1px solid #ddd',
+    backgroundColor: 'white',
+    color: '#344054',
+    cursor: 'pointer',
+    fontSize: '15px',
+    fontFamily: 'inherit',
+    textAlign: 'left'
   },
   formActions: {
     display: 'flex',

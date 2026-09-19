@@ -376,26 +376,28 @@ const Customers = () => {
               </div>
               <div style={styles.settlementSection} className="customer-card__settlements">
                 <div style={styles.creditHistoryHeader}>Recent settlements</div>
-                {(settlements || [])
-                  .filter((entry) => String(entry.customerId || '') === String(customer._id))
-                  .filter((entry) => getSettlementAmount(entry) > 0)
-                  .slice(0, 5)
-                  .map((entry) => (
-                  <div key={entry._id} style={styles.creditHistoryItem}>
-                    <div style={styles.creditHistoryTopRow}>
-                      <span style={styles.creditHistoryDate}>{entry.createdAt ? new Date(entry.createdAt).toLocaleString() : '—'}</span>
-                      <span style={styles.creditHistoryOrder}>{entry.paymentMethod || 'cash'}</span>
+                <div style={styles.settlementHistoryList}>
+                  {(settlements || [])
+                    .filter((entry) => String(entry.customerId || '') === String(customer._id))
+                    .filter((entry) => getSettlementAmount(entry) > 0)
+                    .slice(0, 5)
+                    .map((entry) => (
+                    <div key={entry._id} style={styles.creditHistoryItem}>
+                      <div style={styles.creditHistoryTopRow}>
+                        <span style={styles.creditHistoryDate}>{entry.createdAt ? new Date(entry.createdAt).toLocaleString() : '—'}</span>
+                        <span style={styles.creditHistoryOrder}>{entry.paymentMethod || 'cash'}</span>
+                      </div>
+                      <div style={styles.creditHistoryMeta}>
+                        <span>Amount: {formatPriceMK(getSettlementAmount(entry))}</span>
+                        <span style={styles.approverBadge}>Sales: {entry.approvedByName || entry.processedByName || entry.salesAccount || 'Sales account'}</span>
+                      </div>
+                      <div style={styles.creditHistoryMeta}>
+                        <span>Status: {entry.status || 'confirmed'}</span>
+                      </div>
+                      {entry.reference || entry.paymentReference ? <div style={styles.creditHistoryProducts}>{entry.reference || entry.paymentReference}</div> : null}
                     </div>
-                    <div style={styles.creditHistoryMeta}>
-                      <span>Amount: {formatPriceMK(getSettlementAmount(entry))}</span>
-                      <span style={styles.approverBadge}>Sales: {entry.approvedByName || entry.processedByName || entry.salesAccount || 'Sales account'}</span>
-                    </div>
-                    <div style={styles.creditHistoryMeta}>
-                      <span>Status: {entry.status || 'confirmed'}</span>
-                    </div>
-                    {entry.reference || entry.paymentReference ? <div style={styles.creditHistoryProducts}>{entry.reference || entry.paymentReference}</div> : null}
-                  </div>
-                ))}
+                  ))}
+                </div>
                 {!(settlements || []).some((entry) => (
                   String(entry.customerId || '') === String(customer._id)
                   && getSettlementAmount(entry) > 0
@@ -757,6 +759,12 @@ const styles = {
   },
   creditHistoryList: {
     maxHeight: '320px',
+    overflowY: 'auto',
+    paddingRight: '4px',
+    overscrollBehavior: 'contain'
+  },
+  settlementHistoryList: {
+    maxHeight: '180px',
     overflowY: 'auto',
     paddingRight: '4px',
     overscrollBehavior: 'contain'
