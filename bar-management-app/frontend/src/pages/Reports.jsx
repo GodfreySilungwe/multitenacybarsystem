@@ -368,41 +368,6 @@ const Reports = () => {
         ))}
       </div>
 
-      <div className="fade-in delay-5" style={{ marginBottom: '20px' }}>
-        <UnifiedCard title="💳 Sales Proceeds by Method">
-          <p style={styles.sectionDescription}>Aggregated from cash, Airtel Money, Mpamba and bank account receipts in POS sales and customer settlement activity.</p>
-          {reportData.paymentMethodProceeds.length > 0 ? (
-            <div style={styles.tableWrapper}>
-              <table style={styles.table}>
-                <thead>
-                  <tr>
-                    <th>Payment Method</th>
-                    <th>Total</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {reportData.paymentMethodProceeds.map((method, index) => (
-                    <tr key={index} style={styles.tableRow}>
-                      <td style={styles.productName}>{method.method === 'Credit' ? 'Bill Management Sales' : method.method}</td>
-                      <td style={styles.revenue}>{formatPriceMK(method.totalAmount)}</td>
-                    </tr>
-                  ))}
-                  <tr style={{ ...styles.tableRow, fontWeight: '700', backgroundColor: '#f9fafb' }}>
-                    <td style={styles.productName}>Total Proceeds</td>
-                    <td style={styles.revenue}>{formatPriceMK(reportData.paymentMethodProceeds.reduce((sum, method) => sum + Number(method.totalAmount || 0), 0))}</td>
-                  </tr>
-                </tbody>
-              </table>
-            </div>
-          ) : (
-            <div style={styles.noData}>
-              <p style={styles.noDataIcon}>💳</p>
-              <p>No payment proceeds data available for this period</p>
-            </div>
-          )}
-        </UnifiedCard>
-      </div>
-
       {reportData.creditAccounts.length > 0 && (
         <div className="fade-in delay-5" style={{ marginBottom: '20px' }}>
           <UnifiedCard title="🧾 Accumulated Customer Credit Accounts(All)">
