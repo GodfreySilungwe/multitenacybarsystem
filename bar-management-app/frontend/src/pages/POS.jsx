@@ -740,8 +740,8 @@ const POS = () => {
           <UnifiedCard title="🛍️ Customer Requests">
             <div style={styles.requestList}>
               {pendingRequests.map((request) => (
-                <div key={request._id} style={styles.requestItem}>
-                  <div style={{ flex: 1 }}>
+                <div key={request._id} className="pos-request-item" style={styles.requestItem}>
+                  <div className="pos-request-info" style={{ flex: 1 }}>
                     <div style={styles.requestCustomer}>{request.customerName || 'Customer'}</div>
                     {request.items?.length > 0 ? (
                       <div style={styles.requestDetail}>{request.items.map((item) => `${item.productName || 'Product'} × ${item.quantity || 1}`).join(', ')}</div>
@@ -751,23 +751,23 @@ const POS = () => {
                     <div style={styles.requestDetail}>Due: {formatPriceMK(request.amountDue || request.totalAmount || 0)}</div>
                     <div style={styles.requestTime}>{new Date(request.createdAt).toLocaleString()}</div>
                   </div>
-                  <div style={styles.requestActions}>
-                    <span style={{ ...styles.statusBadge, ...styles.pending }}>
-                      Pending
-                    </span>
+                  <span className="pos-request-status" style={{ ...styles.statusBadge, ...styles.pending }}>Pending</span>
+                  <div className="requestActions" style={styles.requestActions}>
                     <button
-                      style={styles.confirmBtn}
-                      onClick={() => handleConfirmRequest(request._id)}
-                      disabled={Boolean(confirmingId || rejectingId)}
-                    >
-                      {confirmingId === request._id ? 'Confirming...' : 'Confirm'}
-                    </button>
-                    <button
+                      className="pos-request-action-button"
                       style={{ ...styles.confirmBtn, ...styles.rejectBtn }}
                       onClick={() => handleRejectRequest(request._id)}
                       disabled={Boolean(confirmingId || rejectingId)}
                     >
                       {rejectingId === request._id ? 'Rejecting...' : 'Reject'}
+                    </button>
+                    <button
+                      className="pos-request-action-button"
+                      style={styles.confirmBtn}
+                      onClick={() => handleConfirmRequest(request._id)}
+                      disabled={Boolean(confirmingId || rejectingId)}
+                    >
+                      {confirmingId === request._id ? 'Confirming...' : 'Confirm'}
                     </button>
                   </div>
                 </div>
@@ -782,8 +782,8 @@ const POS = () => {
           <UnifiedCard title="💸 Customer Payment Requests">
             <div style={styles.requestList}>
               {customerPayments.map((p) => (
-                <div key={p._id} style={styles.requestItem}>
-                  <div style={{ flex: 1 }}>
+                <div key={p._id} className="pos-request-item" style={styles.requestItem}>
+                  <div className="pos-request-info" style={{ flex: 1 }}>
                     <div style={styles.requestCustomer}>{p.customerName || 'Customer'}</div>
                     <div style={styles.requestDetail}>Amount: {formatPriceMK(p.amount || p.amountRequested || 0)}</div>
                     <div style={styles.requestDetail}>Method: {p.paymentMethod || 'cash'}</div>
@@ -792,21 +792,23 @@ const POS = () => {
                     )}
                     <div style={styles.requestTime}>{new Date(p.createdAt).toLocaleString()}</div>
                   </div>
-                  <div style={styles.requestActions}>
-                    <span style={{ ...styles.statusBadge, ...styles.pending }}>{p.status || 'pending'}</span>
+                  <span className="pos-request-status" style={{ ...styles.statusBadge, ...styles.pending }}>{p.status || 'pending'}</span>
+                  <div className="requestActions" style={styles.requestActions}>
                     <button
-                      style={styles.confirmBtn}
-                      onClick={() => handleConfirmPayment(p._id)}
-                      disabled={confirmingPaymentId === p._id || rejectingPaymentId === p._id}
-                    >
-                      {confirmingPaymentId === p._id ? 'Confirming...' : 'Confirm'}
-                    </button>
-                    <button
+                      className="pos-request-action-button"
                       style={{ ...styles.confirmBtn, ...styles.rejectBtn }}
                       onClick={() => handleRejectPayment(p._id)}
                       disabled={confirmingPaymentId === p._id || rejectingPaymentId === p._id}
                     >
                       {rejectingPaymentId === p._id ? 'Rejecting...' : 'Reject'}
+                    </button>
+                    <button
+                      className="pos-request-action-button"
+                      style={styles.confirmBtn}
+                      onClick={() => handleConfirmPayment(p._id)}
+                      disabled={confirmingPaymentId === p._id || rejectingPaymentId === p._id}
+                    >
+                      {confirmingPaymentId === p._id ? 'Confirming...' : 'Confirm'}
                     </button>
                   </div>
                 </div>
@@ -820,6 +822,18 @@ const POS = () => {
         @media (max-width: 1024px) {
           .pos-mobile-category-buttons {
             display: none !important;
+          }
+        }
+
+        @media (max-width: 900px) {
+          .page-container .pos-request-action-button {
+            width: auto !important;
+            max-width: none !important;
+            min-width: 96px !important;
+            flex: 0 0 auto !important;
+          }
+          .page-container .requestActions {
+            width: auto !important;
           }
         }
 
@@ -854,9 +868,44 @@ const POS = () => {
           .pos-mobile-payment-btn {
             flex: 1 1 calc(50% - 6px) !important;
           }
+          .pos-request-action-button {
+            width: auto !important;
+            max-width: none !important;
+            min-width: 96px !important;
+            flex: 0 0 auto !important;
+          }
         }
 
         @media (max-width: 480px) {
+          .page-container .pos-request-item {
+            flex-direction: column !important;
+            align-items: stretch !important;
+            width: 100% !important;
+            position: relative !important;
+            padding-top: 18px !important;
+          }
+          .page-container .pos-request-info {
+            width: 100% !important;
+            padding-right: 86px;
+          }
+          .page-container .pos-request-status {
+            position: absolute !important;
+            top: 16px;
+            right: 16px;
+          }
+          .page-container .requestActions {
+            width: 100% !important;
+            display: flex !important;
+            flex-wrap: nowrap !important;
+            justify-content: space-between !important;
+            gap: 8px !important;
+            margin-top: 4px;
+          }
+          .page-container .pos-request-action-button {
+            flex: 1 1 0 !important;
+            width: auto !important;
+            min-width: 0 !important;
+          }
           .pos-mobile-product-total {
             display: flex !important;
           }
@@ -1715,9 +1764,11 @@ productUnit: {
   },
   requestActions: {
     display: 'flex',
-    flexDirection: 'column',
+    flexDirection: 'row',
     gap: '10px',
-    alignItems: 'flex-end'
+    alignItems: 'center',
+    flexWrap: 'wrap',
+    justifyContent: 'flex-end'
   },
   statusBadge: {
     padding: '6px 10px',
