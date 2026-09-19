@@ -152,6 +152,10 @@ router.put('/:id/status', async (req, res) => {
         const product = await Product.findOne({ _id: item.product, barId: req.user.barId });
         if (product) {
           product.currentStock += item.quantity;
+          const receivedCostPrice = Number(item.costPrice);
+          if (Number.isFinite(receivedCostPrice)) {
+            product.costPrice = receivedCostPrice;
+          }
           await product.save();
         }
       }
