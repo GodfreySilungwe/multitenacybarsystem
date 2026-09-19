@@ -477,7 +477,9 @@ const CustomerPortal = () => {
                 <div key={entry._id} style={responsiveStyles.purchaseCard}>
                   <div style={responsiveStyles.purchaseHeader}>
                     <span style={responsiveStyles.orderNumber}>{entry.orderNumber}</span>
-                    <span style={responsiveStyles.date}>{entry.date || '—'}</span>
+                    <span style={responsiveStyles.date}>
+                      {entry.createdAt ? new Date(entry.createdAt).toLocaleString() : '—'}
+                    </span>
                   </div>
                   <div style={responsiveStyles.purchaseBody}>
                     {entry.products.map((product, index) => (

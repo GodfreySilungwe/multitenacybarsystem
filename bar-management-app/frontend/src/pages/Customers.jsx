@@ -433,7 +433,9 @@ const Customers = () => {
                     {customer.creditSummary.map((entry) => (
                       <div key={entry._id} style={styles.creditHistoryItem}>
                         <div style={styles.creditHistoryTopRow}>
-                          <span style={styles.creditHistoryDate}>{entry.date || '—'}</span>
+                          <span style={styles.creditHistoryDate}>
+                            {entry.createdAt ? new Date(entry.createdAt).toLocaleString() : '—'}
+                          </span>
                           <span style={styles.creditHistoryOrder}>{entry.orderNumber}</span>
                         </div>
                         <div style={styles.creditHistoryProducts}>
