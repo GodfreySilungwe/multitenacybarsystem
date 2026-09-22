@@ -64,6 +64,12 @@ const PurchaseOrders = () => {
   const handleItemChange = (index, field, value) => {
     const newItems = [...formData.items];
     newItems[index][field] = value;
+    if (field === 'product' && !newItems[index].costPrice) {
+      const selectedProduct = products.find((product) => product._id === value);
+      if (selectedProduct?.costPrice !== undefined && selectedProduct?.costPrice !== null) {
+        newItems[index].costPrice = String(selectedProduct.costPrice);
+      }
+    }
     setFormData({ ...formData, items: newItems });
   };
 
@@ -325,7 +331,7 @@ const PurchaseOrders = () => {
         </div>
       )}
 
-      <div style={styles.ordersGrid}>
+      <div className="purchase-orders-grid" style={styles.ordersGrid}>
         {orders.length === 0 ? (
           <div className="fade-in" style={styles.emptyState}>
             <p style={styles.emptyIcon}>📦</p>
@@ -336,7 +342,7 @@ const PurchaseOrders = () => {
           paginatedOrders.map((order, index) => (
             <div 
               key={order._id}
-              className={`fade-in delay-${(index % 6) + 1}`}
+              className={`purchase-order-card fade-in delay-${(index % 6) + 1}`}
               style={styles.orderCard}
               onMouseEnter={(e) => {
                 e.currentTarget.style.transform = 'translateY(-4px)';
@@ -368,7 +374,7 @@ const PurchaseOrders = () => {
               <div style={styles.orderDetails}>
                 <div style={styles.orderItems}>
                   {order.items.map((item, idx) => (
-                    <div key={idx} style={styles.orderItem}>
+                    <div key={idx} className="purchase-order-item" style={styles.orderItem}>
                       <span>{item.product?.name || item.productName || item.product || 'Product'}</span>
                       <span>{item.quantity} × {formatPriceMK(item.costPrice)}</span>
                       <span>= {formatPriceMK(item.subtotal)}</span>

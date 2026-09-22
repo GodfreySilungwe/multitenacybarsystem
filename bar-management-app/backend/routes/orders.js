@@ -226,6 +226,14 @@ router.get('/summary', async (req, res) => {
       startDate = parseLocalDateBoundary(req.query.startDate, false);
     }
 
+    if (range === 'custom' && req.query.startDate && req.query.endDate) {
+      const startValue = new Date(req.query.startDate);
+      const endValue = new Date(req.query.endDate);
+      if (Number.isNaN(startValue.getTime()) || Number.isNaN(endValue.getTime()) || startValue > endValue) {
+        return res.status(400).json({ message: 'Start date/time cannot be after end date/time.' });
+      }
+    }
+
     const queryOptions = {
       barId: req.user.barId,
       includeReversed: false,

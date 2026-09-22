@@ -340,6 +340,26 @@ button:focus-visible {
     width: 100% !important;
     min-height: 52px;
   }
+
+  .page-container .purchase-orders-grid {
+    grid-template-columns: minmax(0, 1fr) !important;
+    width: 100% !important;
+    min-width: 0;
+    gap: 14px;
+  }
+
+  .page-container .purchase-order-card {
+    width: 100% !important;
+    min-width: 0;
+    max-width: 100%;
+    overflow: hidden;
+  }
+
+  .page-container .purchase-order-item {
+    flex-wrap: wrap;
+    min-width: 0;
+    overflow-wrap: anywhere;
+  }
 }
 @media (max-width: 600px) {
   .page-container {

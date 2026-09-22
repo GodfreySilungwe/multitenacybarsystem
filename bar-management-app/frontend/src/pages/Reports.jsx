@@ -57,9 +57,17 @@ const Reports = () => {
     grossMarginRatio: 0
   });
 
-  const canLoadCustomRange = dateRange !== 'custom'
-    || (Boolean(customStartDate && customEndDate)
-      && ((!customStartTime && !customEndTime) || Boolean(customStartTime && customEndTime)));
+  const customRangeIsComplete = Boolean(customStartDate && customEndDate);
+  const customRangeTimesAreBalanced = (!customStartTime && !customEndTime) || (Boolean(customStartTime) && Boolean(customEndTime));
+  const customRangeIsChronological = !customRangeIsComplete || !customRangeTimesAreBalanced
+    ? false
+    : (() => {
+        const startValue = new Date(customStartTime ? `${customStartDate}T${customStartTime}` : `${customStartDate}T00:00`);
+        const endValue = new Date(customEndTime ? `${customEndDate}T${customEndTime}` : `${customEndDate}T23:59`);
+        return !Number.isNaN(startValue.getTime()) && !Number.isNaN(endValue.getTime()) && startValue <= endValue;
+      })();
+
+  const canLoadCustomRange = dateRange !== 'custom' || (customRangeIsComplete && customRangeTimesAreBalanced && customRangeIsChronological);
 
   useEffect(() => {
     if (!canLoadCustomRange) {
@@ -77,6 +85,22 @@ const Reports = () => {
       const params = { range: dateRange, optimized: 'true' };
       if (dateRange === 'custom') {
         if (!customStartDate || !customEndDate) {
+          setError('Custom date range requires both start and end dates.');
+          setLoading(false);
+          return;
+        }
+
+        if ((Boolean(customStartTime) && !customEndTime) || (!customStartTime && Boolean(customEndTime))) {
+          setError('Complete both custom times or leave both blank.');
+          setLoading(false);
+          return;
+        }
+
+        const startValue = new Date(customStartTime ? `${customStartDate}T${customStartTime}` : `${customStartDate}T00:00`);
+        const endValue = new Date(customEndTime ? `${customEndDate}T${customEndTime}` : `${customEndDate}T23:59`);
+
+        if (Number.isNaN(startValue.getTime()) || Number.isNaN(endValue.getTime()) || startValue > endValue) {
+          setError('Start date/time cannot be after end date/time.');
           setLoading(false);
           return;
         }
@@ -321,8 +345,8 @@ const Reports = () => {
 
       {/* Export Buttons */}
       <div style={styles.exportSection}>
-        <ExportButton type="sales" label="Export Sales (Excel)" icon="📊" variant="success" dateRange={dateRange} customStartDate={customStartDate} customEndDate={customEndDate} />
-        <ExportButton type="sales-pdf" label="Export Sales (PDF)" icon="📄" variant="info" dateRange={dateRange} customStartDate={customStartDate} customEndDate={customEndDate} />
+        <ExportButton type="sales" label="Export Sales (Excel)" icon="📊" variant="success" dateRange={dateRange} customStartDate={customStartDate} customEndDate={customEndDate} customStartTime={customStartTime} customEndTime={customEndTime} />
+        <ExportButton type="sales-pdf" label="Export Sales (PDF)" icon="📄" variant="info" dateRange={dateRange} customStartDate={customStartDate} customEndDate={customEndDate} customStartTime={customStartTime} customEndTime={customEndTime} />
         <ExportButton type="inventory" label="Export Inventory" icon="📦" variant="warning" />
         <ExportButton type="customers" label="Export Customers" icon="👤" variant="secondary" />
       </div>

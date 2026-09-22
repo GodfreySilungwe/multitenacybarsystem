@@ -2,7 +2,7 @@ import { useState } from 'react';
 import api from '../../api/api';
 import { saveAs } from 'file-saver';
 
-const ExportButton = ({ type, label, icon = '📤', variant = 'primary', dateRange, customStartDate, customEndDate }) => {
+const ExportButton = ({ type, label, icon = '📤', variant = 'primary', dateRange, customStartDate, customEndDate, customStartTime, customEndTime }) => {
   const [loading, setLoading] = useState(false);
 
   const handleExport = async () => {
@@ -41,8 +41,8 @@ const ExportButton = ({ type, label, icon = '📤', variant = 'primary', dateRan
 
         params.range = dateRange;
         if (dateRange === 'custom') {
-          params.startDate = customStartDate;
-          params.endDate = customEndDate;
+          params.startDate = customStartTime ? `${customStartDate}T${customStartTime}` : customStartDate;
+          params.endDate = customEndTime ? `${customEndDate}T${customEndTime}` : customEndDate;
         }
       }
 
