@@ -13,6 +13,7 @@ const { queryEntities, decodeLastEvaluatedKey } = require('../lib/dynamodb');
 const { buildOrderSummary, calculateOutstandingCreditInPeriod } = require('../lib/orderSummary');
 const { createAuditEntry } = require('../lib/audit');
 const { getInitialCreditPayment, normalizeCreditPaymentMethod, classifyRepaymentAllocations } = require('../lib/creditPayments');
+const { getOrderExpiryEpochSeconds } = require('../lib/orderExpiry');
 
 router.use(protect, isBarOwnerOrSales);
 
@@ -1188,6 +1189,8 @@ router.post('/', async (req, res) => {
       }
     }
 
+    const orderCreatedAt = new Date().toISOString();
+    const orderExpiresAt = getOrderExpiryEpochSeconds(orderCreatedAt, paymentMethod === 'credit' ? remainingBalance : 0);
     const order = new Order({
       barId: req.user.barId,
       orderNumber: `ORD-${Date.now().toString().slice(-8)}`,
@@ -1203,10 +1206,11 @@ router.post('/', async (req, res) => {
       initialPaymentMethod: paymentMethod === 'credit' ? 'cash' : paymentMethod,
       paymentStatus,
       status: paymentStatus === 'paid' ? 'completed' : 'partial',
+      ...(orderExpiresAt ? { expiresAt: orderExpiresAt } : {}),
       processedBy: req.user._id,
       processedByName: req.user.fullName || req.user.username || req.user.email || 'Sales account',
       ...(checkoutId ? { checkoutId } : {}),
-      createdAt: new Date().toISOString()
+      createdAt: orderCreatedAt
     });
 
     const orderItem = dynamodb.toDynamoItem('order', order.toJSON());
@@ -1456,6 +1460,11 @@ router.post('/:id/pay', async (req, res) => {
     order.paymentStatus = updatedBalance > 0 ? 'partial' : 'paid';
     order.amountPaid = toNumber(order.amountPaid, 0) + safeAmount;
     order.paymentMethod = order.paymentMethod || 'credit';
+    if (updatedBalance <= 0) {
+      order.expiresAt = getOrderExpiryEpochSeconds(new Date(), 0);
+    } else {
+      delete order.expiresAt;
+    }
     order.paymentProcessedBy = req.user._id;
     order.paymentProcessedByName = req.user.fullName || req.user.username || req.user.email || 'Sales account';
 

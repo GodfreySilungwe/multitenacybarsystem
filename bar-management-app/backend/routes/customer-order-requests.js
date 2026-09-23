@@ -9,6 +9,7 @@ const Order = require('../models/Order');
 const User = require('../models/User');
 const dynamodb = require('../lib/dynamodb');
 const { recomputeCustomerCreditBalance } = require('../lib/credit');
+const { getOrderExpiryEpochSeconds } = require('../lib/orderExpiry');
 
 router.use(protect);
 
@@ -625,6 +626,11 @@ router.patch('/payments/:id/confirm', isBarOwnerOrSales, async (req, res) => {
       order.balanceDue = Math.max(0, amountDue - paymentApplied);
       order.amountPaid = toNumber(order.amountPaid, 0) + paymentApplied;
       order.paymentStatus = order.balanceDue > 0 ? 'partial' : 'paid';
+      if (order.balanceDue <= 0) {
+        order.expiresAt = getOrderExpiryEpochSeconds(new Date(), 0);
+      } else {
+        delete order.expiresAt;
+      }
       await order.save();
 
       remainingPayment -= paymentApplied;
