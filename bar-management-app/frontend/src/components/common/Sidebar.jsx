@@ -12,7 +12,6 @@ import {
   faClipboardCheck,
   faTruck,
   faShoppingCart,
-  faMoneyBillWave,
   faCog,
   faTools,
   faBuilding,
@@ -62,7 +61,6 @@ const Sidebar = ({ isMobileOpen = false, onClose = () => {} }) => {
     { path: '/categories', label: 'Categories', icon: faTags, barOwnerOnly: true },
     { path: '/customers', label: 'Customers', icon: faUsers, salesAndOwnerOnly: true },
     { path: '/orders', label: 'Orders', icon: faClipboardList, barOwnerOrSales: true },
-    { path: '/payment-history', label: 'Payment History', icon: faMoneyBillWave, barOwnerOrSales: true },
     { path: '/reports', label: 'Reports', icon: faChartPie, barOwnerOnly: true },
     { path: '/inventory', label: 'Inventory', icon: faClipboardCheck, barOwnerOnly: true },
     { path: '/suppliers', label: 'Suppliers', icon: faTruck, barOwnerOnly: true },
@@ -88,7 +86,7 @@ const Sidebar = ({ isMobileOpen = false, onClose = () => {} }) => {
     }
 
     if (role === 'manager') {
-      return item.path === '/dashboard' || item.path === '/customers' || item.path === '/orders' || item.path === '/payment-history' || item.salesAndOwnerOnly === true || item.barOwnerOrSales === true;
+      return item.path === '/dashboard' || item.path === '/customers' || item.path === '/orders' || item.salesAndOwnerOnly === true || item.barOwnerOrSales === true;
     }
 
     if (showGlobalOwner) {
