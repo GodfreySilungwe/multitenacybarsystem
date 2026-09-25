@@ -160,20 +160,16 @@ const Dashboard = () => {
           if (customEndDate) params.endDate = customEndTime ? `${customEndDate}T${customEndTime}` : customEndDate;
         }
 
-        const [productsRes, customersRes, lowStockRes, ordersRes, usersSummaryRes, summaryRes, customersSummaryRes] = await Promise.all([
+        const [productsRes, lowStockRes, ordersRes, usersSummaryRes, summaryRes, customersSummaryRes] = await Promise.all([
           api.get('/products'),
-          api.get('/customers'),
           api.get('/products/low-stock'),
           api.get('/orders'),
           api.get('/users/summary'),
           api.get('/orders/summary', { params }),
-          api.get('/customers/summary')
+          api.get('/customers/summary', { params: { countOnly: 'true' } })
         ].map((promise) => promise.catch((err) => err)));
 
         const products = productsRes instanceof Error ? [] : productsRes.data || [];
-        // Handle both array and paginated response formats
-        const customersData = customersRes instanceof Error ? [] : customersRes.data || [];
-        const customers = Array.isArray(customersData) ? customersData : customersData.items || [];
         const lowStock = lowStockRes instanceof Error ? [] : lowStockRes.data || [];
         // Handle both array and paginated response formats for orders
         const ordersData = ordersRes instanceof Error ? [] : ordersRes.data || [];
@@ -194,7 +190,7 @@ const Dashboard = () => {
           reversedOrders: summaryData.reversedOrders || 0,
           lowStock: lowStock.length || 0,
           totalProducts: products.length || 0,
-          totalCustomers: Number(customersSummary.totalCustomerRecords ?? customers.length ?? 0),
+          totalCustomers: Number(customersSummary.totalCustomerRecords || 0),
           customersServed: summaryData.customersServedCount || 0,
           totalItemsSold: summaryData.totalQuantitySold || 0,
           activeSalesAccounts,

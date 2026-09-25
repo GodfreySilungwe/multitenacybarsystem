@@ -109,13 +109,11 @@ const Reports = () => {
         params.endDate = customEndTime ? `${customEndDate}T${customEndTime}` : customEndDate;
       }
 
-      const [ordersRes, customersRes] = await Promise.all([
-        api.get('/orders/summary', { params }),
-        api.get('/customers/summary')
+      const [ordersRes] = await Promise.all([
+        api.get('/orders/summary', { params })
       ]);
 
       const summaryData = ordersRes.data || {};
-      const customerSummary = customersRes.data || {};
 
       setReportData({
         sales: summaryData.sales || [],
@@ -124,11 +122,11 @@ const Reports = () => {
         dailySales: summaryData.dailySales || [],
         paymentMethods: summaryData.paymentMethods || [],
         paymentMethodProceeds: summaryData.paymentMethodProceeds || [],
-        creditAccounts: summaryData.creditAccounts || customerSummary.topCreditAccounts || [],
+        creditAccounts: summaryData.creditAccounts || [],
         totalSales: summaryData.totalSales || 0,      totalSalesByMethodProceeds: summaryData.totalSalesByMethodProceeds || 0,        totalProfit: summaryData.totalProfit || 0,
         totalOrders: summaryData.totalOrders || 0,
         averageOrderValue: summaryData.averageOrderValue || 0,
-        totalCreditOutstanding: summaryData.totalCreditOutstanding || customerSummary.totalCreditOutstanding || 0,
+        totalCreditOutstanding: summaryData.totalCreditOutstanding || 0,
         totalSettlementAmount: summaryData.totalSettlementAmount || 0,
         outstandingCreditBySalesAccount: summaryData.outstandingCreditBySalesAccount || [],
         totalQuantitySold: summaryData.totalQuantitySold || 0,
