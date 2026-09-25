@@ -63,6 +63,32 @@ function buildActiveCreditOrderGsiKeys(entityType, record) {
   };
 }
 
+function buildBarActiveCreditOrderGsiKeys(entityType, record) {
+  const normalizedEntityType = String(entityType || '').toLowerCase();
+  const customerId = record?.customer?._id || record?.customer?.id || record?.customer;
+  const recordedBalance = Number(record?.balanceDue);
+  const calculatedBalance = Number(record?.totalAmount || 0) - Number(record?.amountPaid || 0);
+  const balanceDue = Number.isFinite(recordedBalance) ? recordedBalance : calculatedBalance;
+  const isActiveCreditOrder = normalizedEntityType === 'order'
+    && record?.barId
+    && record?.id
+    && customerId
+    && record?.paymentMethod === 'credit'
+    && record?.reversed !== true
+    && Number.isFinite(balanceDue)
+    && balanceDue > 0;
+
+  if (!isActiveCreditOrder) {
+    return {};
+  }
+
+  const createdAt = record.createdAt || new Date().toISOString();
+  return {
+    GSI3PK: `BAR#${record.barId}#ACTIVE-CREDIT`,
+    GSI3SK: `${customerId}#${createdAt}#${record.id}`
+  };
+}
+
 function serializeValue(value) {
   if (value instanceof Date) {
     return value.toISOString();
@@ -108,10 +134,13 @@ function toDynamoItem(entityType, data) {
 
   const gsiKeys = buildOrderGsiKeys(entityType, record);
   const creditGsiKeys = buildActiveCreditOrderGsiKeys(entityType, record);
+  const barCreditGsiKeys = buildBarActiveCreditOrderGsiKeys(entityType, record);
 
   if (String(entityType).toLowerCase() === 'order') {
     delete record.GSI2PK;
     delete record.GSI2SK;
+    delete record.GSI3PK;
+    delete record.GSI3SK;
   }
 
   delete record.pk;
@@ -128,7 +157,8 @@ function toDynamoItem(entityType, data) {
     updatedAt: record.updatedAt,
     ...record,
     ...gsiKeys,
-    ...creditGsiKeys
+    ...creditGsiKeys,
+    ...barCreditGsiKeys
   };
 }
 
@@ -291,6 +321,33 @@ async function queryActiveCreditOrders(barId, customerId, options = {}) {
       TableName: TABLE_NAME,
       IndexName: 'GSI2',
       KeyConditionExpression: 'GSI2PK = :gsiPk',
+      ExpressionAttributeValues: { ':gsiPk': partitionKey },
+      ScanIndexForward: options.scanIndexForward !== false,
+      ...(options.limit ? { Limit: Math.min(Math.max(Math.floor(Number(options.limit)), 1), 100) } : {}),
+      ...(exclusiveStartKey ? { ExclusiveStartKey: exclusiveStartKey } : {})
+    }));
+
+    items.push(...(result.Items || []).map(fromDynamoItem));
+    exclusiveStartKey = result.LastEvaluatedKey;
+  } while (exclusiveStartKey && !options.limit);
+
+  return {
+    items,
+    lastEvaluatedKey: exclusiveStartKey ? encodeLastEvaluatedKey(exclusiveStartKey) : null
+  };
+}
+
+async function queryActiveCreditOrdersByBar(barId, options = {}) {
+  await ensureTableExists();
+  const partitionKey = `BAR#${barId}#ACTIVE-CREDIT`;
+  const items = [];
+  let exclusiveStartKey = options.lastEvaluatedKey;
+
+  do {
+    const result = await docClient.send(new QueryCommand({
+      TableName: TABLE_NAME,
+      IndexName: 'GSI3',
+      KeyConditionExpression: 'GSI3PK = :gsiPk',
       ExpressionAttributeValues: { ':gsiPk': partitionKey },
       ScanIndexForward: options.scanIndexForward !== false,
       ...(options.limit ? { Limit: Math.min(Math.max(Math.floor(Number(options.limit)), 1), 100) } : {}),
@@ -599,6 +656,7 @@ module.exports = {
   countEntities,
   queryEntities,
   queryActiveCreditOrders,
+  queryActiveCreditOrdersByBar,
   decodeLastEvaluatedKey,
   getEntity,
   createEntity,

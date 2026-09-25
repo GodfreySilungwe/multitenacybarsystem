@@ -9,7 +9,7 @@ const PurchaseOrder = require('../models/PurchaseOrder');
 const CustomerOrderRequest = require('../models/CustomerOrderRequest');
 const CustomerPaymentRequest = require('../models/CustomerPaymentRequest');
 const dynamodb = require('../lib/dynamodb');
-const { queryEntities, queryActiveCreditOrders, decodeLastEvaluatedKey } = require('../lib/dynamodb');
+const { queryEntities, queryActiveCreditOrders, queryActiveCreditOrdersByBar, decodeLastEvaluatedKey } = require('../lib/dynamodb');
 const { buildOrderSummary, calculateOutstandingCreditInPeriod } = require('../lib/orderSummary');
 const { createAuditEntry } = require('../lib/audit');
 const { getInitialCreditPayment, normalizeCreditPaymentMethod, classifyRepaymentAllocations } = require('../lib/creditPayments');
@@ -329,20 +329,29 @@ router.get('/summary', async (req, res) => {
         barId: req.user.barId,
         status: 'confirmed'
       });
-      const { items: allTenantOrders = [] } = await queryEntities('order', {
-        barId: req.user.barId,
-        includeReversed: false
-      });
+      const { items: activeCreditOrders = [] } = await queryActiveCreditOrdersByBar(req.user.barId);
       const periodStart = startDate ? new Date(startDate).getTime() : 0;
       const periodEnd = queryOptions.endDate ? new Date(queryOptions.endDate).getTime() : Infinity;
       const periodPayments = (paymentRecords || []).filter((payment) => {
         const paymentTime = new Date(payment.confirmedAt || payment.createdAt || 0).getTime();
         return paymentTime >= periodStart && paymentTime <= periodEnd;
       });
+      const hasUnallocatedPeriodPayment = periodPayments.some((payment) => (
+        Number(payment.amountApplied || payment.amountRequested || payment.amount || 0) > 0
+        && (!Array.isArray(payment.allocations) || payment.allocations.length === 0)
+      ));
+      let creditOrdersForSettlement = activeCreditOrders;
+      if (hasUnallocatedPeriodPayment) {
+        const historicalOrdersResult = await queryEntities('order', {
+          barId: req.user.barId,
+          includeReversed: false
+        });
+        creditOrdersForSettlement = (historicalOrdersResult.items || []).filter(isOpenCreditOrder);
+      }
       const totalSettlementAmount = periodPayments.reduce((sum, payment) => (
         sum + Number(payment.amountApplied || payment.amountRequested || payment.amount || 0)
       ), 0);
-      const allCreditOrders = allTenantOrders.filter((order) => isOpenCreditOrder(order));
+      const allCreditOrders = creditOrdersForSettlement;
       const periodCreditOrders = enrichedOrders.filter((order) => isOpenCreditOrder(order));
       const outstandingCustomersMap = {};
       const addOutstandingCustomer = (order, balanceField) => {
@@ -364,13 +373,12 @@ router.get('/summary', async (req, res) => {
             outstandingCustomersMap[customerId].ordersCount += 1;
           }
       };
-      allCreditOrders.forEach((order) => addOutstandingCustomer(order, 'totalOutstandingBalance'));
+      activeCreditOrders.forEach((order) => addOutstandingCustomer(order, 'totalOutstandingBalance'));
       periodCreditOrders.forEach((order) => addOutstandingCustomer(order, 'periodOutstandingBalance'));
       const allOutstandingCustomers = Object.values(outstandingCustomersMap)
         .sort((a, b) => b.totalOutstandingBalance - a.totalOutstandingBalance);
       const outstandingCustomers = allOutstandingCustomers;
-      const totalCreditOutstanding = allTenantOrders
-        .filter((order) => isOpenCreditOrder(order))
+      const totalCreditOutstanding = activeCreditOrders
         .reduce((sum, order) => sum + getOutstandingBalance(order), 0);
       const outstandingCreditInPeriod = periodCreditOrders
         .reduce((sum, order) => sum + getOutstandingBalance(order), 0);
@@ -418,8 +426,7 @@ router.get('/summary', async (req, res) => {
           .reduce((sum, payment) => sum + Number(payment.amountApplied || payment.amountRequested || payment.amount || 0), 0)
       }));
       const outstandingCreditBySalesAccountMap = {};
-      allTenantOrders
-        .filter((order) => isOpenCreditOrder(order))
+      activeCreditOrders
         .forEach((order) => {
           const salesAccount = String(order.processedByName || order.processedBy || 'Sales account').trim() || 'Sales account';
           if (!outstandingCreditBySalesAccountMap[salesAccount]) {

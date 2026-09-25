@@ -422,6 +422,8 @@ const product = await Product.findOne({ _id: item.productId || item.product || i
       const creditOrder = new Order({
         _id: dynamodb.generateId(),
         barId: req.user.barId,
+        processedBy: req.user._id || req.user.id,
+        processedByName: req.user.fullName || req.user.username || req.user.email || 'Sales account',
         customer: request.customerId,
         customerName: request.customerName || 'Customer',
         items: orderItems,
@@ -444,6 +446,8 @@ const product = await Product.findOne({ _id: item.productId || item.product || i
       requestData.amountPaid = 0;
       requestData.amountDue = toNumber(request.totalAmount, 0);
       requestData.confirmedAt = new Date().toISOString();
+      requestData.confirmedBy = req.user._id || req.user.id;
+      requestData.confirmedByName = req.user.fullName || req.user.username || req.user.email || 'Sales account';
       requestData.reservationReleased = true;
       requestData.reservationConvertedAt = requestData.confirmedAt;
 
@@ -588,9 +592,10 @@ router.patch('/payments/:id/confirm', isBarOwnerOrSales, async (req, res) => {
     }
 
     const customerId = paymentRequest.customerId;
-    const { items: creditOrders = [] } = await queryActiveCreditOrders(req.user.barId, customerId, {
+    const { items: queriedCreditOrders = [] } = await queryActiveCreditOrders(req.user.barId, customerId, {
       scanIndexForward: true
     });
+    const creditOrders = queriedCreditOrders.map((order) => new Order(order));
 
     if ((creditOrders || []).length === 0) {
       paymentRequest.status = 'cancelled';

@@ -2,7 +2,7 @@ const express = require('express');
 const router = express.Router();
 const { protect, isBarOwnerOrSales } = require('../middleware/auth');
 const bcrypt = require('bcryptjs');
-const { listEntities, countEntities, decodeLastEvaluatedKey, queryActiveCreditOrders } = require('../lib/dynamodb');
+const { listEntities, countEntities, decodeLastEvaluatedKey, queryActiveCreditOrders, queryActiveCreditOrdersByBar } = require('../lib/dynamodb');
 const Customer = require('../models/Customer');
 const Order = require('../models/Order');
 const Product = require('../models/Product');
@@ -124,8 +124,8 @@ const buildCustomerCreditSummary = async (customerId, barId) => {
             amountPaid: Number(order.amountPaid || 0),
             balanceDue,
             paymentStatus: order.paymentStatus || 'partial',
-            processedByName: order.processedByName || order.paymentProcessedByName || order.processedBy || order.paymentProcessedBy || 'Sales account',
-            salesAccount: order.processedByName || order.paymentProcessedByName || order.processedBy || order.paymentProcessedBy || 'Sales account',
+            processedByName: order.processedByName || order.paymentProcessedByName || order.processedBy || order.paymentProcessedBy || 'Unassigned (legacy)',
+            salesAccount: order.processedByName || order.paymentProcessedByName || order.processedBy || order.paymentProcessedBy || 'Unassigned (legacy)',
             products
           };
         })
@@ -220,13 +220,13 @@ router.get('/', isBarOwnerOrSales, async (req, res) => {
 
 router.get('/summary', isBarOwnerOrSales, async (req, res) => {
   try {
+    if (String(req.query.countOnly || '').toLowerCase() === 'true') {
+      const totalCustomerRecords = await countEntities('customer');
+      return res.json({ totalCustomerRecords });
+    }
+
     const [outstandingOrders, totalCustomerRecords] = await Promise.all([
-      Order.find({
-      barId: req.user.barId,
-      reversed: { $ne: true },
-      paymentMethod: 'credit',
-      balanceDue: { $gt: 0 }
-      }),
+      queryActiveCreditOrdersByBar(req.user.barId).then((result) => result.items),
       countEntities('customer')
     ]);
 
@@ -397,9 +397,10 @@ router.post('/:id/pay', isBarOwnerOrSales, async (req, res) => {
       return res.status(400).json({ message: 'Please provide a transaction reference or payer name for this payment method.' });
     }
 
-    const { items: unpaidOrders = [] } = await queryActiveCreditOrders(req.user.barId, req.params.id, {
+    const { items: queriedUnpaidOrders = [] } = await queryActiveCreditOrders(req.user.barId, req.params.id, {
       scanIndexForward: true
     });
+    const unpaidOrders = queriedUnpaidOrders.map((order) => new Order(order));
 
     console.debug('DEBUG /customers/:id/pay -> unpaidOrders fetched:', unpaidOrders.length, 'orders. FIFO order (oldest first):', unpaidOrders.map(o => ({ 
       orderNumber: o.orderNumber, 

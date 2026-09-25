@@ -414,7 +414,7 @@ const Customers = () => {
                     {(() => {
                       const byAccount = {};
                       (customer.creditSummary || []).forEach((entry) => {
-                        const account = entry.processedByName || entry.salesAccount || 'Sales account';
+                        const account = entry.processedByName || entry.salesAccount || 'Unassigned (legacy)';
                         if (!byAccount[account]) {
                           byAccount[account] = { total: 0, count: 0 };
                         }

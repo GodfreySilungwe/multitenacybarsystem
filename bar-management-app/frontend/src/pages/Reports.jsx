@@ -424,7 +424,7 @@ const Reports = () => {
 
       {reportData.outstandingCreditBySalesAccount.length > 0 && (
         <div className="fade-in delay-5" style={{ marginBottom: '20px' }}>
-          <UnifiedCard title="🧑‍💼 Outstanding Bills by Sales Account(onlyThisPeriod)">
+          <UnifiedCard title="🧑‍💼 Outstanding Bills by Sales Account (All-time)">
             <div style={styles.tableWrapper}>
               <table style={styles.table}>
                 <thead>
