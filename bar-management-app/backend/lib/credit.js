@@ -1,5 +1,6 @@
 const Order = require('../models/Order');
 const Customer = require('../models/Customer');
+const { queryActiveCreditOrders } = require('./dynamodb');
 
 function normalizePaymentAmount(value) {
   const amount = Number(value);
@@ -178,8 +179,14 @@ async function recomputeCustomerCreditBalance(customerId, barId) {
     query.barId = barId;
   }
 
-  const creditOrders = await Order.find(query);
-  const balance = (creditOrders || []).reduce((sum, order) => sum + Number(order.balanceDue || 0), 0);
+  const creditOrders = barId
+    ? (await queryActiveCreditOrders(barId, customerId, { scanIndexForward: true })).items
+    : await Order.find(query);
+  const balance = (creditOrders || []).reduce((sum, order) => {
+    const recordedBalance = Number(order.balanceDue);
+    const calculatedBalance = Number(order.totalAmount || 0) - Number(order.amountPaid || 0);
+    return sum + Math.max(0, Number.isFinite(recordedBalance) ? recordedBalance : calculatedBalance);
+  }, 0);
   const customer = await Customer.findById(customerId);
   if (customer) {
     customer.creditBalance = balance;

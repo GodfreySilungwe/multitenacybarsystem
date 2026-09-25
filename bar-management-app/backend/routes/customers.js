@@ -2,7 +2,7 @@ const express = require('express');
 const router = express.Router();
 const { protect, isBarOwnerOrSales } = require('../middleware/auth');
 const bcrypt = require('bcryptjs');
-const { listEntities, countEntities, decodeLastEvaluatedKey } = require('../lib/dynamodb');
+const { listEntities, countEntities, decodeLastEvaluatedKey, queryActiveCreditOrders } = require('../lib/dynamodb');
 const Customer = require('../models/Customer');
 const Order = require('../models/Order');
 const Product = require('../models/Product');
@@ -32,14 +32,11 @@ const buildCustomerCreditSummaries = async (customers, barId) => {
     return new Map();
   }
 
-  const [orders, products] = await Promise.all([
-    Order.find({
-      barId,
-      reversed: { $ne: true },
-      paymentMethod: 'credit'
-    }),
+  const [ordersByCustomerResults, products] = await Promise.all([
+    Promise.all(Array.from(customerIds, (customerId) => queryActiveCreditOrders(barId, customerId))),
     Product.find({ barId })
   ]);
+  const orders = ordersByCustomerResults.flatMap((result) => result.items);
   const productMap = new Map((products || []).map((product) => [String(product._id || product.id), product]));
   const ordersByCustomer = new Map();
 
@@ -93,14 +90,9 @@ const buildCustomerCreditSummaries = async (customers, barId) => {
 const buildCustomerCreditSummary = async (customerId, barId) => {
   try {
     // Query for credit orders - include those with missing or zero balanceDue since old bills might not have it
-    const orders = await Order.find({
-      barId,
-      customer: customerId,
-      reversed: { $ne: true },
-      paymentMethod: 'credit'
-    })
-      .populate('items.product', 'name')
-      .sort({ createdAt: 1 });
+    const { items: orders = [] } = await queryActiveCreditOrders(barId, customerId, {
+      scanIndexForward: true
+    });
 
     const summary = await Promise.all(
       (orders || [])
@@ -405,14 +397,9 @@ router.post('/:id/pay', isBarOwnerOrSales, async (req, res) => {
       return res.status(400).json({ message: 'Please provide a transaction reference or payer name for this payment method.' });
     }
 
-    const unpaidOrders = await Order.find({
-      barId: req.user.barId,
-      customer: req.params.id,
-      reversed: { $ne: true },
-      paymentMethod: 'credit'
-    })
-      .populate('items.product', 'name')
-      .sort({ createdAt: 1 });
+    const { items: unpaidOrders = [] } = await queryActiveCreditOrders(req.user.barId, req.params.id, {
+      scanIndexForward: true
+    });
 
     console.debug('DEBUG /customers/:id/pay -> unpaidOrders fetched:', unpaidOrders.length, 'orders. FIFO order (oldest first):', unpaidOrders.map(o => ({ 
       orderNumber: o.orderNumber, 

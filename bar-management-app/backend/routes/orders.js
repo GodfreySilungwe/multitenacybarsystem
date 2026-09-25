@@ -9,7 +9,7 @@ const PurchaseOrder = require('../models/PurchaseOrder');
 const CustomerOrderRequest = require('../models/CustomerOrderRequest');
 const CustomerPaymentRequest = require('../models/CustomerPaymentRequest');
 const dynamodb = require('../lib/dynamodb');
-const { queryEntities, decodeLastEvaluatedKey } = require('../lib/dynamodb');
+const { queryEntities, queryActiveCreditOrders, decodeLastEvaluatedKey } = require('../lib/dynamodb');
 const { buildOrderSummary, calculateOutstandingCreditInPeriod } = require('../lib/orderSummary');
 const { createAuditEntry } = require('../lib/audit');
 const { getInitialCreditPayment, normalizeCreditPaymentMethod, classifyRepaymentAllocations } = require('../lib/creditPayments');
@@ -1423,10 +1423,11 @@ router.post('/:id/reverse', async (req, res) => {
 
     // Recompute customer's credit balance excluding reversed orders
     if (customerDoc) {
-      const customerOrders = await Order.find({ customer: customerDoc._id, barId: req.user.barId });
-      const outstanding = (customerOrders || [])
-        .filter(o => !o.reversed && (o.paymentMethod === 'credit' || o.paymentStatus === 'partial' || o.paymentStatus === 'credit'))
-        .reduce((sum, o) => sum + Number(o.balanceDue || 0), 0);
+      const { items: customerOrders = [] } = await queryActiveCreditOrders(req.user.barId, customerDoc._id, {
+        scanIndexForward: true
+      });
+      const outstanding = customerOrders
+        .reduce((sum, o) => sum + getOutstandingBalance(o), 0);
       customerDoc.creditBalance = outstanding;
       await customerDoc.save();
     }

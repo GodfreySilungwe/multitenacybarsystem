@@ -10,6 +10,7 @@ const User = require('../models/User');
 const dynamodb = require('../lib/dynamodb');
 const { recomputeCustomerCreditBalance } = require('../lib/credit');
 const { getOrderExpiryEpochSeconds } = require('../lib/orderExpiry');
+const { queryActiveCreditOrders } = require('../lib/dynamodb');
 
 router.use(protect);
 
@@ -587,13 +588,9 @@ router.patch('/payments/:id/confirm', isBarOwnerOrSales, async (req, res) => {
     }
 
     const customerId = paymentRequest.customerId;
-    const creditOrders = await Order.find({
-      barId: req.user.barId,
-      customer: customerId,
-      reversed: { $ne: true },
-      paymentMethod: 'credit',
-      balanceDue: { $gt: 0 }
-    }).sort({ createdAt: 1 });
+    const { items: creditOrders = [] } = await queryActiveCreditOrders(req.user.barId, customerId, {
+      scanIndexForward: true
+    });
 
     if ((creditOrders || []).length === 0) {
       paymentRequest.status = 'cancelled';
