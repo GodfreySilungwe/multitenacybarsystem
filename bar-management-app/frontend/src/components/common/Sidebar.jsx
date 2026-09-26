@@ -15,7 +15,8 @@ import {
   faCog,
   faTools,
   faBuilding,
-  faSignOutAlt
+  faSignOutAlt,
+  faCreditCard
 } from '@fortawesome/free-solid-svg-icons';
 import { useAuth } from '../../context/AuthContext';
 import api from '../../api/api';
@@ -60,6 +61,7 @@ const Sidebar = ({ isMobileOpen = false, onClose = () => {} }) => {
     { path: '/products', label: 'SMART BAR', icon: faTools, barOwnerOnly: true },
     { path: '/categories', label: 'Categories', icon: faTags, barOwnerOnly: true },
     { path: '/customers', label: 'Customers', icon: faUsers, salesAndOwnerOnly: true },
+    { path: '/payment-history', label: 'Payment History', icon: faCreditCard, barOwnerOrSales: true },
     { path: '/orders', label: 'Orders', icon: faClipboardList, barOwnerOrSales: true },
     { path: '/reports', label: 'Reports', icon: faChartPie, barOwnerOnly: true },
     { path: '/inventory', label: 'Inventory', icon: faClipboardCheck, barOwnerOnly: true },

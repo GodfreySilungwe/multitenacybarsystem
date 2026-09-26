@@ -1,0 +1,731 @@
+import { useCallback, useEffect, useMemo, useState } from 'react';
+import { saveAs } from 'file-saver';
+import api from '../api/api';
+import { useAuth } from '../context/AuthContext';
+import PageContainer from './PageContainer';
+import { formatPriceMK } from '../utils/formatPrice';
+
+const paymentTypeOptions = [
+  { value: 'all', label: 'All requests' },
+  { value: 'pending', label: 'Pending' },
+  { value: 'confirmed', label: 'Confirmed' },
+  { value: 'rejected', label: 'Rejected' },
+  { value: 'reversed', label: 'Reversed' }
+];
+
+const paymentMethodLabels = {
+  cash: 'Cash',
+  airtel_money: 'Airtel Money',
+  mpamba: 'Mpamba',
+  bank_account: 'Bank Account',
+  credit: 'Credit'
+};
+
+const MALAWI_OFFSET_MINUTES = 120;
+
+const toMalawiDateInput = (date) => (
+  new Date(date.getTime() + MALAWI_OFFSET_MINUTES * 60000).toISOString().slice(0, 10)
+);
+
+const shiftDateInput = (dateValue, days) => {
+  const date = new Date(`${dateValue}T00:00:00Z`);
+  date.setUTCDate(date.getUTCDate() + days);
+  return date.toISOString().slice(0, 10);
+};
+
+const getPresetDateRange = (days) => {
+  const endDate = toMalawiDateInput(new Date());
+  return { startDate: shiftDateInput(endDate, 1 - days), endDate };
+};
+
+const PaymentHistory = () => {
+  const [payments, setPayments] = useState([]);
+  const [filter, setFilter] = useState('all');
+  const [dateRange, setDateRange] = useState('30');
+  const [appliedRange, setAppliedRange] = useState(() => getPresetDateRange(30));
+  const [customStartDate, setCustomStartDate] = useState(() => getPresetDateRange(30).startDate);
+  const [customEndDate, setCustomEndDate] = useState(() => getPresetDateRange(30).endDate);
+  const [customerFilter, setCustomerFilter] = useState('all');
+  const [currentPage, setCurrentPage] = useState(1);
+  const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState('');
+  const { user } = useAuth();
+  const canManagePayments = ['owner', 'sales', 'manager'].includes(user?.role) && Boolean(user?.barId);
+  const canReversePayments = ['owner', 'manager'].includes(user?.role) && Boolean(user?.barId);
+  const PAGE_SIZE = 20;
+
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [filter, customerFilter, payments]);
+
+  useEffect(() => {
+    let isCurrentRequest = true;
+    const loadPayments = async () => {
+      setLoading(true);
+      setLoadError('');
+      try {
+        const res = await api.get('/customer-order-requests/payments', {
+          params: {
+            status: filter === 'all' ? undefined : filter,
+            startDate: appliedRange.startDate,
+            endDate: appliedRange.endDate
+          }
+        });
+        const data = res.data || {};
+        if (isCurrentRequest) {
+          setPayments(Array.isArray(data) ? data : (Array.isArray(data.payments) ? data.payments : []));
+        }
+      } catch (err) {
+        console.error('Failed to load payments', err);
+        if (isCurrentRequest) {
+          setPayments([]);
+          setLoadError(err.response?.data?.message || 'Could not load payments. Please try again.');
+        }
+      } finally {
+        if (isCurrentRequest) setLoading(false);
+      }
+    };
+
+    loadPayments();
+    return () => {
+      isCurrentRequest = false;
+    };
+  }, [appliedRange, filter]);
+
+  const handleDateRangeChange = (value) => {
+    setDateRange(value);
+    if (value !== 'custom') {
+      const nextRange = getPresetDateRange(Number(value));
+      setCustomStartDate(nextRange.startDate);
+      setCustomEndDate(nextRange.endDate);
+      setAppliedRange(nextRange);
+    }
+  };
+
+  const applyCustomDateRange = () => {
+    if (!customStartDate || !customEndDate || customStartDate > customEndDate) {
+      setLoadError('Choose a valid start and end date.');
+      return;
+    }
+    setAppliedRange({ startDate: customStartDate, endDate: customEndDate });
+  };
+
+  const getEntryAmount = useCallback((entry) => {
+    const amount = [entry?.amountApplied, entry?.amountRequested, entry?.amount]
+      .map(Number)
+      .find((value) => Number.isFinite(value) && value > 0);
+    return amount || 0;
+  }, []);
+
+  const visiblePayments = useMemo(() => {
+    return (payments || []).filter((entry) => getEntryAmount(entry) > 0);
+  }, [getEntryAmount, payments]);
+
+  const customerOptions = useMemo(() => {
+    const names = new Set((visiblePayments || []).map((entry) => entry.customerName || 'Walk-in customer'));
+    return Array.from(names).sort();
+  }, [visiblePayments]);
+
+  const filteredPayments = useMemo(() => {
+    return (visiblePayments || [])
+      .filter((entry) => {
+        const matchesStatus = filter === 'all' ? true : entry.status === filter;
+        const matchesCustomer = customerFilter === 'all' ? true : (entry.customerName || 'Walk-in customer') === customerFilter;
+        return matchesStatus && matchesCustomer;
+      });
+  }, [customerFilter, filter, visiblePayments]);
+
+  const totalPages = Math.max(1, Math.ceil(filteredPayments.length / PAGE_SIZE));
+  const paginatedPayments = useMemo(() => {
+    const startIndex = (currentPage - 1) * PAGE_SIZE;
+    return filteredPayments.slice(startIndex, startIndex + PAGE_SIZE);
+  }, [currentPage, filteredPayments]);
+
+  const formatMethodLabel = useCallback((method) => {
+    const key = String(method || 'cash').toLowerCase();
+    return paymentMethodLabels[key] || key.replace(/_/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase());
+  }, []);
+
+  const groupPaymentsByMethod = useCallback((paymentItems = []) => {
+    const aggregates = paymentItems.reduce((acc, payment) => {
+      const amount = getEntryAmount(payment);
+      if (amount <= 0) return acc;
+      const method = formatMethodLabel(payment.paymentMethod || 'cash');
+      acc[method] = (acc[method] || 0) + amount;
+      return acc;
+    }, {});
+
+    return Object.keys(aggregates)
+      .map((method) => ({ method, amount: aggregates[method] }))
+      .sort((a, b) => b.amount - a.amount);
+  }, [formatMethodLabel, getEntryAmount]);
+
+  const summaryCards = useMemo(() => {
+    const totals = {
+      pending: 0,
+      confirmed: 0,
+      rejected: 0,
+      reversed: 0
+    };
+
+    (filteredPayments || []).forEach((entry) => {
+      const status = entry.status || 'pending';
+      if (totals[status] !== undefined) {
+        totals[status] += getEntryAmount(entry);
+      }
+    });
+
+    return [
+      { label: 'Pending requests', value: totals.pending, color: '#e94560' },
+      { label: 'Confirmed payments', value: totals.confirmed, color: '#3498db' },
+      { label: 'Rejected requests', value: totals.rejected, color: '#2ecc71' },
+      { label: 'Reversed payments', value: totals.reversed, color: '#f39c12' }
+    ];
+  }, [filteredPayments, getEntryAmount]);
+
+  const directSalesByMethod = useMemo(() => {
+    return groupPaymentsByMethod(visiblePayments.filter((entry) => entry.source === 'pos_sale'));
+  }, [visiblePayments, groupPaymentsByMethod]);
+
+  const billManagementPaidByMethod = useMemo(() => {
+    return groupPaymentsByMethod(visiblePayments.filter((entry) => entry.source === 'bill_settlement' && entry.status === 'confirmed'));
+  }, [visiblePayments, groupPaymentsByMethod]);
+
+  const outstandingCreditAmount = useMemo(() => {
+    return visiblePayments
+      .filter((entry) => entry.source === 'bill_settlement' && entry.status === 'pending')
+      .reduce((sum, entry) => sum + getEntryAmount(entry), 0);
+  }, [getEntryAmount, visiblePayments]);
+
+  const isPaymentFromDifferentSalesPerson = (entry) => {
+    // Check if payment belongs to a different sales account
+    // For pending payments, use createdByName (who created the request)
+    // For confirmed payments, use processedByName (who confirmed it)
+    const salesAccountName = entry.createdByName || entry.processedByName || entry.approvedByName || entry.salesAccount || '';
+    const currentUserName = user?.fullName || user?.username || user?.email || '';
+    
+    if (!salesAccountName || !currentUserName) {
+      return false;
+    }
+    
+    return salesAccountName !== currentUserName;
+  };
+
+  const handlePaymentAction = async (entry, action) => {
+    // For reject, show specific confirmation
+    if (action === 'reject') {
+      if (!window.confirm('Cancel this payment request?')) return;
+    } else if (!window.confirm(`Are you sure you want to ${action} this payment request?`)) {
+      return;
+    }
+
+    let payload = {};
+    if (['confirm', 'reverse'].includes(action)) {
+      const password = window.prompt('Enter the current sales account password to continue:');
+      if (!password) {
+        return;
+      }
+      payload.password = password;
+    }
+
+    try {
+      const res = await api.patch(`/customer-order-requests/payments/${entry._id}/${action}`, payload);
+      setPayments((prev) => prev.map((item) => (item._id === entry._id ? res.data.paymentRequest || res.data : item)));
+      
+      // Show specific confirmation message for reject
+      if (action === 'reject') {
+        alert('✓ Payment request cancelled');
+      }
+      
+      window.dispatchEvent(new Event('payment-updated'));
+    } catch (err) {
+      console.error(`Failed to ${action} payment`, err);
+      alert(err.response?.data?.message || `Failed to ${action} payment request`);
+    }
+  };
+
+  const handleExport = () => {
+    const rows = filteredPayments.map((entry) => ({
+      customer: entry.customerName || 'Walk-in customer',
+      source: entry.source || (entry.recordType === 'order_payment' ? 'POS sale' : 'Bill settlement'),
+      amount: Number(entry.amount || entry.amountRequested || entry.amountApplied || 0),
+      paymentMethod: entry.paymentMethod || 'cash',
+      status: entry.status || 'pending',
+      reference: entry.reference || entry.paymentReference || '—',
+      approvedBy: entry.approvedBy || entry.processedByName || entry.approvedByName || '—',
+      date: entry.createdAt ? new Date(entry.createdAt).toLocaleString() : '—'
+    }));
+
+    const csv = [
+      ['Customer', 'Amount', 'Payment Method', 'Status', 'Reference', 'Approved By', 'Date'],
+      ...rows.map((row) => [row.customer, row.amount, row.paymentMethod, row.status, row.reference, row.approvedBy, row.date])
+    ]
+      .map((line) => line.map((value) => `"${String(value).replace(/"/g, '""')}"`).join(','))
+      .join('\n');
+
+    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8' });
+    saveAs(blob, 'payment-history.csv');
+  };
+
+  return (
+    <PageContainer title="💳 Payment History">
+      <div style={styles.card}>
+        <div style={styles.toolbar}>
+          <div>
+            <h3 style={styles.title}>Settlement history</h3>
+            <p style={styles.subtitle}>
+              Payments from {appliedRange.startDate} through {appliedRange.endDate}.
+            </p>
+          </div>
+          <div style={styles.filterRow}>
+            <select aria-label="Payment period" value={dateRange} onChange={(e) => handleDateRangeChange(e.target.value)} style={styles.select}>
+              <option value="7">Last 7 days</option>
+              <option value="30">Last 30 days</option>
+              <option value="90">Last 90 days</option>
+              <option value="custom">Custom dates</option>
+            </select>
+            <select value={filter} onChange={(e) => setFilter(e.target.value)} style={styles.select}>
+              {paymentTypeOptions.map((option) => (
+                <option key={option.value} value={option.value}>{option.label}</option>
+              ))}
+            </select>
+            <select value={customerFilter} onChange={(e) => setCustomerFilter(e.target.value)} style={styles.select}>
+              <option value="all">All customers</option>
+              {customerOptions.map((customer) => (
+                <option key={customer} value={customer}>{customer}</option>
+              ))}
+            </select>
+            <button type="button" onClick={handleExport} style={styles.exportBtn}>Export Excel</button>
+          </div>
+        </div>
+
+        {dateRange === 'custom' && (
+          <div style={styles.customRangeRow}>
+            <label style={styles.dateLabel}>
+              Start date
+              <input type="date" value={customStartDate} onChange={(e) => setCustomStartDate(e.target.value)} style={styles.dateInput} />
+            </label>
+            <label style={styles.dateLabel}>
+              End date
+              <input type="date" value={customEndDate} onChange={(e) => setCustomEndDate(e.target.value)} style={styles.dateInput} />
+            </label>
+            <button type="button" onClick={applyCustomDateRange} style={styles.exportBtn}>Apply dates</button>
+          </div>
+        )}
+
+        {loadError && <p role="alert" style={styles.error}>{loadError}</p>}
+
+        <div style={styles.summaryGrid}>
+          {summaryCards.map((card) => (
+            <div key={card.label} style={{ ...styles.summaryCard, borderColor: card.color }}>
+              <div style={{ ...styles.summaryDot, backgroundColor: card.color }} />
+              <div>
+                <div style={styles.summaryLabel}>{card.label}</div>
+                <div style={styles.summaryValue}>{formatPriceMK(card.value)}</div>
+              </div>
+            </div>
+          ))}
+        </div>
+        <div style={styles.methodSummaryCard}>
+          <div style={styles.methodSummaryHeader}>
+            <div style={styles.methodSummaryTitle}>💳 Sales Proceeds Summary</div>
+            <div style={styles.methodSummarySub}>Direct sales, confirmed bill settlements, and outstanding credit balances.</div>
+          </div>
+          <div style={styles.methodSummaryBody}>
+            <div style={styles.methodSummarySection}>
+              <div style={styles.methodSummarySectionTitle}>Direct sales by method</div>
+              {(directSalesByMethod.length > 0 ? directSalesByMethod : [{ method: 'No direct sales yet', amount: 0 }]).map((item) => (
+                <div key={item.method} style={styles.methodSummaryRow}>
+                  <span>{item.method}</span>
+                  <strong>{formatPriceMK(item.amount)}</strong>
+                </div>
+              ))}
+            </div>
+
+            <div style={styles.methodSummarySection}>
+              <div style={styles.methodSummarySectionTitle}>Bill management paid by method</div>
+              {(billManagementPaidByMethod.length > 0 ? billManagementPaidByMethod : [{ method: 'No paid settlements yet', amount: 0 }]).map((item) => (
+                <div key={item.method} style={styles.methodSummaryRow}>
+                  <span>{item.method}</span>
+                  <strong>{formatPriceMK(item.amount)}</strong>
+                </div>
+              ))}
+            </div>
+
+            <div style={styles.methodSummarySection}>
+              <div style={styles.methodSummarySectionTitle}>Outstanding credit</div>
+              <div style={styles.methodSummaryRow}>
+                <span>Total pending bill amount</span>
+                <strong>{formatPriceMK(outstandingCreditAmount)}</strong>
+              </div>
+            </div>
+          </div>
+        </div>
+        {loading ? (
+          <p>Loading payments...</p>
+        ) : filteredPayments.length === 0 ? (
+          <p style={styles.empty}>No payment records found.</p>
+        ) : (
+          <>
+            <div style={styles.list}>
+              {paginatedPayments.map((entry) => (
+                <div key={entry._id} style={styles.item}>
+                  <div style={styles.row}>
+                    <div>
+                      <div style={styles.customerName}>{entry.customerName || 'Walk-in customer'}</div>
+                      <div style={styles.meta}>Method: {entry.paymentMethod || 'cash'}</div>
+                    </div>
+                    <div style={styles.amount}>{formatPriceMK(getEntryAmount(entry))}</div>
+                  </div>
+                  <div style={styles.row}>
+                    <div style={styles.meta}>Type: {entry.source === 'pos_sale' ? 'POS sale' : entry.source === 'bill_settlement' ? 'Bill settlement' : 'Account payment'}</div>
+                    <div style={styles.meta}>Processed by: {entry.approvedByName || entry.processedByName || entry.approvedBy || '—'}</div>
+                  </div>
+                  <div style={styles.row}>
+                    <div style={styles.meta}>{entry.reference || entry.paymentReference || 'No reference provided'}</div>
+                    <div style={styles.meta}>{entry.createdAt ? new Date(entry.createdAt).toLocaleString() : '—'}</div>
+                  </div>
+                  {canManagePayments && entry.source === 'bill_settlement' && entry.status === 'pending' && (
+                    <div>
+                      {isPaymentFromDifferentSalesPerson(entry) && (
+                        <div style={styles.warningMessage}>
+                          ⚠️ This Bill belongs to different sales person
+                        </div>
+                      )}
+                      <div style={styles.actionsRow}>
+                        <button
+                          type="button"
+                          onClick={() => handlePaymentAction(entry, 'confirm')}
+                          disabled={isPaymentFromDifferentSalesPerson(entry)}
+                          style={{
+                            ...styles.confirmBtn,
+                            ...(isPaymentFromDifferentSalesPerson(entry) ? styles.confirmBtnDisabled : {})
+                          }}
+                        >
+                          Confirm
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => handlePaymentAction(entry, 'reject')}
+                          style={styles.rejectBtn}
+                        >
+                          Reject
+                        </button>
+                      </div>
+                    </div>
+                  )}
+                  {canReversePayments && entry.source === 'bill_settlement' && entry.status === 'confirmed' && (
+                    <div style={styles.actionsRow}>
+                      <button type="button" onClick={() => handlePaymentAction(entry, 'reverse')} style={styles.reverseBtn}>Reverse</button>
+                    </div>
+                  )}
+                </div>
+              ))}
+            </div>
+            <div style={styles.pagination}>
+              <button
+                type="button"
+                onClick={() => setCurrentPage((prev) => Math.max(1, prev - 1))}
+                disabled={currentPage === 1}
+                style={{
+                  ...styles.pageBtn,
+                  ...(currentPage === 1 ? styles.pageBtnDisabled : {})
+                }}
+              >
+                Previous
+              </button>
+              <span style={styles.pageInfo}>
+                Page {currentPage} of {totalPages}
+              </span>
+              <button
+                type="button"
+                onClick={() => setCurrentPage((prev) => Math.min(totalPages, prev + 1))}
+                disabled={currentPage === totalPages}
+                style={{
+                  ...styles.pageBtn,
+                  ...(currentPage === totalPages ? styles.pageBtnDisabled : {})
+                }}
+              >
+                Next
+              </button>
+            </div>
+          </>
+        )}
+      </div>
+    </PageContainer>
+  );
+};
+
+const styles = {
+  card: {
+    backgroundColor: 'white',
+    borderRadius: '16px',
+    padding: '20px',
+    boxShadow: '0 2px 8px rgba(0,0,0,0.05)'
+  },
+  toolbar: {
+    display: 'flex',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    gap: '12px',
+    marginBottom: '16px',
+    flexWrap: 'wrap'
+  },
+  title: {
+    margin: '0 0 4px 0',
+    fontSize: '18px',
+    color: '#111827'
+  },
+  subtitle: {
+    margin: 0,
+    color: '#6b7280',
+    fontSize: '13px'
+  },
+  filterRow: {
+    display: 'flex',
+    gap: '10px',
+    flexWrap: 'wrap',
+    alignItems: 'center'
+  },
+  customRangeRow: {
+    display: 'flex',
+    alignItems: 'flex-end',
+    flexWrap: 'wrap',
+    gap: '10px',
+    marginBottom: '16px'
+  },
+  dateLabel: {
+    display: 'grid',
+    gap: '5px',
+    color: '#6b7280',
+    fontSize: '12px'
+  },
+  dateInput: {
+    padding: '9px 10px',
+    borderRadius: '8px',
+    border: '1px solid #d1d5db'
+  },
+  error: {
+    color: '#b91c1c',
+    margin: '0 0 12px'
+  },
+  select: {
+    padding: '10px 12px',
+    borderRadius: '10px',
+    border: '1px solid #d1d5db',
+    minWidth: '220px'
+  },
+  exportBtn: {
+    padding: '10px 14px',
+    borderRadius: '10px',
+    border: 'none',
+    backgroundColor: '#e94560',
+    color: 'white',
+    fontWeight: '700',
+    cursor: 'pointer'
+  },
+  reverseBtn: {
+    padding: '8px 12px',
+    borderRadius: '10px',
+    border: '1px solid #f59e0b',
+    backgroundColor: '#fff7ed',
+    color: '#b45309',
+    fontWeight: '700',
+    cursor: 'pointer'
+  },
+  summaryGrid: {
+    display: 'grid',
+    gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))',
+    gap: '10px',
+    marginBottom: '16px'
+  },
+  summaryCard: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: '10px',
+    padding: '12px 14px',
+    borderRadius: '12px',
+    border: '1px solid #e5e7eb',
+    backgroundColor: '#fafafa'
+  },
+  summaryDot: {
+    width: '10px',
+    height: '10px',
+    borderRadius: '999px'
+  },
+  summaryLabel: {
+    fontSize: '12px',
+    color: '#6b7280'
+  },
+  summaryValue: {
+    fontSize: '15px',
+    fontWeight: '700',
+    color: '#111827'
+  },
+  methodSummaryCard: {
+    border: '1px solid #e5e7eb',
+    borderRadius: '14px',
+    padding: '16px',
+    backgroundColor: '#ffffff',
+    marginBottom: '16px'
+  },
+  methodSummaryHeader: {
+    display: 'flex',
+    justifyContent: 'space-between',
+    alignItems: 'flex-start',
+    gap: '12px',
+    marginBottom: '12px'
+  },
+  methodSummaryTitle: {
+    fontSize: '16px',
+    fontWeight: '700',
+    color: '#111827'
+  },
+  methodSummarySub: {
+    fontSize: '13px',
+    color: '#6b7280',
+    lineHeight: 1.4
+  },
+  methodSummaryBody: {
+    display: 'flex',
+    flexDirection: 'column',
+    gap: '18px'
+  },
+  methodSummarySection: {
+    display: 'grid',
+    gap: '10px'
+  },
+  methodSummarySectionTitle: {
+    fontSize: '14px',
+    fontWeight: '700',
+    color: '#111827',
+    marginBottom: '8px'
+  },
+  methodSummaryRow: {
+    display: 'flex',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    padding: '10px 12px',
+    borderRadius: '10px',
+    backgroundColor: '#f8fafc'
+  },
+  methodSummaryFooter: {
+    display: 'flex',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginTop: '10px',
+    paddingTop: '10px',
+    borderTop: '1px solid #e5e7eb'
+  },
+  methodSummaryTotalLabel: {
+    fontSize: '14px',
+    color: '#6b7280'
+  },
+  methodSummaryTotalValue: {
+    fontSize: '16px',
+    fontWeight: '700',
+    color: '#111827'
+  },
+  actionsRow: {
+    display: 'flex',
+    gap: '10px',
+    marginTop: '12px'
+  },
+  confirmBtn: {
+    padding: '8px 14px',
+    borderRadius: '10px',
+    border: 'none',
+    backgroundColor: '#2ecc71',
+    color: 'white',
+    cursor: 'pointer',
+    fontWeight: '700'
+  },
+  confirmBtnDisabled: {
+    backgroundColor: '#9ca3af',
+    color: '#6b7280',
+    cursor: 'not-allowed',
+    opacity: 0.7,
+    pointerEvents: 'none',
+    border: '1px solid #d1d5db'
+  },
+  warningMessage: {
+    padding: '10px 12px',
+    borderRadius: '8px',
+    backgroundColor: '#fef3c7',
+    color: '#92400e',
+    fontSize: '13px',
+    fontWeight: '600',
+    marginBottom: '10px',
+    border: '1px solid #fcd34d'
+  },
+  rejectBtn: {
+    padding: '8px 14px',
+    borderRadius: '10px',
+    border: 'none',
+    backgroundColor: '#e94560',
+    color: 'white',
+    cursor: 'pointer',
+    fontWeight: '700'
+  },
+  empty: {
+    color: '#6b7280',
+    margin: 0
+  },
+  list: {
+    display: 'flex',
+    flexDirection: 'column',
+    gap: '10px'
+  },
+  item: {
+    border: '1px solid #e5e7eb',
+    borderRadius: '12px',
+    padding: '12px 14px',
+    backgroundColor: '#fafafa'
+  },
+  row: {
+    display: 'flex',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    gap: '8px',
+    flexWrap: 'wrap',
+    marginBottom: '6px'
+  },
+  customerName: {
+    fontWeight: '700',
+    color: '#111827'
+  },
+  meta: {
+    fontSize: '13px',
+    color: '#6b7280'
+  },
+  amount: {
+    fontWeight: '700',
+    color: '#e94560'
+  },
+  pagination: {
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: '10px',
+    marginTop: '18px'
+  },
+  pageBtn: {
+    padding: '10px 14px',
+    borderRadius: '10px',
+    border: '1px solid #d1d5db',
+    backgroundColor: '#ffffff',
+    color: '#111827',
+    cursor: 'pointer',
+    fontWeight: '700'
+  },
+  pageBtnDisabled: {
+    opacity: 0.5,
+    cursor: 'not-allowed'
+  },
+  pageInfo: {
+    fontWeight: '700',
+    color: '#111827'
+  }
+};
+
+export default PaymentHistory;

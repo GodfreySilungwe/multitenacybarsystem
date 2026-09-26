@@ -12,6 +12,7 @@ const CashChest = lazy(() => import('./pages/CashChest'));
 const Products = lazy(() => import('./pages/Products'));
 const Categories = lazy(() => import('./pages/Categories'));
 const Customers = lazy(() => import('./pages/Customers'));
+const PaymentHistory = lazy(() => import('./pages/PaymentHistory'));
 const Orders = lazy(() => import('./pages/Orders'));
 const CustomerPortal = lazy(() => import('./pages/CustomerPortal'));
 const Reports = lazy(() => import('./pages/Reports'));
@@ -132,7 +133,13 @@ function App() {
                 </Layout>
               </ProtectedRoute>
             } />
-            <Route path="/payment-history" element={<Navigate to="/dashboard" replace />} />
+            <Route path="/payment-history" element={
+              <ProtectedRoute barOwnerOrSales>
+                <Layout>
+                  <PaymentHistory />
+                </Layout>
+              </ProtectedRoute>
+            } />
             <Route path="/audit-log" element={
               <ProtectedRoute barOwnerOnly>
                 <Layout>

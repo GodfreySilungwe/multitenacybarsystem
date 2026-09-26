@@ -114,6 +114,7 @@ const Customers = () => {
   };
 
   const getSettlementAmount = (entry) => Number(entry?.amount ?? entry?.amountApplied ?? entry?.amountRequested ?? 0);
+  const isConfirmedSettlement = (entry) => (entry?.status || 'confirmed') === 'confirmed';
 
   const handleSubmit = async (e) => {
     e.preventDefault();
@@ -379,6 +380,7 @@ const Customers = () => {
                 <div style={styles.settlementHistoryList}>
                   {(settlements || [])
                     .filter((entry) => String(entry.customerId || '') === String(customer._id))
+                    .filter(isConfirmedSettlement)
                     .filter((entry) => getSettlementAmount(entry) > 0)
                     .slice(0, 5)
                     .map((entry) => (
@@ -400,6 +402,7 @@ const Customers = () => {
                 </div>
                 {!(settlements || []).some((entry) => (
                   String(entry.customerId || '') === String(customer._id)
+                  && isConfirmedSettlement(entry)
                   && getSettlementAmount(entry) > 0
                 )) && (
                   <div style={styles.creditHistoryProducts}>No settlement history yet.</div>

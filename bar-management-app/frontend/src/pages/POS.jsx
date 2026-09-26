@@ -282,7 +282,7 @@ const POS = () => {
         loadAllCustomers(),
         api.get('/categories'),
         api.get('/customer-order-requests'),
-        api.get('/customer-order-requests/payments')
+        api.get('/customer-order-requests/payments', { params: { status: 'pending' } })
       ]);
       setCustomers(customers);
       setCategories(categoriesRes.data);
@@ -348,7 +348,7 @@ const POS = () => {
       }
     } catch (err) {
       console.error('Failed to process payment action:', err);
-      setError(pendingPasswordAction.action === 'confirm' ? 'Could not confirm payment.' : 'Could not reject the payment.');
+      setError(err.response?.data?.message || (pendingPasswordAction.action === 'confirm' ? 'Could not confirm payment.' : 'Could not reject the payment.'));
       setTimeout(() => setError(''), 4000);
     } finally {
       setPasswordSubmitting(false);
