@@ -10,7 +10,8 @@ const User = require('../models/User');
 const dynamodb = require('../lib/dynamodb');
 const { recomputeCustomerCreditBalance } = require('../lib/credit');
 const { getOrderExpiryEpochSeconds } = require('../lib/orderExpiry');
-const { queryActiveCreditOrders } = require('../lib/dynamodb');
+const { queryActiveCreditOrders, queryPaymentRequestsByBarStatus } = require('../lib/dynamodb');
+const { PAYMENT_REQUEST_TTL_MS, getPaymentRequestExpiry, isPaymentRequestExpired } = require('../lib/paymentExpiry');
 
 router.use(protect);
 
@@ -554,6 +555,7 @@ router.post('/pay-bill', async (req, res) => {
       status: 'pending',
       createdAt: new Date().toISOString()
     });
+    paymentRequest.expiresAt = getPaymentRequestExpiry(paymentRequest.createdAt);
 
     await paymentRequest.save();
 
@@ -566,11 +568,35 @@ router.post('/pay-bill', async (req, res) => {
 router.get('/payments', async (req, res) => {
   try {
     const { customerId } = req.query;
-    const query = { barId: req.user.barId };
-    if (customerId) {
-      query.customerId = customerId;
+    const status = String(req.query.status || '').trim().toLowerCase();
+    const statuses = status
+      ? [status]
+      : ['pending', 'confirmed', 'rejected', 'reversed', 'cancelled', 'expired'];
+    const now = new Date();
+    const pendingWindow = status === 'pending'
+      ? {
+          startDate: new Date(now.getTime() - PAYMENT_REQUEST_TTL_MS).toISOString(),
+          endDate: now.toISOString()
+        }
+      : {};
+    const paymentResults = await Promise.all(statuses.map((paymentStatus) => (
+      queryPaymentRequestsByBarStatus(req.user.barId, paymentStatus, {
+        startDate: pendingWindow.startDate || req.query.startDate,
+        endDate: pendingWindow.endDate || req.query.endDate,
+        scanIndexForward: req.query.oldestFirst === 'true'
+      })
+    )));
+    const payments = paymentResults
+      .flatMap((result) => result.items || [])
+      .filter((payment) => !customerId || String(payment.customerId || '') === String(customerId))
+      .filter((payment) => status !== 'pending' || !isPaymentRequestExpired(payment))
+      .map((payment) => (isPaymentRequestExpired(payment) ? { ...payment, status: 'expired' } : payment))
+      .sort((left, right) => String(right.createdAt || '').localeCompare(String(left.createdAt || '')));
+
+    if (status === 'pending') {
+      return res.json(payments);
     }
-    const payments = await CustomerPaymentRequest.find(query).sort({ createdAt: -1 });
+
     const users = await User.find({ barId: req.user.barId });
     const salesUsers = new Map((users || []).map((user) => [String(user._id || user.id), user]));
     const enrichedPayments = await Promise.all((payments || []).map((payment) => enrichPaymentRequest(payment, salesUsers)));
@@ -589,6 +615,13 @@ router.patch('/payments/:id/confirm', isBarOwnerOrSales, async (req, res) => {
 
     if (paymentRequest.status !== 'pending') {
       return res.status(400).json({ message: 'Only pending payments can be confirmed.' });
+    }
+
+    if (isPaymentRequestExpired(paymentRequest)) {
+      paymentRequest.status = 'expired';
+      paymentRequest.expiredAt = new Date().toISOString();
+      await paymentRequest.save();
+      return res.status(410).json({ message: 'This payment request has expired.' });
     }
 
     const customerId = paymentRequest.customerId;
@@ -690,6 +723,13 @@ router.patch('/payments/:id/reject', isBarOwnerOrSales, async (req, res) => {
 
     if (paymentRequest.status !== 'pending') {
       return res.status(400).json({ message: 'Only pending payments can be rejected.' });
+    }
+
+    if (isPaymentRequestExpired(paymentRequest)) {
+      paymentRequest.status = 'expired';
+      paymentRequest.expiredAt = new Date().toISOString();
+      await paymentRequest.save();
+      return res.status(410).json({ message: 'This payment request has expired.' });
     }
 
     paymentRequest.status = 'rejected';

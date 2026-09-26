@@ -7,9 +7,8 @@ const Customer = require('../models/Customer');
 const InventoryAdjustment = require('../models/InventoryAdjustment');
 const PurchaseOrder = require('../models/PurchaseOrder');
 const CustomerOrderRequest = require('../models/CustomerOrderRequest');
-const CustomerPaymentRequest = require('../models/CustomerPaymentRequest');
 const dynamodb = require('../lib/dynamodb');
-const { queryEntities, queryActiveCreditOrders, queryActiveCreditOrdersByBar, decodeLastEvaluatedKey } = require('../lib/dynamodb');
+const { queryEntities, queryActiveCreditOrders, queryActiveCreditOrdersByBar, queryPaymentRequestsByBarStatus, decodeLastEvaluatedKey } = require('../lib/dynamodb');
 const { buildOrderSummary, calculateOutstandingCreditInPeriod } = require('../lib/orderSummary');
 const { createAuditEntry } = require('../lib/audit');
 const { getInitialCreditPayment, normalizeCreditPaymentMethod, classifyRepaymentAllocations } = require('../lib/creditPayments');
@@ -325,9 +324,8 @@ router.get('/summary', async (req, res) => {
         productSale.purchaseOrdersQty = purchaseQty;
       });
 
-      const paymentRecords = await CustomerPaymentRequest.find({
-        barId: req.user.barId,
-        status: 'confirmed'
+      const { items: paymentRecords = [] } = await queryPaymentRequestsByBarStatus(req.user.barId, 'confirmed', {
+        scanIndexForward: false
       });
       const { items: activeCreditOrders = [] } = await queryActiveCreditOrdersByBar(req.user.barId);
       const periodStart = startDate ? new Date(startDate).getTime() : 0;
@@ -522,9 +520,6 @@ router.get('/summary', async (req, res) => {
     const { items: allOrdersInRange = [] } = await queryEntities('order', reversedQueryOptions);
     const reversedOrders = (allOrdersInRange || []).filter((order) => order.reversed).length;
 
-    const paymentQuery = { barId: req.user.barId };
-
-    const allPayments = await CustomerPaymentRequest.find(paymentQuery);
     const isWithinSelectedPeriod = (dateValue) => {
       if (!dateValue) {
         return false;
@@ -539,10 +534,10 @@ router.get('/summary', async (req, res) => {
         && (!queryOptions.endDate || timestamp <= new Date(queryOptions.endDate).getTime());
     };
 
-    const payments = (allPayments || []).filter((payment) => {
-      const paymentDate = payment.confirmedAt || payment.createdAt;
-      return payment.status === 'confirmed' && isWithinSelectedPeriod(paymentDate);
+    const { items: confirmedPaymentRecords = [] } = await queryPaymentRequestsByBarStatus(req.user.barId, 'confirmed', {
+      scanIndexForward: false
     });
+    const payments = confirmedPaymentRecords.filter((payment) => isWithinSelectedPeriod(payment.confirmedAt || payment.createdAt));
     const allCreditOrders = await Order.find({ barId: req.user.barId, reversed: { $ne: true }, paymentMethod: 'credit' });
 
     const legacyCreditOrders = await Order.find({

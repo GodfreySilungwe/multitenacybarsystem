@@ -243,7 +243,7 @@ router.get('/summary', isBarOwnerOrSales, async (req, res) => {
       ? await Customer.find({ _id: { $in: customerIds }, barId: req.user.barId })
       : [];
 
-    const creditAccounts = customerIds.map((id) => {
+    const allCreditAccounts = customerIds.map((id) => {
       const customer = customerRecords.find((record) => String(record._id || record.id) === id);
       return {
         _id: id,
@@ -252,17 +252,17 @@ router.get('/summary', isBarOwnerOrSales, async (req, res) => {
         balance: customerBalances[id]
       };
     })
-      .sort((a, b) => b.balance - a.balance)
-      .slice(0, 20);
+      .sort((a, b) => b.balance - a.balance);
 
-    const totalCreditOutstanding = creditAccounts.reduce((sum, customer) => sum + customer.balance, 0);
+    const totalCreditOutstanding = allCreditAccounts.reduce((sum, customer) => sum + customer.balance, 0);
+    const topCreditAccounts = allCreditAccounts.slice(0, 20);
 
     res.json({
       totalCustomers: customerIds.length,
       totalCustomerRecords,
-      customersWithCredit: creditAccounts.length,
+      customersWithCredit: allCreditAccounts.length,
       totalCreditOutstanding,
-      topCreditAccounts: creditAccounts
+      topCreditAccounts
     });
   } catch (error) {
     res.status(500).json({ message: error.message });

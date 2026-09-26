@@ -79,6 +79,31 @@ node scripts/backfillActiveCreditOrderGsi.js --apply --page-size=100 --concurren
 
 The script is dry-run by default. Add `--apply` to write GSI3 attributes.
 
+### GSI4: Bar payment status/date index
+
+Key attributes:
+
+```text
+GSI4PK = BAR#<barId>#PAYMENT#<status>
+GSI4SK = <createdAt>#<paymentId>
+```
+
+Purpose:
+
+- Query a bar's payments by status, newest or oldest first.
+- Restrict confirmed payment reads to a report or cash-session date range.
+- Load POS pending customer payment requests from only the last 30 minutes without loading confirmed/rejected history.
+
+The shared serializer generates GSI4 keys for `CustomerPaymentRequest` records. Since status is part of the partition key, status updates move the record to the matching status partition on save. `queryPaymentRequestsByBarStatus(barId, status, options)` reads this index.
+
+Existing payment records can be indexed with:
+
+```powershell
+node scripts/backfillPaymentGsi4.js --apply --page-size=100 --concurrency=5
+```
+
+The backfill is dry-run by default. Add `--apply` only after GSI4 is `ACTIVE`.
+
 ## Dashboard and Reports
 
 ### Dashboard
@@ -99,10 +124,12 @@ Reports request `optimized=true` without `dashboard=true`.
 - Date-range sales and product metrics use GSI1.
 - Current credit exposure, accumulated customer balances, and outstanding credit by sales account use GSI3.
 - A historical order read is retained only when the selected period has positive confirmed payments without allocation metadata, to preserve legacy FIFO settlement calculations.
-- Confirmed customer payments are used to calculate settlement totals and payment-method summaries.
+- Confirmed customer payments are queried through GSI4 for the selected report date range.
 
-The confirmed payment records are still loaded and filtered by period in application code. GSI3 avoids reading paid credit orders just to calculate current outstanding-credit sections.
+The Customers page retrieves full settlement history by querying GSI4's known status partitions and merging the results. This preserves each customer's recent-settlement history while restricting reads to the current bar; it is not time-bounded. GSI4 is not customer-partitioned, so filtering by customer still occurs after the bar/status query.
+
+Pending customer payment requests expire 30 minutes after creation. POS queries that window; stale requests are rejected as expired if a confirmation/rejection is attempted, and full payment lists expose their effective status as `expired`.
 
 ## Write-path behavior
 
-Order creation and updates use the shared serializer in `lib/dynamodb.js`. It creates GSI1 keys for every order and creates GSI2/GSI3 keys only for eligible active unpaid credit orders. Re-saving an order rebuilds these attributes, which removes stale GSI2/GSI3 keys after payment or reversal.
+Order creation and updates use the shared serializer in `lib/dynamodb.js`. It creates GSI1 keys for every order and creates GSI2/GSI3 keys only for eligible active unpaid credit orders. Payment records receive GSI4 keys for their current status. Re-saving records rebuilds their index attributes, moving payments between GSI4 status partitions when their status changes.

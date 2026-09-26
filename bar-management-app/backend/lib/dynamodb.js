@@ -89,6 +89,20 @@ function buildBarActiveCreditOrderGsiKeys(entityType, record) {
   };
 }
 
+function buildBarPaymentGsiKeys(entityType, record) {
+  const normalizedEntityType = String(entityType || '').toLowerCase();
+  if (normalizedEntityType !== 'customerpaymentrequest' || !record?.barId || !record?.id) {
+    return {};
+  }
+
+  const createdAt = record.createdAt || new Date().toISOString();
+  const status = String(record.status || 'pending').trim().toLowerCase() || 'pending';
+  return {
+    GSI4PK: `BAR#${record.barId}#PAYMENT#${status}`,
+    GSI4SK: `${createdAt}#${record.id}`
+  };
+}
+
 function serializeValue(value) {
   if (value instanceof Date) {
     return value.toISOString();
@@ -135,12 +149,18 @@ function toDynamoItem(entityType, data) {
   const gsiKeys = buildOrderGsiKeys(entityType, record);
   const creditGsiKeys = buildActiveCreditOrderGsiKeys(entityType, record);
   const barCreditGsiKeys = buildBarActiveCreditOrderGsiKeys(entityType, record);
+  const paymentGsiKeys = buildBarPaymentGsiKeys(entityType, record);
 
   if (String(entityType).toLowerCase() === 'order') {
     delete record.GSI2PK;
     delete record.GSI2SK;
     delete record.GSI3PK;
     delete record.GSI3SK;
+  }
+
+  if (String(entityType).toLowerCase() === 'customerpaymentrequest') {
+    delete record.GSI4PK;
+    delete record.GSI4SK;
   }
 
   delete record.pk;
@@ -158,7 +178,8 @@ function toDynamoItem(entityType, data) {
     ...record,
     ...gsiKeys,
     ...creditGsiKeys,
-    ...barCreditGsiKeys
+    ...barCreditGsiKeys,
+    ...paymentGsiKeys
   };
 }
 
@@ -357,6 +378,61 @@ async function queryActiveCreditOrdersByBar(barId, options = {}) {
     items.push(...(result.Items || []).map(fromDynamoItem));
     exclusiveStartKey = result.LastEvaluatedKey;
   } while (exclusiveStartKey && !options.limit);
+
+  return {
+    items,
+    lastEvaluatedKey: exclusiveStartKey ? encodeLastEvaluatedKey(exclusiveStartKey) : null
+  };
+}
+
+async function queryPaymentRequestsByBarStatus(barId, status, options = {}) {
+  await ensureTableExists();
+  const normalizedStatus = String(status || '').trim().toLowerCase();
+  if (!normalizedStatus) {
+    throw new Error('A payment status is required to query GSI4');
+  }
+
+  const params = {
+    TableName: TABLE_NAME,
+    IndexName: 'GSI4',
+    KeyConditionExpression: 'GSI4PK = :gsiPk',
+    ExpressionAttributeValues: {
+      ':gsiPk': `BAR#${barId}#PAYMENT#${normalizedStatus}`
+    },
+    ScanIndexForward: options.scanIndexForward === true,
+    ...(options.limit ? { Limit: Math.min(Math.max(Math.floor(Number(options.limit)), 1), 100) } : {}),
+    ...(options.lastEvaluatedKey ? { ExclusiveStartKey: options.lastEvaluatedKey } : {})
+  };
+
+  if (options.startDate || options.endDate) {
+    const startKey = options.startDate ? `${options.startDate}#` : null;
+    const endKey = options.endDate ? `${options.endDate}#\uFFFF` : null;
+    if (startKey && endKey) {
+      params.KeyConditionExpression += ' AND GSI4SK BETWEEN :gsiStart AND :gsiEnd';
+      params.ExpressionAttributeValues[':gsiStart'] = startKey;
+      params.ExpressionAttributeValues[':gsiEnd'] = endKey;
+    } else if (startKey) {
+      params.KeyConditionExpression += ' AND GSI4SK >= :gsiStart';
+      params.ExpressionAttributeValues[':gsiStart'] = startKey;
+    } else {
+      params.KeyConditionExpression += ' AND GSI4SK <= :gsiEnd';
+      params.ExpressionAttributeValues[':gsiEnd'] = endKey;
+    }
+  }
+
+  const items = [];
+  let exclusiveStartKey = params.ExclusiveStartKey;
+  let result;
+  const hasExplicitLimit = Boolean(options.limit && Number.isFinite(Number(options.limit)));
+
+  do {
+    result = await docClient.send(new QueryCommand({
+      ...params,
+      ...(exclusiveStartKey ? { ExclusiveStartKey: exclusiveStartKey } : {})
+    }));
+    items.push(...(result.Items || []).map(fromDynamoItem));
+    exclusiveStartKey = result.LastEvaluatedKey;
+  } while (exclusiveStartKey && !hasExplicitLimit);
 
   return {
     items,
@@ -657,6 +733,7 @@ module.exports = {
   queryEntities,
   queryActiveCreditOrders,
   queryActiveCreditOrdersByBar,
+  queryPaymentRequestsByBarStatus,
   decodeLastEvaluatedKey,
   getEntity,
   createEntity,

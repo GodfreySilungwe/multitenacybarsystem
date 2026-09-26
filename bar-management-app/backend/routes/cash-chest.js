@@ -4,8 +4,8 @@ const { protect, isBarOwnerOrSales, isBarOwnerOrManager } = require('../middlewa
 const CashSession = require('../models/CashSession');
 const CashChestEntry = require('../models/CashChestEntry');
 const Order = require('../models/Order');
-const CustomerPaymentRequest = require('../models/CustomerPaymentRequest');
 const { getInitialCreditPayment } = require('../lib/creditPayments');
+const { queryPaymentRequestsByBarStatus } = require('../lib/dynamodb');
 
 router.use(protect);
 
@@ -32,15 +32,12 @@ const calculateSessionSummary = async (session) => {
       createdAt: dateQuery,
       reversed: { $ne: true }
     }),
-    CustomerPaymentRequest.find({
-      barId: session.barId,
-      createdAt: dateQuery,
-      status: 'confirmed',
-      $or: [
-        { paymentMethod: 'cash' },
-        { creditPaymentMethod: 'credit_cash' }
-      ]
-    }),
+    queryPaymentRequestsByBarStatus(session.barId, 'confirmed', {
+      startDate: session.openedAt,
+      endDate: endAt
+    }).then(({ items = [] }) => items.filter((payment) => (
+      payment.paymentMethod === 'cash' || payment.creditPaymentMethod === 'credit_cash'
+    ))),
     CashChestEntry.find({ barId: session.barId, sessionId: session._id })
   ]);
 
