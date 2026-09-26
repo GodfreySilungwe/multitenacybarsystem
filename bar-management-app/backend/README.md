@@ -4,13 +4,20 @@ The backend uses a single-table DynamoDB design. Orders are stored in the main t
 
 ## DynamoDB Indexes
 
-### GSI1: Bar order date index
+### GSI1: Bar/date entity index
 
 Key attributes:
 
 ```text
 GSI1PK = BAR#<barId>#ORDER
 GSI1SK = <createdAt>#<orderId>
+```
+
+Inventory adjustment rows use the same index attributes with this partition:
+
+```text
+GSI1PK = BAR#<barId>#INVENTORY-ADJUSTMENT
+GSI1SK = <createdAt>#<adjustmentId>
 ```
 
 Purpose:
@@ -20,9 +27,17 @@ Purpose:
 - Support dashboard sales periods and report periods.
 - Sort orders by creation time.
 
-The shared `queryEntities('order', options)` helper uses GSI1 automatically when an order query includes `barId`. Date filters are applied to `GSI1SK` when `startDate` or `endDate` is provided.
+The shared `queryEntities(entityType, options)` helper uses GSI1 automatically for bar-scoped order and inventory-adjustment queries. Date filters are applied to `GSI1SK`, and inventory history uses cursor pages in newest-first order.
 
 GSI1 does not index payment status or outstanding balance. A query that uses GSI1 for a full historical period can still read many order records before application-level filtering.
+
+Existing inventory adjustments can be indexed with:
+
+```powershell
+node scripts/backfillInventoryAdjustmentGsi.js
+```
+
+Review the dry-run output, then add `--apply` to write missing GSI1 keys before deploying the paginated inventory history endpoint.
 
 ### GSI2: Customer active-credit index
 
@@ -126,10 +141,10 @@ Reports request `optimized=true` without `dashboard=true`.
 - A historical order read is retained only when the selected period has positive confirmed payments without allocation metadata, to preserve legacy FIFO settlement calculations.
 - Confirmed customer payments are queried through GSI4 for the selected report date range.
 
-The Customers page retrieves full settlement history by querying GSI4's known status partitions and merging the results. This preserves each customer's recent-settlement history while restricting reads to the current bar; it is not time-bounded. GSI4 is not customer-partitioned, so filtering by customer still occurs after the bar/status query.
+The Customers page retrieves full settlement history by querying GSI4's known status partitions and merging the results when the customer list is reset. Cursor-page loads do not refetch settlements. The payment read remains not time-bounded; GSI4 is not customer-partitioned, so filtering by customer still occurs after the bar/status query.
 
 Pending customer payment requests expire 30 minutes after creation. POS queries that window; stale requests are rejected as expired if a confirmation/rejection is attempted, and full payment lists expose their effective status as `expired`.
 
 ## Write-path behavior
 
-Order creation and updates use the shared serializer in `lib/dynamodb.js`. It creates GSI1 keys for every order and creates GSI2/GSI3 keys only for eligible active unpaid credit orders. Payment records receive GSI4 keys for their current status. Re-saving records rebuilds their index attributes, moving payments between GSI4 status partitions when their status changes.
+Order creation and updates use the shared serializer in `lib/dynamodb.js`. It creates GSI1 keys for orders and inventory adjustments, and creates GSI2/GSI3 keys only for eligible active unpaid credit orders. Payment records receive GSI4 keys for their current status. Re-saving records rebuilds their index attributes, moving payments between GSI4 status partitions when their status changes.

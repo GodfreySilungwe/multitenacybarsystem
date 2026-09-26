@@ -13,6 +13,7 @@ const { buildOrderSummary, calculateOutstandingCreditInPeriod } = require('../li
 const { createAuditEntry } = require('../lib/audit');
 const { getInitialCreditPayment, normalizeCreditPaymentMethod, classifyRepaymentAllocations } = require('../lib/creditPayments');
 const { getOrderExpiryEpochSeconds } = require('../lib/orderExpiry');
+const { getPaymentCreatedAtQueryWindow } = require('../lib/paymentExpiry');
 
 router.use(protect, isBarOwnerOrSales);
 
@@ -325,6 +326,7 @@ router.get('/summary', async (req, res) => {
       });
 
       const { items: paymentRecords = [] } = await queryPaymentRequestsByBarStatus(req.user.barId, 'confirmed', {
+        ...getPaymentCreatedAtQueryWindow(startDate, queryOptions.endDate),
         scanIndexForward: false
       });
       const { items: activeCreditOrders = [] } = await queryActiveCreditOrdersByBar(req.user.barId);
@@ -389,6 +391,7 @@ router.get('/summary', async (req, res) => {
         }))
         .sort((a, b) => a.createdAt - b.createdAt);
       let previousBillsCollected = 0;
+      let creditOrderIndex = 0;
       periodPayments
         .map((payment) => ({
           amount: Number(payment.amountApplied || payment.amountRequested || payment.amount || 0),
@@ -405,15 +408,19 @@ router.get('/summary', async (req, res) => {
           }
 
           let remaining = payment.amount;
-          while (remaining > 0) {
-            const nextOrder = creditOrderStates.find((order) => order.balanceDue > 0);
-            if (!nextOrder) break;
+          while (remaining > 0 && creditOrderIndex < creditOrderStates.length) {
+            const nextOrder = creditOrderStates[creditOrderIndex];
+            if (nextOrder.balanceDue <= 0) {
+              creditOrderIndex += 1;
+              continue;
+            }
             const applied = Math.min(remaining, nextOrder.balanceDue);
             if (nextOrder.createdAt < rangeStartTime) {
               previousBillsCollected += applied;
             }
             nextOrder.balanceDue -= applied;
             remaining -= applied;
+            if (nextOrder.balanceDue <= 0) creditOrderIndex += 1;
           }
         });
       const settlementMethods = ['credit_cash', 'credit_airtel_money', 'credit_mpamba', 'credit_bank_account'];
@@ -535,6 +542,7 @@ router.get('/summary', async (req, res) => {
     };
 
     const { items: confirmedPaymentRecords = [] } = await queryPaymentRequestsByBarStatus(req.user.barId, 'confirmed', {
+      ...getPaymentCreatedAtQueryWindow(startDate, queryOptions.endDate),
       scanIndexForward: false
     });
     const payments = confirmedPaymentRecords.filter((payment) => isWithinSelectedPeriod(payment.confirmedAt || payment.createdAt));
@@ -574,6 +582,7 @@ router.get('/summary', async (req, res) => {
 
     let previousBillsCollected = 0;
     let currentPeriodCreditCollected = 0;
+    let creditOrderIndex = 0;
     const rangeStartTime = startDate ? new Date(startDate).getTime() : 0;
 
     const settlementMethods = ['credit_cash', 'credit_airtel_money', 'credit_mpamba', 'credit_bank_account'];
@@ -618,9 +627,12 @@ router.get('/summary', async (req, res) => {
       }
 
       let remaining = payment.amount;
-      while (remaining > 0) {
-        const nextOrder = creditOrderStates.find((order) => order.balanceDue > 0);
-        if (!nextOrder) break;
+      while (remaining > 0 && creditOrderIndex < creditOrderStates.length) {
+        const nextOrder = creditOrderStates[creditOrderIndex];
+        if (nextOrder.balanceDue <= 0) {
+          creditOrderIndex += 1;
+          continue;
+        }
 
         const applied = Math.min(remaining, nextOrder.balanceDue);
         if (nextOrder.createdAt < rangeStartTime) {
@@ -629,6 +641,7 @@ router.get('/summary', async (req, res) => {
 
         nextOrder.balanceDue -= applied;
         remaining -= applied;
+        if (nextOrder.balanceDue <= 0) creditOrderIndex += 1;
       }
     });
 
@@ -653,6 +666,7 @@ router.get('/summary', async (req, res) => {
       .sort((a, b) => a.createdAt - b.createdAt);
 
     const currentPeriodRepaymentsApplied = [];
+    let currentPeriodAllocationIndex = 0;
     const currentPeriodAllocationStates = (allCreditOrders || [])
       .map((order) => ({
         createdAt: new Date(order.createdAt || 0).getTime(),
@@ -674,9 +688,12 @@ router.get('/summary', async (req, res) => {
       }
 
       let remaining = payment.amount;
-      while (remaining > 0) {
-        const nextOrder = currentPeriodAllocationStates.find((order) => order.balanceDue > 0);
-        if (!nextOrder) break;
+      while (remaining > 0 && currentPeriodAllocationIndex < currentPeriodAllocationStates.length) {
+        const nextOrder = currentPeriodAllocationStates[currentPeriodAllocationIndex];
+        if (nextOrder.balanceDue <= 0) {
+          currentPeriodAllocationIndex += 1;
+          continue;
+        }
 
         const applied = Math.min(remaining, nextOrder.balanceDue);
         const orderCreatedInPeriod = nextOrder.createdAt >= rangeStartTime && (!queryOptions.endDate || nextOrder.createdAt <= new Date(queryOptions.endDate).getTime());
@@ -686,6 +703,7 @@ router.get('/summary', async (req, res) => {
 
         nextOrder.balanceDue -= applied;
         remaining -= applied;
+        if (nextOrder.balanceDue <= 0) currentPeriodAllocationIndex += 1;
       }
     });
 

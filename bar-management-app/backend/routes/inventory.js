@@ -3,28 +3,36 @@ const router = express.Router();
 const { protect, isBarOwnerOrSales } = require('../middleware/auth');
 const InventoryAdjustment = require('../models/InventoryAdjustment');
 const Product = require('../models/Product');
+const { queryEntities, decodeLastEvaluatedKey } = require('../lib/dynamodb');
 
 router.use(protect, isBarOwnerOrSales);
+
+const parsePageOptions = (query) => ({
+  limit: Math.min(Math.max(Number(query.limit) || 50, 1), 100),
+  ...(query.lastKey ? { lastEvaluatedKey: decodeLastEvaluatedKey(query.lastKey) } : {})
+});
+
+const hydrateAdjustment = (adjustment) => {
+  const productId = adjustment.product?._id || adjustment.product?.id || adjustment.product || '';
+  const productName = adjustment.productName || adjustment.product?.name || 'Unknown';
+  return {
+    ...adjustment,
+    product: productId ? { _id: productId, name: productName } : null,
+    productName
+  };
+};
 
 // Get all adjustments
 router.get('/', async (req, res) => {
   try {
-    const adjustments = await InventoryAdjustment.find({ barId: req.user.barId }).sort({ createdAt: -1 });
-    const productIds = Array.from(new Set((adjustments || []).map((adjustment) => String(adjustment.product || '')).filter(Boolean)));
-    const products = productIds.length > 0 ? await Product.find({ _id: { $in: productIds }, barId: req.user.barId }) : [];
-    const productMap = new Map((products || []).map((product) => [String(product._id || product.id), product]));
-
-    const hydratedAdjustments = (adjustments || []).map((adjustment) => {
-      const productId = String(adjustment.product || '');
-      const product = productMap.get(productId);
-      return {
-        ...adjustment,
-        product: product ? { _id: product._id || product.id, name: product.name } : null,
-        productName: product ? product.name : adjustment.productName || 'Unknown'
-      };
+    const result = await queryEntities('inventoryadjustment', {
+      barId: req.user.barId,
+      ...parsePageOptions(req.query),
+      scanIndexForward: false
     });
+    const items = (result.items || []).map(hydrateAdjustment);
 
-    res.json(hydratedAdjustments);
+    res.json({ items, nextKey: result.lastEvaluatedKey });
   } catch (error) {
     console.error('Error fetching adjustments:', error);
     res.status(500).json({ message: error.message });
@@ -96,11 +104,16 @@ router.post('/', async (req, res) => {
 // Get adjustments by product
 router.get('/product/:productId', async (req, res) => {
   try {
-    const adjustments = await InventoryAdjustment.find({
+    const result = await queryEntities('inventoryadjustment', {
       barId: req.user.barId,
-      product: req.params.productId
-    }).sort({ createdAt: -1 });
-    res.json(adjustments);
+      filters: { product: req.params.productId },
+      ...parsePageOptions(req.query),
+      scanIndexForward: false
+    });
+    res.json({
+      items: (result.items || []).map(hydrateAdjustment),
+      nextKey: result.lastEvaluatedKey
+    });
   } catch (error) {
     console.error('Error fetching product adjustments:', error);
     res.status(500).json({ message: error.message });
@@ -110,16 +123,30 @@ router.get('/product/:productId', async (req, res) => {
 // Get summary stats
 router.get('/summary', async (req, res) => {
   try {
-    const stats = await InventoryAdjustment.aggregate([
-      {
-        $group: {
-          _id: '$type',
-          totalQuantity: { $sum: '$quantity' },
-          count: { $sum: 1 }
-        }
+    const totalsByType = new Map();
+    let lastEvaluatedKey;
+
+    do {
+      const result = await queryEntities('inventoryadjustment', {
+        barId: req.user.barId,
+        limit: 100,
+        ...(lastEvaluatedKey ? { lastEvaluatedKey } : {})
+      });
+
+      for (const adjustment of result.items || []) {
+        const type = adjustment.type || 'default';
+        if (!totalsByType.has(type)) totalsByType.set(type, { _id: type, totalQuantity: 0, count: 0 });
+        const total = totalsByType.get(type);
+        total.totalQuantity += Number(adjustment.quantity || 0);
+        total.count += 1;
       }
-    ]);
-    res.json(stats);
+
+      lastEvaluatedKey = result.lastEvaluatedKey
+        ? decodeLastEvaluatedKey(result.lastEvaluatedKey)
+        : null;
+    } while (lastEvaluatedKey);
+
+    res.json(Array.from(totalsByType.values()));
   } catch (error) {
     console.error('Error fetching summary:', error);
     res.status(500).json({ message: error.message });

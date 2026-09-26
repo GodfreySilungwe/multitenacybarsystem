@@ -1,4 +1,5 @@
 const dynamodb = require('../lib/dynamodb');
+const { matchesFieldCondition } = require('../lib/queryMatcher');
 
 class QueryBuilder {
   constructor(model, query = {}) {
@@ -106,56 +107,7 @@ class BaseModel {
             return false;
           }
 
-          if (Array.isArray(value)) {
-            return value.includes(record[key]);
-          }
-
-          if (value instanceof Date) {
-            const recordValue = record[key];
-            if (recordValue instanceof Date) {
-              return recordValue.getTime() === value.getTime();
-            }
-            const parsed = Date.parse(recordValue);
-            return !Number.isNaN(parsed) && parsed === value.getTime();
-          }
-
-          if (typeof value === 'object' && value !== null && !Array.isArray(value)) {
-            const recordValue = record[key];
-            const parseDateValue = (val) => {
-              if (val instanceof Date) return val.getTime();
-              if (typeof val === 'string') {
-                const parsed = Date.parse(val);
-                if (!Number.isNaN(parsed)) return parsed;
-              }
-              return val;
-            };
-
-            const recordComparable = parseDateValue(recordValue);
-
-            if (value.$gte !== undefined) {
-              return recordComparable >= parseDateValue(value.$gte);
-            }
-            if (value.$lte !== undefined) {
-              return recordComparable <= parseDateValue(value.$lte);
-            }
-            if (value.$gt !== undefined) {
-              return recordComparable > parseDateValue(value.$gt);
-            }
-            if (value.$lt !== undefined) {
-              return recordComparable < parseDateValue(value.$lt);
-            }
-            if (value.$ne !== undefined) {
-              return record[key] !== value.$ne;
-            }
-            if (value.$in !== undefined && Array.isArray(value.$in)) {
-              return value.$in.includes(record[key]);
-            }
-            if (value.$nin !== undefined && Array.isArray(value.$nin)) {
-              return !value.$nin.includes(record[key]);
-            }
-          }
-
-          return record[key] === value;
+          return matchesFieldCondition(record, key, value);
         });
       });
     });

@@ -3,11 +3,8 @@ const router = express.Router();
 const { protect, isBarOwnerOrSales } = require('../middleware/auth');
 const ExcelJS = require('exceljs');
 const PDFDocument = require('pdfkit');
-const Order = require('../models/Order');
-const Product = require('../models/Product');
-const Customer = require('../models/Customer');
-const Category = require('../models/Category');
-const { applyExportLimit } = require('../lib/exportLimit');
+const { listEntities, queryEntities, decodeLastEvaluatedKey, queryActiveCreditOrdersByBar } = require('../lib/dynamodb');
+const { applyExportLimit, getExportLimit, createTopNCollector } = require('../lib/exportLimit');
 const { formatCurrencyValue, buildPeriodLabel } = require('../lib/exportFormatting');
 
 router.use(protect, isBarOwnerOrSales);
@@ -124,7 +121,7 @@ const validateSalesQuery = (query) => {
   return validateCustomDateRange({ ...query, range });
 };
 
-const getSalesDateFilter = (query) => {
+const getSalesDateRange = (query) => {
   const range = String(query.range || 'week').toLowerCase();
   let startDate = null;
   let endDate = new Date().toISOString();
@@ -151,20 +148,39 @@ const getSalesDateFilter = (query) => {
     endDate = parseLocalDateBoundary(query.endDate, true) || endDate;
   }
 
-  return {
-    ...(startDate ? { createdAt: { $gte: startDate } } : {}),
-    ...(endDate ? { createdAt: { ...(startDate ? { $gte: startDate } : {}), $lte: endDate } } : {})
-  };
+  return { startDate, endDate };
 };
 
 const getSalesOrders = async (req) => {
-  const orders = await Order.find({
-    barId: req.user.barId,
-    ...getSalesDateFilter(req.query)
-  })
-    .sort({ createdAt: -1 });
+  const limit = getExportLimit('sales');
+  const { startDate, endDate } = getSalesDateRange(req.query);
+  const orders = [];
+  let lastEvaluatedKey;
+  let exceeded = false;
 
-  return hydrateOrderCustomers(orders.filter(order => !order.reversed), req.user.barId);
+  do {
+    const result = await queryEntities('order', {
+      barId: req.user.barId,
+      includeReversed: false,
+      startDate,
+      endDate,
+      limit: 100,
+      scanIndexForward: false,
+      ...(lastEvaluatedKey ? { lastEvaluatedKey } : {})
+    });
+    orders.push(...(result.items || []));
+    lastEvaluatedKey = result.lastEvaluatedKey ? decodeLastEvaluatedKey(result.lastEvaluatedKey) : null;
+    if (orders.length > limit) {
+      exceeded = true;
+      break;
+    }
+  } while (lastEvaluatedKey);
+
+  const boundedOrders = orders.slice(0, limit + 1);
+  return {
+    orders: await hydrateOrderCustomers(boundedOrders, req.user.barId),
+    totalCount: exceeded ? limit + 1 : orders.length
+  };
 };
 
 const getOrderCustomerId = (order) => String(
@@ -175,14 +191,37 @@ const getOrderCustomerId = (order) => String(
   || ''
 ).trim();
 
+const getEntitiesByIds = async (entityType, barId, ids) => {
+  const wantedIds = new Set(ids.map(String));
+  if (wantedIds.size === 0) return new Map();
+  const recordsById = new Map();
+  let lastEvaluatedKey;
+
+  do {
+    const result = await listEntities(entityType, {
+      barId,
+      limit: 100,
+      ...(lastEvaluatedKey ? { lastEvaluatedKey } : {})
+    });
+    for (const record of result.items || []) {
+      const id = String(record._id || record.id);
+      if (wantedIds.has(id)) recordsById.set(id, record);
+    }
+    lastEvaluatedKey = result.lastEvaluatedKey
+      ? decodeLastEvaluatedKey(result.lastEvaluatedKey)
+      : null;
+  } while (lastEvaluatedKey && recordsById.size < wantedIds.size);
+
+  return recordsById;
+};
+
 const hydrateOrderCustomers = async (orders, barId) => {
   const customerIds = Array.from(new Set((orders || []).map(getOrderCustomerId).filter(Boolean)));
   if (customerIds.length === 0) {
     return orders || [];
   }
 
-  const customers = await Customer.find({ _id: { $in: customerIds }, barId });
-  const customerMap = new Map((customers || []).map((customer) => [String(customer._id || customer.id), customer]));
+  const customerMap = await getEntitiesByIds('customer', barId, customerIds);
 
   return (orders || []).map((order) => {
     const customer = customerMap.get(getOrderCustomerId(order));
@@ -198,8 +237,7 @@ const hydrateProductCategories = async (products, barId) => {
     return products || [];
   }
 
-  const categories = await Category.find({ _id: { $in: categoryIds }, barId });
-  const categoryMap = new Map((categories || []).map((category) => [String(category._id || category.id), category]));
+  const categoryMap = await getEntitiesByIds('category', barId, categoryIds);
 
   return (products || []).map((product) => {
     const categoryId = String(product?.category?._id || product?.category?.id || product?.category || '').trim();
@@ -232,49 +270,111 @@ const isOpenCreditOrder = (order) => (
   && order?.paymentStatus !== 'paid'
 );
 
-const getOutstandingCreditAccounts = async (barId) => {
-  const orders = await Order.find({
-    barId,
-    reversed: { $ne: true }
-  }).sort({ createdAt: -1 });
+const collectExportEntities = async ({ entityType, barId, limit, compare }) => {
+  const collector = compare ? createTopNCollector(limit + 1, compare) : null;
+  const rows = [];
+  let totalCount = 0;
+  let lastEvaluatedKey;
 
-  const openCreditOrders = (orders || []).filter(isOpenCreditOrder);
-  const hydratedOrders = await hydrateOrderCustomers(openCreditOrders, barId);
+  do {
+    const result = await listEntities(entityType, {
+      barId,
+      limit: 100,
+      ...(lastEvaluatedKey ? { lastEvaluatedKey } : {})
+    });
+    const pageItems = result.items || [];
+    totalCount += pageItems.length;
 
-  const byCustomer = {};
-  hydratedOrders.forEach((order) => {
-    const customerId = getOrderCustomerId(order);
-    const customerName = order.customer?.name || 'Unknown customer';
-    const phone = order.customer?.phone || '';
-    if (!customerId) return;
-
-    if (!byCustomer[customerId]) {
-      byCustomer[customerId] = {
-        customer: customerName,
-        phone,
-        balance: 0
-      };
+    if (collector) {
+      pageItems.forEach((item) => collector.add(item));
+    } else {
+      rows.push(...pageItems.slice(0, limit + 1 - rows.length));
+      if (rows.length > limit) {
+        return { rows, totalCount: limit + 1 };
+      }
     }
 
-    byCustomer[customerId].balance += getOrderOutstandingBalance(order);
-  });
+    lastEvaluatedKey = result.lastEvaluatedKey
+      ? decodeLastEvaluatedKey(result.lastEvaluatedKey)
+      : null;
+  } while (lastEvaluatedKey);
 
-  return Object.values(byCustomer)
-    .map((entry) => ({
-      customer: entry.customer,
-      phone: entry.phone,
-      balance: entry.balance
-    }))
-    .sort((a, b) => b.balance - a.balance);
+  return {
+    rows: collector ? collector.getSorted() : rows,
+    totalCount
+  };
 };
 
-const addExportLimitNotice = (sheet, totalCount, limit) => {
+const getOutstandingCreditAccounts = async (barId) => {
+  const accountLimit = getExportLimit('customers');
+  const topAccounts = createTopNCollector(accountLimit + 1, (left, right) => right.balance - left.balance);
+  let lastEvaluatedKey;
+  let currentAccount = null;
+  let accountCount = 0;
+  let totalBalance = 0;
+
+  const retainCurrentAccount = () => {
+    if (!currentAccount) return;
+    accountCount += 1;
+    topAccounts.add(currentAccount);
+    currentAccount = null;
+  };
+
+  do {
+    const result = await queryActiveCreditOrdersByBar(barId, {
+      limit: 100,
+      ...(lastEvaluatedKey ? { lastEvaluatedKey } : {})
+    });
+
+    for (const order of result.items || []) {
+      if (!isOpenCreditOrder(order)) continue;
+      const customerId = getOrderCustomerId(order);
+      if (!customerId) continue;
+      if (currentAccount?.customerId !== customerId) {
+        retainCurrentAccount();
+        currentAccount = {
+          customerId,
+          balance: 0
+        };
+      }
+
+      const balance = getOrderOutstandingBalance(order);
+      currentAccount.balance += balance;
+      totalBalance += balance;
+    }
+
+    lastEvaluatedKey = result.lastEvaluatedKey
+      ? decodeLastEvaluatedKey(result.lastEvaluatedKey)
+      : null;
+  } while (lastEvaluatedKey);
+  retainCurrentAccount();
+
+  const accounts = topAccounts.getSorted();
+  const accountIds = new Set(accounts.map((account) => account.customerId));
+  const customersById = await getEntitiesByIds('customer', barId, [...accountIds]);
+
+  return {
+    accounts: accounts.map((account) => {
+      const customer = customersById.get(account.customerId);
+      return {
+        customer: customer?.name || customer?.fullName || 'Unknown customer',
+        phone: customer?.phone || '',
+        balance: account.balance
+      };
+    }),
+    totalBalance,
+    totalCount: accountCount
+  };
+};
+
+const addExportLimitNotice = (sheet, totalCount, limit, endColumn = 'G') => {
   if (totalCount <= limit) {
     return;
   }
 
-  const notice = `WARNING: Export limited to the first ${limit} rows. Total matches: ${totalCount}. Narrow the date range to export the full result.`;
-  sheet.addRow(['', '', '', '', '', '', notice]);
+  const totalLabel = totalCount > limit ? `at least ${totalCount}` : totalCount;
+  const notice = `WARNING: Export limited to the first ${limit} rows. Total matches: ${totalLabel}. Narrow the date range to export the full result.`;
+  sheet.addRow([notice]);
   const noticeRow = sheet.getRow(sheet.rowCount);
   noticeRow.font = { italic: true, color: { argb: 'FFB91C1C' } };
   noticeRow.fill = {
@@ -282,7 +382,7 @@ const addExportLimitNotice = (sheet, totalCount, limit) => {
     pattern: 'solid',
     fgColor: { argb: 'FFFFF7ED' }
   };
-  sheet.mergeCells(`A${sheet.rowCount}:G${sheet.rowCount}`);
+  sheet.mergeCells(`A${sheet.rowCount}:${endColumn}${sheet.rowCount}`);
 };
 
 // Test route
@@ -298,9 +398,13 @@ router.get('/sales/excel', async (req, res) => {
       return res.status(400).json({ message: customRangeError });
     }
 
-    const orders = await getSalesOrders(req);
-    const outstandingCreditAccounts = await getOutstandingCreditAccounts(req.user.barId);
-    const { rows: limitedOrders, totalCount, limit, exceeded } = applyExportLimit(orders, 'sales');
+    const { orders, totalCount: retrievedOrderCount } = await getSalesOrders(req);
+    const {
+      accounts: outstandingCreditAccounts,
+      totalBalance: totalOutstandingCredit,
+      totalCount: outstandingAccountCount
+    } = await getOutstandingCreditAccounts(req.user.barId);
+    const { rows: limitedOrders, totalCount, limit, exceeded } = applyExportLimit(orders, 'sales', retrievedOrderCount);
 
     const workbook = new ExcelJS.Workbook();
     const worksheet = workbook.addWorksheet('Sales Report');
@@ -364,7 +468,7 @@ router.get('/sales/excel', async (req, res) => {
 
     if (exceeded) {
       res.setHeader('X-Export-Limit', `${limit}`);
-      res.setHeader('X-Export-Total-Count', `${totalCount}`);
+      res.setHeader('X-Export-Total-Count', totalCount > limit ? `>=${totalCount}` : `${totalCount}`);
       addExportLimitNotice(worksheet, totalCount, limit);
     }
 
@@ -375,20 +479,21 @@ router.get('/sales/excel', async (req, res) => {
       { header: 'Outstanding Balance (MK)', key: 'balance', width: 22, numFmt: '#,##0.00' }
     ];
 
-    const totalOutstandingCredit = outstandingCreditAccounts.reduce((sum, entry) => sum + Number(entry.balance || 0), 0);
+    const creditAccountExport = applyExportLimit(outstandingCreditAccounts, 'customers', outstandingAccountCount);
     creditSheet.addRow({
       customer: 'TOTAL OUTSTANDING',
       phone: '',
       balance: totalOutstandingCredit
     });
 
-    outstandingCreditAccounts.forEach((entry) => {
+    creditAccountExport.rows.forEach((entry) => {
       creditSheet.addRow({
         customer: entry.customer,
         phone: entry.phone,
         balance: Number(entry.balance || 0)
       });
     });
+    addExportLimitNotice(creditSheet, creditAccountExport.totalCount, creditAccountExport.limit, 'C');
 
     res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
     res.setHeader('Content-Disposition', 'attachment; filename=sales_report.xlsx');
@@ -404,8 +509,13 @@ router.get('/sales/excel', async (req, res) => {
 // Export Inventory Report as Excel
 router.get('/inventory/excel', async (req, res) => {
   try {
-    const products = await hydrateProductCategories(await Product.find({ barId: req.user.barId }), req.user.barId);
-    const { rows: limitedProducts, totalCount, limit, exceeded } = applyExportLimit(products, 'inventory');
+    const { rows: products, totalCount: retrievedProductCount } = await collectExportEntities({
+      entityType: 'product',
+      barId: req.user.barId,
+      limit: getExportLimit('inventory')
+    });
+    const hydratedProducts = await hydrateProductCategories(products, req.user.barId);
+    const { rows: limitedProducts, totalCount, limit, exceeded } = applyExportLimit(hydratedProducts, 'inventory', retrievedProductCount);
 
     const workbook = new ExcelJS.Workbook();
     const worksheet = workbook.addWorksheet('Inventory Report');
@@ -445,7 +555,7 @@ router.get('/inventory/excel', async (req, res) => {
 
     if (exceeded) {
       res.setHeader('X-Export-Limit', `${limit}`);
-      res.setHeader('X-Export-Total-Count', `${totalCount}`);
+      res.setHeader('X-Export-Total-Count', totalCount > limit ? `>=${totalCount}` : `${totalCount}`);
       addExportLimitNotice(worksheet, totalCount, limit);
     }
 
@@ -463,8 +573,13 @@ router.get('/inventory/excel', async (req, res) => {
 // Export Customers Report as Excel
 router.get('/customers/excel', async (req, res) => {
   try {
-    const customers = await Customer.find({ barId: req.user.barId }).sort({ totalSpent: -1 });
-    const { rows: limitedCustomers, totalCount, limit, exceeded } = applyExportLimit(customers, 'customers');
+    const { rows: customers, totalCount: customerCount } = await collectExportEntities({
+      entityType: 'customer',
+      barId: req.user.barId,
+      limit: getExportLimit('customers'),
+      compare: (left, right) => Number(right.totalSpent || 0) - Number(left.totalSpent || 0)
+    });
+    const { rows: limitedCustomers, totalCount, limit, exceeded } = applyExportLimit(customers, 'customers', customerCount);
 
     const workbook = new ExcelJS.Workbook();
     const worksheet = workbook.addWorksheet('Customers Report');
@@ -501,7 +616,7 @@ router.get('/customers/excel', async (req, res) => {
 
     if (exceeded) {
       res.setHeader('X-Export-Limit', `${limit}`);
-      res.setHeader('X-Export-Total-Count', `${totalCount}`);
+      res.setHeader('X-Export-Total-Count', totalCount > limit ? `>=${totalCount}` : `${totalCount}`);
       addExportLimitNotice(worksheet, totalCount, limit);
     }
 
@@ -524,9 +639,14 @@ router.get('/sales/pdf', async (req, res) => {
       return res.status(400).json({ message: customRangeError });
     }
 
-    const orders = await getSalesOrders(req);
-    const { rows: limitedOrders, totalCount, limit, exceeded } = applyExportLimit(orders, 'sales-pdf');
-    const outstandingCreditAccounts = await getOutstandingCreditAccounts(req.user.barId);
+    const { orders, totalCount: retrievedOrderCount } = await getSalesOrders(req);
+    const { rows: limitedOrders, totalCount, limit, exceeded } = applyExportLimit(orders, 'sales-pdf', retrievedOrderCount);
+    const {
+      accounts: outstandingCreditAccounts,
+      totalBalance: totalOutstandingCredit,
+      totalCount: outstandingAccountCount
+    } = await getOutstandingCreditAccounts(req.user.barId);
+    const creditAccountExport = applyExportLimit(outstandingCreditAccounts, 'customers', outstandingAccountCount);
 
     const doc = new PDFDocument({ margin: 50 });
     res.setHeader('Content-Type', 'application/pdf');
@@ -548,14 +668,14 @@ router.get('/sales/pdf', async (req, res) => {
     // Summary
     if (exceeded) {
       res.setHeader('X-Export-Limit', `${limit}`);
-      res.setHeader('X-Export-Total-Count', `${totalCount}`);
+      res.setHeader('X-Export-Total-Count', totalCount > limit ? `>=${totalCount}` : `${totalCount}`);
       doc.fontSize(10).font('Helvetica-Bold').fillColor('#B91C1C');
-      doc.text(`WARNING: Export limited to the first ${limit} rows. Total matches: ${totalCount}. Narrow the date range to export the full result.`, { align: 'center' });
+      const totalLabel = totalCount > limit ? `at least ${totalCount}` : totalCount;
+      doc.text(`WARNING: Export limited to the first ${limit} rows. Total matches: ${totalLabel}. Narrow the date range to export the full result.`, { align: 'center' });
       doc.fillColor('#111827');
       doc.moveDown();
     }
 
-    const totalOutstandingCredit = outstandingCreditAccounts.reduce((sum, entry) => sum + Number(entry.balance || 0), 0);
     const totalSales = limitedOrders.reduce((sum, o) => sum + Number(o.totalAmount || 0), 0);
     const totalProfit = limitedOrders.reduce((sum, o) => sum + Number(o.profit || 0), 0);
     
@@ -628,7 +748,13 @@ router.get('/sales/pdf', async (req, res) => {
       y += 20;
     });
 
-    if (outstandingCreditAccounts.length > 0) {
+    if (creditAccountExport.exceeded) {
+      doc.fontSize(10).font('Helvetica-Bold').fillColor('#B91C1C');
+      doc.text(`Outstanding credit export limited to ${creditAccountExport.limit} accounts; at least ${creditAccountExport.totalCount} accounts matched.`, { align: 'center' });
+      doc.fillColor('#111827');
+    }
+
+    if (creditAccountExport.rows.length > 0) {
       doc.addPage();
       doc.fontSize(18).font('Helvetica-Bold').text('Accumulated Outstanding Credit Accounts', { align: 'center' });
       doc.moveDown();
@@ -643,7 +769,7 @@ router.get('/sales/pdf', async (req, res) => {
       let creditY = creditTableTop + 25;
       doc.font('Helvetica');
 
-      outstandingCreditAccounts.forEach((entry, index) => {
+      creditAccountExport.rows.forEach((entry, index) => {
         if (creditY > 700) {
           doc.addPage();
           creditY = 50;

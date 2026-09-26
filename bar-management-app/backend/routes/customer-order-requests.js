@@ -1,5 +1,19 @@
 const express = require('express');
 const router = express.Router();
+
+const parsePaymentDateBoundary = (value, endOfDay = false) => {
+  if (!value) return null;
+  const dateOnlyMatch = /^(\d{4})-(\d{2})-(\d{2})$/.exec(String(value));
+  if (dateOnlyMatch) {
+    const [, year, month, day] = dateOnlyMatch.map(Number);
+    const utcValue = Date.UTC(year, month - 1, day, endOfDay ? 23 : 0, endOfDay ? 59 : 0, endOfDay ? 59 : 0, endOfDay ? 999 : 0);
+    return new Date(utcValue - 120 * 60000).toISOString();
+  }
+
+  const parsed = new Date(value);
+  return Number.isNaN(parsed.getTime()) ? null : parsed.toISOString();
+};
+
 const { protect, isBarOwnerOrSales } = require('../middleware/auth');
 const CustomerOrderRequest = require('../models/CustomerOrderRequest');
 const CustomerPaymentRequest = require('../models/CustomerPaymentRequest');
@@ -11,7 +25,8 @@ const dynamodb = require('../lib/dynamodb');
 const { recomputeCustomerCreditBalance } = require('../lib/credit');
 const { getOrderExpiryEpochSeconds } = require('../lib/orderExpiry');
 const { queryActiveCreditOrders, queryPaymentRequestsByBarStatus } = require('../lib/dynamodb');
-const { PAYMENT_REQUEST_TTL_MS, getPaymentRequestExpiry, isPaymentRequestExpired } = require('../lib/paymentExpiry');
+const { getPaymentRequestExpiry, getPaymentStatusQueryWindow, isPaymentRequestExpired } = require('../lib/paymentExpiry');
+const { getPaymentCustomerId } = require('../lib/paymentAccess');
 
 router.use(protect);
 
@@ -567,25 +582,29 @@ router.post('/pay-bill', async (req, res) => {
 
 router.get('/payments', async (req, res) => {
   try {
-    const { customerId } = req.query;
+    const customerId = getPaymentCustomerId(req.user, req.query.customerId);
+    if (req.user.role === 'customer' && !customerId) {
+      return res.status(403).json({ message: 'Customer account is not linked to a customer record.' });
+    }
     const status = String(req.query.status || '').trim().toLowerCase();
+    const startDate = parsePaymentDateBoundary(req.query.startDate);
+    const endDate = parsePaymentDateBoundary(req.query.endDate, true);
+    if ((req.query.startDate && !startDate) || (req.query.endDate && !endDate)) {
+      return res.status(400).json({ message: 'Invalid payment date range.' });
+    }
+
     const statuses = status
       ? [status]
       : ['pending', 'confirmed', 'rejected', 'reversed', 'cancelled', 'expired'];
-    const now = new Date();
-    const pendingWindow = status === 'pending'
-      ? {
-          startDate: new Date(now.getTime() - PAYMENT_REQUEST_TTL_MS).toISOString(),
-          endDate: now.toISOString()
-        }
-      : {};
-    const paymentResults = await Promise.all(statuses.map((paymentStatus) => (
-      queryPaymentRequestsByBarStatus(req.user.barId, paymentStatus, {
-        startDate: pendingWindow.startDate || req.query.startDate,
-        endDate: pendingWindow.endDate || req.query.endDate,
+    const paymentResults = await Promise.all(statuses.map((paymentStatus) => {
+      const { isEmpty, ...dateWindow } = getPaymentStatusQueryWindow(status, paymentStatus, startDate, endDate);
+      if (isEmpty) return { items: [] };
+
+      return queryPaymentRequestsByBarStatus(req.user.barId, paymentStatus, {
+        ...dateWindow,
         scanIndexForward: req.query.oldestFirst === 'true'
-      })
-    )));
+      });
+    }));
     const payments = paymentResults
       .flatMap((result) => result.items || [])
       .filter((payment) => !customerId || String(payment.customerId || '') === String(customerId))

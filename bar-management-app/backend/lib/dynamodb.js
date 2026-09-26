@@ -37,6 +37,19 @@ function buildOrderGsiKeys(entityType, record) {
   };
 }
 
+function buildInventoryAdjustmentGsiKeys(entityType, record) {
+  const normalizedEntityType = String(entityType || '').toLowerCase();
+  if (normalizedEntityType !== 'inventoryadjustment' || !record?.barId || !record?.id) {
+    return {};
+  }
+
+  const createdAt = record.createdAt || new Date().toISOString();
+  return {
+    GSI1PK: `BAR#${record.barId}#INVENTORY-ADJUSTMENT`,
+    GSI1SK: `${createdAt}#${record.id}`
+  };
+}
+
 function buildActiveCreditOrderGsiKeys(entityType, record) {
   const normalizedEntityType = String(entityType || '').toLowerCase();
   const customerId = record?.customer?._id || record?.customer?.id || record?.customer;
@@ -150,6 +163,7 @@ function toDynamoItem(entityType, data) {
   const creditGsiKeys = buildActiveCreditOrderGsiKeys(entityType, record);
   const barCreditGsiKeys = buildBarActiveCreditOrderGsiKeys(entityType, record);
   const paymentGsiKeys = buildBarPaymentGsiKeys(entityType, record);
+  const inventoryAdjustmentGsiKeys = buildInventoryAdjustmentGsiKeys(entityType, record);
 
   if (String(entityType).toLowerCase() === 'order') {
     delete record.GSI2PK;
@@ -179,6 +193,7 @@ function toDynamoItem(entityType, data) {
     ...gsiKeys,
     ...creditGsiKeys,
     ...barCreditGsiKeys,
+    ...inventoryAdjustmentGsiKeys,
     ...paymentGsiKeys
   };
 }
@@ -212,24 +227,30 @@ function decodeLastEvaluatedKey(token) {
 async function queryEntities(entityType, options = {}) {
   await ensureTableExists();
   const entityPartitionKey = String(entityType).toUpperCase();
-  const useOrderGsi = String(entityType).toLowerCase() === 'order'
+  const normalizedEntityType = String(entityType).toLowerCase();
+  const gsi1PartitionSuffix = normalizedEntityType === 'order'
+    ? 'ORDER'
+    : normalizedEntityType === 'inventoryadjustment'
+      ? 'INVENTORY-ADJUSTMENT'
+      : null;
+  const useBarDateGsi = Boolean(gsi1PartitionSuffix)
     && options.barId !== undefined
     && options.barId !== null
     && options.useGsi !== false;
   const params = {
     TableName: TABLE_NAME,
-    KeyConditionExpression: useOrderGsi ? 'GSI1PK = :gsiPk' : 'pk = :pk',
-    ExpressionAttributeValues: useOrderGsi
-      ? { ':gsiPk': `BAR#${options.barId}#ORDER` }
+    KeyConditionExpression: useBarDateGsi ? 'GSI1PK = :gsiPk' : 'pk = :pk',
+    ExpressionAttributeValues: useBarDateGsi
+      ? { ':gsiPk': `BAR#${options.barId}#${gsi1PartitionSuffix}` }
       : { ':pk': entityPartitionKey },
-    ...(useOrderGsi ? { IndexName: 'GSI1' } : {})
+    ...(useBarDateGsi ? { IndexName: 'GSI1' } : {})
   };
 
   if (options.limit && Number.isFinite(Number(options.limit))) {
     params.Limit = Math.min(Math.max(Math.floor(Number(options.limit)), 1), 100);
   }
 
-  if (useOrderGsi && options.scanIndexForward !== undefined) {
+  if (useBarDateGsi && options.scanIndexForward !== undefined) {
     params.ScanIndexForward = Boolean(options.scanIndexForward);
   }
 
@@ -254,7 +275,7 @@ async function queryEntities(entityType, options = {}) {
     }
   }
 
-  if (useOrderGsi && (options.startDate || options.endDate)) {
+  if (useBarDateGsi && (options.startDate || options.endDate)) {
     const startKey = options.startDate ? `${options.startDate}#` : null;
     const endKey = options.endDate ? `${options.endDate}#\uFFFF` : null;
     if (startKey && endKey) {
