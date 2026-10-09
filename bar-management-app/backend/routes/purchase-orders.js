@@ -84,7 +84,17 @@ router.get('/:id', async (req, res) => {
 // Create purchase order
 router.post('/', async (req, res) => {
   try {
-    const { supplier, items, expectedDelivery, notes } = req.body;
+    const { items, expectedDelivery, notes } = req.body;
+    let { supplier } = req.body;
+
+    if (!supplier) {
+      let generalSupplier = await Supplier.findOne({ barId: req.user.barId, name: 'General Supplier' });
+      if (!generalSupplier) {
+        generalSupplier = new Supplier({ barId: req.user.barId, name: 'General Supplier' });
+        await generalSupplier.save();
+      }
+      supplier = generalSupplier._id || generalSupplier.id;
+    }
 
     // Check supplier exists
     const supplierExists = await Supplier.findOne({ _id: supplier, barId: req.user.barId });

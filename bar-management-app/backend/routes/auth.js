@@ -4,7 +4,11 @@ const bcrypt = require('bcryptjs');
 const router = express.Router();
 const User = require('../models/User');
 const Customer = require('../models/Customer');
+const Bar = require('../models/Bar');
 const { protect, hasSubscriptionAccess } = require('../middleware/auth');
+const { getCustomerReceiptAccessToken, consumeCustomerReceiptAccessToken } = require('../lib/dynamodb');
+const { hashCustomerReceiptAccessToken } = require('../lib/customerReceiptAccess');
+const { setTenantContext } = require('../lib/tenantContext');
 
 const DEFAULT_JWT_SECRET = 'secret_key';
 const JWT_SECRET = process.env.JWT_SECRET || process.env.JWT_SECRET_KEY || DEFAULT_JWT_SECRET;
@@ -238,6 +242,76 @@ router.post('/login', async (req, res) => {
   } catch (error) {
     console.error('Login error:', error);
     res.status(500).json({ message: error.message });
+  }
+});
+
+router.post('/customer-receipt-access/redeem', async (req, res) => {
+  const tokenHash = hashCustomerReceiptAccessToken(req.body?.token);
+  if (!tokenHash) {
+    return res.status(401).json({ message: 'This customer access link is invalid or expired.' });
+  }
+
+  try {
+    const access = await getCustomerReceiptAccessToken(tokenHash);
+    if (!access) {
+      return res.status(401).json({ message: 'This customer access link is invalid, expired, or already used.' });
+    }
+
+    if (!access.barId) {
+      return res.status(401).json({ message: 'This customer access link is invalid or expired.' });
+    }
+    setTenantContext({ barId: access.barId, userId: access.accountUserId, role: 'customer' });
+
+    const user = await User.findById(access.accountUserId);
+    if (!user
+      || String(user.barId || '') !== String(access.barId)
+      || user.role !== 'customer'
+      || !user.isActive) {
+      return res.status(401).json({ message: 'This customer account is unavailable.' });
+    }
+
+    const customer = await Customer.findById(access.customerId);
+    if (!customer
+      || String(customer.barId || '') !== String(user.barId || '')
+      || String(customer.accountUserId || '') !== String(user._id || user.id)) {
+      return res.status(401).json({ message: 'This customer account is unavailable.' });
+    }
+
+    const bar = await Bar.findById(user.barId);
+    if (!bar || bar.status === 'suspended' || bar.status === 'deleted') {
+      return res.status(403).json({ message: 'This bar cannot currently provide customer access.' });
+    }
+    if (!(await hasSubscriptionAccess(user.barId))) {
+      return res.status(403).json({ message: 'This bar subscription has expired.' });
+    }
+
+    const consumedAccess = await consumeCustomerReceiptAccessToken(tokenHash);
+    if (!consumedAccess) {
+      return res.status(401).json({ message: 'This customer access link is invalid, expired, or already used.' });
+    }
+
+    const token = jwt.sign(
+      { id: user._id, role: 'customer', barId: user.barId || null },
+      JWT_SECRET,
+      { expiresIn: '1d' }
+    );
+
+    res.json({
+      token,
+      user: {
+        id: user._id,
+        username: user.username,
+        email: user.email,
+        fullName: user.fullName,
+        role: 'customer',
+        barId: user.barId || null,
+        customerId: customer._id,
+        phone: user.phone || null
+      }
+    });
+  } catch (error) {
+    console.error('Error redeeming customer receipt access link:', error);
+    res.status(500).json({ message: 'Could not sign in from this customer access link.' });
   }
 });
 

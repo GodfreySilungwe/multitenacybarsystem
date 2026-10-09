@@ -2,10 +2,18 @@ const express = require('express');
 const router = express.Router();
 const { protect, isBarOwnerOrSales } = require('../middleware/auth');
 const bcrypt = require('bcryptjs');
-const { listEntities, countEntities, decodeLastEvaluatedKey, queryActiveCreditOrders, queryActiveCreditOrdersByBar } = require('../lib/dynamodb');
+const {
+  listEntities,
+  countEntities,
+  decodeLastEvaluatedKey,
+  queryActiveCreditOrders,
+  queryActiveCreditOrdersByBar,
+  getEntitiesByIds,
+  createCustomerReceiptAccessToken: storeCustomerReceiptAccessToken
+} = require('../lib/dynamodb');
+const { createCustomerReceiptAccessToken } = require('../lib/customerReceiptAccess');
 const Customer = require('../models/Customer');
 const Order = require('../models/Order');
-const Product = require('../models/Product');
 const User = require('../models/User');
 const Bar = require('../models/Bar');
 const CustomerOrderRequest = require('../models/CustomerOrderRequest');
@@ -26,17 +34,27 @@ const getOrderOutstandingBalance = (order) => {
   return Math.max(0, recordedBalance);
 };
 
+const getProductId = (item) => {
+  const product = item?.product;
+  const productId = product?._id || product?.id || (typeof product === 'string' ? product : null) || item?.productId;
+  return productId ? String(productId) : null;
+};
+
 const buildCustomerCreditSummaries = async (customers, barId) => {
   const customerIds = new Set((customers || []).map((customer) => String(customer._id || customer.id)));
   if (customerIds.size === 0) {
     return new Map();
   }
 
-  const [ordersByCustomerResults, products] = await Promise.all([
-    Promise.all(Array.from(customerIds, (customerId) => queryActiveCreditOrders(barId, customerId))),
-    Product.find({ barId })
-  ]);
-  const orders = ordersByCustomerResults.flatMap((result) => result.items);
+  const ordersByCustomerResults = await Promise.all(
+    Array.from(customerIds, (customerId) => queryActiveCreditOrders(barId, customerId))
+  );
+  const orders = ordersByCustomerResults.flatMap((result) => result.items)
+    .filter((order) => getOrderOutstandingBalance(order) > 0);
+  const productIds = [...new Set((orders || [])
+    .flatMap((order) => (order.items || []).map(getProductId))
+    .filter(Boolean))];
+  const products = await getEntitiesByIds('product', productIds);
   const productMap = new Map((products || []).map((product) => [String(product._id || product.id), product]));
   const ordersByCustomer = new Map();
 
@@ -56,8 +74,8 @@ const buildCustomerCreditSummaries = async (customers, barId) => {
         if (balanceDue <= 0) return null;
 
         const orderProducts = (order.items || []).map((item) => {
-          const productId = item?.product?._id || item?.product || item?.productId;
-          const product = productId ? productMap.get(String(productId)) : null;
+          const productId = getProductId(item);
+          const product = productId ? productMap.get(productId) : null;
           return {
             name: product?.name || item.product?.name || 'Unknown product',
             quantity: Number(item.quantity || 0),
@@ -94,26 +112,33 @@ const buildCustomerCreditSummary = async (customerId, barId) => {
       scanIndexForward: true
     });
 
-    const summary = await Promise.all(
-      (orders || [])
-        .filter((order) => order?.paymentMethod === 'credit')
-        .map(async (order) => {
+    const creditOrders = (orders || []).filter((order) => (
+      order?.paymentMethod === 'credit' && getOrderOutstandingBalance(order) > 0
+    ));
+    const productIds = [...new Set(creditOrders
+      .flatMap((order) => (order.items || []).map(getProductId))
+      .filter(Boolean))];
+    const products = await getEntitiesByIds('product', productIds);
+    const productMap = new Map((products || []).map((product) => [String(product._id || product.id), product]));
+
+    const summary = creditOrders
+        .map((order) => {
           const balanceDue = getOrderOutstandingBalance(order);
           // Only include orders with actual outstanding balance
           if (balanceDue <= 0) {
             return null;
           }
 
-          const products = await Promise.all((order.items || []).map(async (item) => {
-            const productId = item?.product?._id || item?.product || item?.productId;
-            const product = productId ? await Product.findOne({ _id: productId, barId }) : null;
+          const orderProducts = (order.items || []).map((item) => {
+            const productId = getProductId(item);
+            const product = productId ? productMap.get(productId) : null;
             return {
               name: product?.name || item.product?.name || 'Unknown product',
               quantity: Number(item.quantity || 0),
               price: Number(item.priceAtSale || 0),
               subtotal: Number(item.subtotal || 0)
             };
-          }));
+          });
 
           return {
             _id: order._id,
@@ -126,12 +151,12 @@ const buildCustomerCreditSummary = async (customerId, barId) => {
             paymentStatus: order.paymentStatus || 'partial',
             processedByName: order.processedByName || order.paymentProcessedByName || order.processedBy || order.paymentProcessedBy || 'Unassigned (legacy)',
             salesAccount: order.processedByName || order.paymentProcessedByName || order.processedBy || order.paymentProcessedBy || 'Unassigned (legacy)',
-            products
+            products: orderProducts
           };
         })
-    );
+        .filter(Boolean);
 
-    return summary.filter(Boolean);
+    return summary;
   } catch (error) {
     console.error('Error building customer credit summary:', error);
     return [];
@@ -188,6 +213,64 @@ const enrichCustomer = async (customer, barId) => {
     accountPassword: customer.accountPassword || customer.password || ''
   };
 };
+
+router.post('/:id/receipt-access-link', isBarOwnerOrSales, async (req, res) => {
+  try {
+    if (!req.user.barId) {
+      return res.status(403).json({ message: 'Bar access required.' });
+    }
+
+    const customer = await Customer.findById(req.params.id);
+    if (!customer
+      || String(customer.barId || '') !== String(req.user.barId)
+      || !customer.accountUserId) {
+      return res.status(404).json({ message: 'Customer account not found.' });
+    }
+
+    const accountUser = await User.findById(customer.accountUserId);
+    if (!accountUser
+      || String(accountUser.barId || '') !== String(req.user.barId)
+      || accountUser.role !== 'customer'
+      || !accountUser.isActive) {
+      return res.status(404).json({ message: 'Customer account not found.' });
+    }
+
+    const receiptOrder = req.body?.orderId ? await Order.findById(req.body.orderId) : null;
+    const receiptOrderCustomerId = receiptOrder?.customer?._id
+      || receiptOrder?.customer?.id
+      || receiptOrder?.customerId
+      || receiptOrder?.customer;
+    let hasOpenBills = Boolean(
+      receiptOrder
+      && String(receiptOrder.barId) === String(req.user.barId)
+      && String(receiptOrderCustomerId) === String(customer._id)
+      && receiptOrder.paymentMethod === 'credit'
+      && getOrderOutstandingBalance(receiptOrder) > 0
+    );
+
+    if (!hasOpenBills) {
+      const openBills = await buildCustomerCreditSummary(customer._id, req.user.barId);
+      hasOpenBills = openBills.length > 0;
+    }
+    if (!hasOpenBills) {
+      return res.json({ token: null });
+    }
+
+    const access = createCustomerReceiptAccessToken();
+    await storeCustomerReceiptAccessToken({
+      tokenHash: access.tokenHash,
+      accountUserId: accountUser._id,
+      customerId: customer._id,
+      barId: req.user.barId,
+      receiptAccessExpiresAt: access.receiptAccessExpiresAt
+    });
+
+    res.json({ token: access.token, expiresAt: access.receiptAccessExpiresAt });
+  } catch (error) {
+    console.error('Error creating customer receipt access link:', error);
+    res.status(500).json({ message: 'Could not create customer receipt access link.' });
+  }
+});
 
 // Get all customers
 router.get('/', isBarOwnerOrSales, async (req, res) => {

@@ -1,5 +1,5 @@
 const { DynamoDBClient, DescribeTableCommand, CreateTableCommand } = require('@aws-sdk/client-dynamodb');
-const { DynamoDBDocumentClient, PutCommand, GetCommand, QueryCommand, DeleteCommand, TransactWriteCommand } = require('@aws-sdk/lib-dynamodb');
+const { DynamoDBDocumentClient, PutCommand, GetCommand, QueryCommand, BatchGetCommand, DeleteCommand, TransactWriteCommand } = require('@aws-sdk/lib-dynamodb');
 const crypto = require('crypto');
 const { getTenantId, isGlobalAdmin } = require('./tenantContext');
 
@@ -657,11 +657,71 @@ async function getEntity(entityType, id) {
 
   const item = fromDynamoItem(result.Item);
   const tenantBarId = getTenantId();
-  if (tenantBarId != null && !isGlobalAdmin() && item?.barId !== tenantBarId) {
-    return null;
+  if (tenantBarId != null && !isGlobalAdmin()) {
+    const normalizedEntityType = String(entityType).toLowerCase();
+    const recordTenantId = normalizedEntityType === 'bar'
+      ? item?._id || item?.id
+      : item?.barId;
+    if (String(recordTenantId || '') !== String(tenantBarId)) {
+      return null;
+    }
   }
 
   return item;
+}
+
+async function getEntitiesByIds(entityType, ids) {
+  const normalizedEntityType = String(entityType).toLowerCase();
+  const entityPartitionKey = normalizedEntityType.toUpperCase();
+  const uniqueIds = [...new Set((ids || [])
+    .filter((id) => id !== undefined && id !== null && String(id) !== '')
+    .map(String))];
+  if (uniqueIds.length === 0) return [];
+
+  await ensureTableExists();
+  const records = [];
+  const maxAttempts = 5;
+  const batchSize = 100;
+
+  for (let offset = 0; offset < uniqueIds.length; offset += batchSize) {
+    let pendingKeys = uniqueIds.slice(offset, offset + batchSize).map((id) => ({
+      pk: entityPartitionKey,
+      sk: `${entityPartitionKey}#${id}`
+    }));
+    let attempt = 0;
+
+    while (pendingKeys.length > 0) {
+      const result = await docClient.send(new BatchGetCommand({
+        RequestItems: {
+          [TABLE_NAME]: {
+            Keys: pendingKeys
+          }
+        }
+      }));
+
+      records.push(...(result.Responses?.[TABLE_NAME] || []).map(fromDynamoItem));
+      pendingKeys = result.UnprocessedKeys?.[TABLE_NAME]?.Keys || [];
+      if (pendingKeys.length > 0) {
+        attempt += 1;
+        if (attempt >= maxAttempts) {
+          throw new Error(`DynamoDB BatchGet did not process all ${normalizedEntityType} keys`);
+        }
+        const backoffMs = Math.min(25 * (2 ** (attempt - 1)), 400) + Math.floor(Math.random() * 25);
+        await new Promise((resolve) => setTimeout(resolve, backoffMs));
+      }
+    }
+  }
+
+  const tenantBarId = getTenantId();
+  return records.filter((record) => {
+    if (!record || record.entityType !== normalizedEntityType) return false;
+    if (tenantBarId == null || isGlobalAdmin()) return true;
+
+    const recordTenantId = normalizedEntityType === 'bar'
+      ? record._id || record.id
+      : record.barId;
+    return String(recordTenantId || '') === String(tenantBarId);
+  });
 }
 
 async function createEntity(entityType, data) {
@@ -672,6 +732,64 @@ async function createEntity(entityType, data) {
     Item: item
   }));
   return fromDynamoItem(item);
+}
+
+async function createCustomerReceiptAccessToken(data) {
+  await ensureTableExists();
+  const item = {
+    pk: 'CUSTOMERRECEIPTACCESS',
+    sk: `CUSTOMERRECEIPTACCESS#${data.tokenHash}`,
+    entityType: 'customerreceiptaccess',
+    id: data.tokenHash,
+    _id: data.tokenHash,
+    ...data
+  };
+
+  await docClient.send(new PutCommand({
+    TableName: TABLE_NAME,
+    Item: item,
+    ConditionExpression: 'attribute_not_exists(pk)'
+  }));
+}
+
+async function getCustomerReceiptAccessToken(tokenHash, now = Math.floor(Date.now() / 1000)) {
+  await ensureTableExists();
+  const result = await docClient.send(new GetCommand({
+    TableName: TABLE_NAME,
+    ConsistentRead: true,
+    Key: {
+      pk: 'CUSTOMERRECEIPTACCESS',
+      sk: `CUSTOMERRECEIPTACCESS#${tokenHash}`
+    }
+  }));
+  const access = fromDynamoItem(result.Item);
+  return access && Number(access.receiptAccessExpiresAt) > now ? access : null;
+}
+
+async function consumeCustomerReceiptAccessToken(tokenHash, now = Math.floor(Date.now() / 1000)) {
+  await ensureTableExists();
+
+  try {
+    const result = await docClient.send(new DeleteCommand({
+      TableName: TABLE_NAME,
+      Key: {
+        pk: 'CUSTOMERRECEIPTACCESS',
+        sk: `CUSTOMERRECEIPTACCESS#${tokenHash}`
+      },
+      ConditionExpression: 'attribute_exists(pk) AND receiptAccessExpiresAt > :now',
+      ExpressionAttributeValues: {
+        ':now': now
+      },
+      ReturnValues: 'ALL_OLD'
+    }));
+
+    return fromDynamoItem(result.Attributes);
+  } catch (error) {
+    if (error.name === 'ConditionalCheckFailedException') {
+      return null;
+    }
+    throw error;
+  }
 }
 
 async function updateEntity(entityType, id, updates) {
@@ -757,7 +875,11 @@ module.exports = {
   queryPaymentRequestsByBarStatus,
   decodeLastEvaluatedKey,
   getEntity,
+  getEntitiesByIds,
   createEntity,
+  createCustomerReceiptAccessToken,
+  getCustomerReceiptAccessToken,
+  consumeCustomerReceiptAccessToken,
   updateEntity,
   deleteEntity,
   transactWrite,
