@@ -12,6 +12,8 @@ const PurchaseOrders = () => {
   const [productSearch, setProductSearch] = useState('');
   const [loading, setLoading] = useState(true);
   const [showForm, setShowForm] = useState(false);
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [updatingOrder, setUpdatingOrder] = useState(null);
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
   const [currentPage, setCurrentPage] = useState(1);
@@ -75,8 +77,10 @@ const PurchaseOrders = () => {
 
   const handleSubmit = async (e) => {
     e.preventDefault();
+    if (isSubmitting) return;
     setError('');
     setSuccess('');
+    setIsSubmitting(true);
 
     try {
       const items = formData.items.filter(item => item.product && item.quantity && item.costPrice);
@@ -112,10 +116,14 @@ const PurchaseOrders = () => {
       console.error('Error creating purchase order:', err);
       setError(err.response?.data?.message || 'Failed to create purchase order');
       setTimeout(() => setError(''), 5000);
+    } finally {
+      setIsSubmitting(false);
     }
   };
 
   const handleUpdateStatus = async (orderId, status) => {
+    if (updatingOrder) return;
+    setUpdatingOrder({ orderId, status });
     try {
       await api.put(`/purchase-orders/${orderId}/status`, { status });
       setSuccess(`✅ Order status updated to ${status}`);
@@ -125,6 +133,8 @@ const PurchaseOrders = () => {
       console.error('Error updating status:', err);
       setError('Failed to update status');
       setTimeout(() => setError(''), 5000);
+    } finally {
+      setUpdatingOrder(null);
     }
   };
 
@@ -178,7 +188,7 @@ const PurchaseOrders = () => {
     <PageContainer title="📦 Purchase Orders">
       <div style={styles.header}>
         <p style={styles.subtitle}>Manage supplier purchase orders</p>
-        <Button onClick={() => setShowForm(!showForm)}>
+        <Button onClick={() => setShowForm(!showForm)} disabled={isSubmitting}>
           {showForm ? '✕ Close' : '+ New Purchase Order'}
         </Button>
       </div>
@@ -322,8 +332,10 @@ const PurchaseOrders = () => {
               </div>
 
               <div style={styles.formActions}>
-                <Button variant="secondary" onClick={() => setShowForm(false)}>Cancel</Button>
-                <Button type="submit">Create Order</Button>
+                <Button variant="secondary" onClick={() => setShowForm(false)} disabled={isSubmitting}>Cancel</Button>
+                <Button type="submit" disabled={isSubmitting}>
+                  {isSubmitting ? 'Creating...' : 'Create Order'}
+                </Button>
               </div>
             </form>
           </UnifiedCard>
@@ -392,48 +404,52 @@ const PurchaseOrders = () => {
                 {order.status === 'pending' && (
                   <>
                     <button
-                      style={{...styles.actionBtn, ...styles.orderedBtn}}
+                      disabled={Boolean(updatingOrder)}
+                      style={{...styles.actionBtn, ...styles.orderedBtn, ...(updatingOrder ? styles.disabledActionBtn : {})}}
                       onClick={() => handleUpdateStatus(order._id, 'ordered')}
                       onMouseEnter={(e) => {
-                        e.currentTarget.style.backgroundColor = '#2980b9';
+                        if (!updatingOrder) e.currentTarget.style.backgroundColor = '#2980b9';
                       }}
                       onMouseLeave={(e) => {
-                        e.currentTarget.style.backgroundColor = '#3498db';
+                        if (!updatingOrder) e.currentTarget.style.backgroundColor = '#3498db';
                       }}
                     >
-                      📦 Mark Ordered
+                      {updatingOrder?.orderId === order._id && updatingOrder.status === 'ordered' ? 'Updating...' : '📦 Mark Ordered'}
                     </button>
                     <button
-                      style={{...styles.actionBtn, ...styles.receivedBtn}}
+                      disabled={Boolean(updatingOrder)}
+                      style={{...styles.actionBtn, ...styles.receivedBtn, ...(updatingOrder ? styles.disabledActionBtn : {})}}
                       onClick={() => handleUpdateStatus(order._id, 'received')}
                       onMouseEnter={(e) => {
-                        e.currentTarget.style.backgroundColor = '#27ae60';
+                        if (!updatingOrder) e.currentTarget.style.backgroundColor = '#27ae60';
                       }}
                       onMouseLeave={(e) => {
-                        e.currentTarget.style.backgroundColor = '#2ecc71';
+                        if (!updatingOrder) e.currentTarget.style.backgroundColor = '#2ecc71';
                       }}
                     >
-                      ✅ Mark Received
+                      {updatingOrder?.orderId === order._id && updatingOrder.status === 'received' ? 'Updating...' : '✅ Mark Received'}
                     </button>
                   </>
                 )}
                 {order.status === 'ordered' && (
                   <button
-                    style={{...styles.actionBtn, ...styles.receivedBtn}}
+                    disabled={Boolean(updatingOrder)}
+                    style={{...styles.actionBtn, ...styles.receivedBtn, ...(updatingOrder ? styles.disabledActionBtn : {})}}
                     onClick={() => handleUpdateStatus(order._id, 'received')}
                     onMouseEnter={(e) => {
-                      e.currentTarget.style.backgroundColor = '#27ae60';
+                      if (!updatingOrder) e.currentTarget.style.backgroundColor = '#27ae60';
                     }}
                     onMouseLeave={(e) => {
-                      e.currentTarget.style.backgroundColor = '#2ecc71';
+                      if (!updatingOrder) e.currentTarget.style.backgroundColor = '#2ecc71';
                     }}
                   >
-                    ✅ Mark Received
+                    {updatingOrder?.orderId === order._id && updatingOrder.status === 'received' ? 'Updating...' : '✅ Mark Received'}
                   </button>
                 )}
                 {(order.status === 'pending' || order.status === 'ordered') && (
                   <button
-                    style={{...styles.actionBtn, ...styles.cancelBtn}}
+                    disabled={Boolean(updatingOrder)}
+                    style={{...styles.actionBtn, ...styles.cancelBtn, ...(updatingOrder ? styles.disabledActionBtn : {})}}
                     onClick={() => handleUpdateStatus(order._id, 'cancelled')}
                     onMouseEnter={(e) => {
                       e.currentTarget.style.backgroundColor = '#c0392b';
@@ -578,6 +594,10 @@ const styles = {
     fontSize: '12px',
     fontWeight: '500',
     transition: 'all 0.3s ease'
+  },
+  disabledActionBtn: {
+    opacity: 0.6,
+    cursor: 'not-allowed'
   },
   orderedBtn: {
     backgroundColor: '#3498db',
