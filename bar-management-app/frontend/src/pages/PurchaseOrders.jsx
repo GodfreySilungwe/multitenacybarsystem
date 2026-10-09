@@ -191,9 +191,8 @@ const PurchaseOrders = () => {
           <UnifiedCard title="Create Purchase Order">
             <form onSubmit={handleSubmit} style={styles.form}>
               <div style={styles.formGroup}>
-                <label style={styles.label}>Supplier *</label>
+                <label style={styles.label}>Supplier</label>
                 <select
-                  required
                   style={styles.input}
                   value={formData.supplier}
                   onChange={(e) => setFormData({...formData, supplier: e.target.value})}

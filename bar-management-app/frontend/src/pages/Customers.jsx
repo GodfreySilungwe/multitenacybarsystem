@@ -80,18 +80,28 @@ const Customers = () => {
         setLoading(false);
       }
 
-      const [summaryResult, paymentsResult] = await Promise.allSettled([
-        api.get('/customers/summary'),
-        api.get('/customer-order-requests/payments')
-      ]);
+      if (reset) {
+        const paymentHistoryEnd = new Date();
+        const paymentHistoryStart = new Date(paymentHistoryEnd.getTime() - 90 * 24 * 60 * 60 * 1000);
+        const [summaryResult, paymentsResult] = await Promise.allSettled([
+          api.get('/customers/summary'),
+          api.get('/customer-order-requests/payments', {
+            params: {
+              status: 'confirmed',
+              startDate: paymentHistoryStart.toISOString(),
+              endDate: paymentHistoryEnd.toISOString()
+            }
+          })
+        ]);
 
-      if (summaryResult.status === 'fulfilled') {
-        setSummary(summaryResult.value.data || summary);
-      }
-      if (paymentsResult.status === 'fulfilled') {
-        const paymentsData = paymentsResult.value.data || [];
-        const paymentRecords = Array.isArray(paymentsData) ? paymentsData : (paymentsData.payments || []);
-        setSettlements(paymentRecords);
+        if (summaryResult.status === 'fulfilled') {
+          setSummary(summaryResult.value.data || summary);
+        }
+        if (paymentsResult.status === 'fulfilled') {
+          const paymentsData = paymentsResult.value.data || [];
+          const paymentRecords = Array.isArray(paymentsData) ? paymentsData : (paymentsData.payments || []);
+          setSettlements(paymentRecords);
+        }
       }
     } catch (err) {
       console.error('Error loading customers:', err);

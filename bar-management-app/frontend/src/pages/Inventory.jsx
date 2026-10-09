@@ -8,6 +8,8 @@ import { formatPriceMK } from '../utils/formatPrice';
 const Inventory = () => {
   const [products, setProducts] = useState([]);
   const [adjustments, setAdjustments] = useState([]);
+  const [adjustmentsNextKey, setAdjustmentsNextKey] = useState(null);
+  const [loadingMoreAdjustments, setLoadingMoreAdjustments] = useState(false);
   const [loading, setLoading] = useState(true);
   const [showForm, setShowForm] = useState(false);
   const [formData, setFormData] = useState({
@@ -28,17 +30,37 @@ const Inventory = () => {
     try {
       const [productsRes, adjustmentsRes, summaryRes] = await Promise.all([
         api.get('/products'),
-        api.get('/inventory'),
+        api.get('/inventory', { params: { limit: 50 } }),
         api.get('/inventory/summary')
       ]);
       setProducts(productsRes.data);
-      setAdjustments(adjustmentsRes.data);
+      const adjustmentData = adjustmentsRes.data || {};
+      setAdjustments(Array.isArray(adjustmentData) ? adjustmentData : adjustmentData.items || []);
+      setAdjustmentsNextKey(Array.isArray(adjustmentData) ? null : adjustmentData.nextKey || null);
       setSummary(summaryRes.data);
     } catch (err) {
       console.error('Error loading data:', err);
       setError('Failed to load data');
     } finally {
       setLoading(false);
+    }
+  };
+
+  const loadMoreAdjustments = async () => {
+    if (!adjustmentsNextKey || loadingMoreAdjustments) return;
+    setLoadingMoreAdjustments(true);
+    try {
+      const response = await api.get('/inventory', {
+        params: { limit: 50, lastKey: adjustmentsNextKey }
+      });
+      const page = response.data || {};
+      setAdjustments((previous) => [...previous, ...(page.items || [])]);
+      setAdjustmentsNextKey(page.nextKey || null);
+    } catch (err) {
+      console.error('Error loading more adjustments:', err);
+      setError(err.response?.data?.message || 'Failed to load more adjustments');
+    } finally {
+      setLoadingMoreAdjustments(false);
     }
   };
 
@@ -284,6 +306,13 @@ const Inventory = () => {
               </table>
             </div>
           )}
+          {adjustmentsNextKey && (
+            <div style={styles.loadMore}>
+              <Button variant="secondary" onClick={loadMoreAdjustments} disabled={loadingMoreAdjustments}>
+                {loadingMoreAdjustments ? 'Loading...' : 'Load more adjustments'}
+              </Button>
+            </div>
+          )}
         </UnifiedCard>
       </div>
     </PageContainer>
@@ -304,6 +333,11 @@ const styles = {
     fontSize: '16px',
     color: '#888',
     margin: 0
+  },
+  loadMore: {
+    display: 'flex',
+    justifyContent: 'center',
+    marginTop: '16px'
   },
   summaryGrid: {
     display: 'grid',

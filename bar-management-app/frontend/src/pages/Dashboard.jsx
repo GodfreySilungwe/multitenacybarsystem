@@ -624,19 +624,19 @@ const Dashboard = () => {
             <div className="fade-in delay-1" style={styles.statItem}>
               <StatsCard title="Total Sales" value={stats.todaySales} icon={faDollarSign} color="#e94560" isCurrency />
             </div>
-            <div className="fade-in delay-2" style={styles.statItem}>
+            <div className="fade-in delay-2 dashboard-mobile-hide-stat" style={styles.statItem}>
               <StatsCard title="Orders" value={stats.totalOrders} icon={faShoppingCart} color="#3498db" />
             </div>
-            <div className="fade-in delay-3" style={styles.statItem}>
+            <div className="fade-in delay-3 dashboard-mobile-hide-stat" style={styles.statItem}>
               <StatsCard title="Reversed" value={stats.reversedOrders} icon={faBox} color="#e74c3c" />
             </div>
-            <div className="fade-in delay-4" style={styles.statItem}>
+            <div className="fade-in delay-4 dashboard-mobile-hide-stat" style={styles.statItem}>
               <StatsCard title="Low Stock" value={stats.lowStock} icon={faExclamationTriangle} color="#f39c12" />
             </div>
-            <div className="fade-in delay-5" style={styles.statItem}>
+            <div className="fade-in delay-5 dashboard-mobile-hide-stat" style={styles.statItem}>
               <StatsCard title="Products" value={stats.totalProducts} icon={faTools} color="#9b59b6" />
             </div>
-            <div className="fade-in delay-6" style={styles.statItem}>
+            <div className="fade-in delay-6 dashboard-mobile-hide-stat" style={styles.statItem}>
               <StatsCard
                 title="Collected Sales"
                 subtitle="Total cash and card value collected from sales, including direct POS transactions and bill settlements."
@@ -666,10 +666,10 @@ const Dashboard = () => {
                 isCurrency
               />
             </div>
-            <div className="fade-in delay-9" style={styles.statItem}>
+            <div className="fade-in delay-9 dashboard-mobile-hide-stat" style={styles.statItem}>
               <StatsCard title="Customers" value={stats.totalCustomers} icon={faUsers} color="#1abc9c" />
             </div>
-            <div className="fade-in delay-10" style={styles.statItem}>
+            <div className="fade-in delay-10 dashboard-mobile-hide-stat" style={styles.statItem}>
               <StatsCard title="Sales Accounts" value={stats.activeSalesAccounts} icon={faUsers} color="#9b59b6" />
             </div>
           </div>
@@ -687,15 +687,15 @@ const Dashboard = () => {
                     <span style={styles.metricValue}>{formatPriceMK(stats.todayProfit)}</span>
                   </div>
                 )}
-                <div style={styles.handoverMetric}>
+                <div className="dashboard-mobile-hide-stat" style={styles.handoverMetric}>
                   <span style={styles.metricLabel}>Orders Processed</span>
                   <span style={styles.metricValue}>{stats.totalOrders}</span>
                 </div>
-                <div style={styles.handoverMetric}>
+                <div className="dashboard-mobile-hide-stat" style={styles.handoverMetric}>
                   <span style={styles.metricLabel}>Items Sold</span>
                   <span style={styles.metricValue}>{totalItemsSold}</span>
                 </div>
-                <div style={styles.handoverMetric}>
+                <div className="dashboard-mobile-hide-stat" style={styles.handoverMetric}>
                   <span style={styles.metricLabel}>Customers Served</span>
                   <span style={styles.metricValue}>{totalCustomersServed}</span>
                 </div>
@@ -723,7 +723,7 @@ const Dashboard = () => {
                   <span style={styles.metricLabel}>Expected Handover</span>
                   <span style={styles.metricValue}>{formatPriceMK(expectedHandoverValue)}</span>
                 </div>
-                <div style={styles.handoverMetric}>
+                <div className="dashboard-mobile-hide-stat" style={styles.handoverMetric}>
                   <span style={styles.metricLabel}>Outstanding Customers</span>
                   <span style={styles.metricValue}>{outstandingCustomerCount}</span>
                 </div>
@@ -745,19 +745,19 @@ const Dashboard = () => {
                         <thead>
                           <tr>
                             <th>Payment Method</th>
-                            <th>Amount</th>
+                            <th style={styles.paymentAmountHeader}>Amount</th>
                           </tr>
                         </thead>
                         <tbody>
                           {directPaymentMethodProceeds.map((method) => (
                             <tr key={method.method} style={styles.tableRow}>
                               <td style={styles.orderNumber}>{method.method}</td>
-                              <td style={styles.amount}>{formatPriceMK(method.totalAmount)}</td>
+                              <td style={styles.paymentAmount}>{formatPriceMK(method.totalAmount)}</td>
                             </tr>
                           ))}
                           <tr style={styles.tableRow}>
                             <td style={styles.orderNumber}><strong>Total</strong></td>
-                            <td style={styles.amount}><strong>{formatPriceMK(totalDirectPaymentProceeds)}</strong></td>
+                            <td style={styles.paymentAmount}><strong>{formatPriceMK(totalDirectPaymentProceeds)}</strong></td>
                           </tr>
                         </tbody>
                       </table>
@@ -782,19 +782,19 @@ const Dashboard = () => {
                           <thead>
                             <tr>
                               <th>Payment Method</th>
-                              <th>Amount</th>
+                              <th style={styles.paymentAmountHeader}>Amount</th>
                             </tr>
                           </thead>
                           <tbody>
                             {creditByMethodProceeds.map((method) => (
                               <tr key={method.method} style={styles.tableRow}>
                                 <td style={styles.orderNumber}>{method.method}</td>
-                                <td style={styles.amount}>{formatPriceMK(method.amount)}</td>
+                                <td style={styles.paymentAmount}>{formatPriceMK(method.amount)}</td>
                               </tr>
                             ))}
                             <tr style={styles.tableRow}>
                               <td style={styles.orderNumber}><strong>Total</strong></td>
-                              <td style={styles.amount}><strong>{formatPriceMK(totalCreditPaidByMethod)}</strong></td>
+                              <td style={styles.paymentAmount}><strong>{formatPriceMK(totalCreditPaidByMethod)}</strong></td>
                             </tr>
                           </tbody>
                         </table>
@@ -1444,6 +1444,14 @@ const styles = {
     fontWeight: 'bold',
     color: '#2ecc71'
   },
+  paymentAmountHeader: {
+    textAlign: 'right'
+  },
+  paymentAmount: {
+    fontWeight: 'bold',
+    color: '#2ecc71',
+    textAlign: 'right'
+  },
   profit: {
     color: '#3498db',
     fontWeight: '500'
@@ -1549,6 +1557,12 @@ styleSheet.textContent = `
   .delay-4 { animation-delay: 0.2s; }
   .delay-5 { animation-delay: 0.25s; }
   .delay-6 { animation-delay: 0.3s; }
+
+  @media (max-width: 767px) {
+    .dashboard-mobile-hide-stat {
+      display: none !important;
+    }
+  }
 `;
 document.head.appendChild(styleSheet);
 
