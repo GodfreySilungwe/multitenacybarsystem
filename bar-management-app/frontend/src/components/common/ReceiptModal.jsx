@@ -1,6 +1,64 @@
+import { useEffect, useState } from 'react';
+import QRCode from 'qrcode';
+import api from '../../api/api';
 import { formatPriceMK } from '../../utils/formatPrice';
 
+const APPLY_URL = 'https://www.smartbarmw.tech/apply';
+
 const ReceiptModal = ({ order, onClose }) => {
+  const [qrCodeDataUrl, setQrCodeDataUrl] = useState('');
+  const [qrCaption, setQrCaption] = useState('Interested in this App? Scan here');
+  const hasCustomerAccount = Boolean(
+    order?.customerAccount?.username
+    || order?.customer?.accountUsername
+    || order?.customer?.username
+    || order?.customer?.accountUserId
+  );
+
+  useEffect(() => {
+    let isMounted = true;
+
+    const generateReceiptQrCode = async () => {
+      let qrUrl = APPLY_URL;
+      let caption = 'Interested in this App? Scan here';
+      const customerId = order?.customerId || order?.customer?._id || order?.customer?.id;
+
+      if (hasCustomerAccount && customerId) {
+        try {
+          const response = await api.post(`/customers/${encodeURIComponent(customerId)}/receipt-access-link`, {
+            orderId: order.receiptOrderId || order._id || order.id
+          });
+          if (response.data?.token) {
+            qrUrl = `${window.location.origin}/customer-receipt-access#token=${encodeURIComponent(response.data.token)}`;
+            caption = 'Scan to check your bill';
+          }
+        } catch (error) {
+          console.error('Could not create customer receipt access link:', error);
+        }
+      }
+
+      try {
+        const dataUrl = await QRCode.toDataURL(qrUrl, {
+          width: 240,
+          margin: 2,
+          errorCorrectionLevel: 'M'
+        });
+        if (isMounted) {
+          setQrCodeDataUrl(dataUrl);
+          setQrCaption(caption);
+        }
+      } catch (error) {
+        console.error('Error generating receipt QR code:', error);
+      }
+    };
+
+    generateReceiptQrCode();
+
+    return () => {
+      isMounted = false;
+    };
+  }, [hasCustomerAccount, order]);
+
   if (!order) return null;
 
   const savedBusiness = (() => {
@@ -13,15 +71,10 @@ const ReceiptModal = ({ order, onClose }) => {
   })();
 
   const customerName = order.customerName || order.customer?.name || order.customer?.fullName || 'Walk-in Customer';
-  const customerAccount = order.customerAccount || (
-    (order.customer?.accountUsername || order.customer?.username || order.customer?.accountUserId)
-      ? {
-          username: order.customer?.accountUsername || order.customer?.username || '',
-          password: order.customer?.accountPassword || order.customer?.password || ''
-        }
-      : null
-  );
   const shopName = savedBusiness.name || order.shopName || order.barName || 'SMART BAR';
+  const qrAlt = qrCaption === 'Scan to check your bill'
+    ? 'QR code to view customer bills'
+    : 'QR code to apply at Smart Bar';
 
   const handlePrint = () => {
     const printWindow = window.open('', '_blank', 'width=420,height=720');
@@ -30,10 +83,6 @@ const ReceiptModal = ({ order, onClose }) => {
       window.alert('Please allow pop-ups to print the receipt.');
       return;
     }
-
-    const customerNotice = customerAccount
-      ? `\nCustomer Portal: www.smartbarmw.tech\nUsername: ${customerAccount.username}\nPassword: ${customerAccount.password}\nPlease follow your bill accumulation by logging in with the details above.`
-      : '';
 
     const receiptMarkup = `
       <!doctype html>
@@ -64,6 +113,8 @@ const ReceiptModal = ({ order, onClose }) => {
             .row { display: flex; justify-content: space-between; gap: 8px; }
             .footer { text-align: center; margin-top: 6px; }
             .notice { margin-top: 8px; white-space: pre-line; }
+            .apply-qr { display: block; width: 120px; height: 120px; margin: 8px auto 4px; image-rendering: pixelated; }
+            .apply-link { color: #111; }
           </style>
         </head>
         <body>
@@ -105,12 +156,11 @@ const ReceiptModal = ({ order, onClose }) => {
             <div class="footer">
               <div class="bold">Thank you for your business!</div>
               <div>Visit us again 😊</div>
-              ${customerAccount ? `<div class="notice">
-                <div class="bold">Customer Login Details</div>
-                <div>Username: ${customerAccount.username}</div>
-                <div>Password: ${customerAccount.password}</div>
-                <div>Follow bill accumulation at www.smartbarmw.tech using the credentials above.</div>
-              </div>` : ''}
+              <div class="notice">
+                <div>Apply at <a class="apply-link" href="${APPLY_URL}">www.smartbarmw.tech</a></div>
+                <img class="apply-qr" src="${qrCodeDataUrl}" alt="${qrAlt}" />
+                <div>${qrCaption}</div>
+              </div>
             </div>
           </div>
         </body>
@@ -184,20 +234,27 @@ const ReceiptModal = ({ order, onClose }) => {
           <div style={styles.footer}>
             <p style={styles.thankYou}>Thank you for your business!</p>
             <p style={styles.footerText}>Visit us again 😊</p>
-            {customerAccount && (
-              <div style={styles.customerAccountBlock}>
-                <p style={styles.customerAccountTitle}>Customer Login Details</p>
-                <p style={styles.footerText}>Username: {customerAccount.username}</p>
-                <p style={styles.footerText}>Password: {customerAccount.password}</p>
-                <p style={styles.footerText}>Please follow bill accumulation by logging in on www.smartbarmw.tech using the credentials above.</p>
-              </div>
-            )}
+            <div style={styles.applicationPromo}>
+              <a href={APPLY_URL} style={styles.applicationLink}>www.smartbarmw.tech</a>
+              {qrCodeDataUrl && (
+                <img
+                  src={qrCodeDataUrl}
+                  alt={qrAlt}
+                  style={styles.qrCode}
+                />
+              )}
+              <p style={styles.footerText}>{qrCaption}</p>
+            </div>
           </div>
         </div>
 
         <div style={styles.actions}>
-          <button style={styles.printBtn} onClick={handlePrint}>
-            🖨️ Print Receipt
+          <button
+            style={{...styles.printBtn, ...(!qrCodeDataUrl ? styles.disabledPrintBtn : {})}}
+            onClick={handlePrint}
+            disabled={!qrCodeDataUrl}
+          >
+            {qrCodeDataUrl ? '🖨️ Print Receipt' : 'Preparing receipt...'}
           </button>
           <button style={styles.closeBtnModal} onClick={onClose}>
             Close
@@ -385,18 +442,27 @@ const styles = {
     color: '#888',
     margin: '2px 0'
   },
-  customerAccountBlock: {
+  applicationPromo: {
     marginTop: '10px',
-    padding: '8px',
-    border: '1px dashed #e94560',
-    borderRadius: '8px',
-    backgroundColor: '#fff7f8'
+    paddingTop: '8px',
+    borderTop: '1px dashed #ccc'
   },
-  customerAccountTitle: {
+  applicationLink: {
+    color: '#1a1a2e',
     fontSize: '12px',
     fontWeight: 'bold',
-    color: '#e94560',
-    margin: '0 0 6px 0'
+    textDecoration: 'underline'
+  },
+  qrCode: {
+    display: 'block',
+    width: '120px',
+    height: '120px',
+    margin: '8px auto 4px',
+    imageRendering: 'pixelated'
+  },
+  disabledPrintBtn: {
+    opacity: 0.6,
+    cursor: 'not-allowed'
   },
   actions: {
     display: 'flex',

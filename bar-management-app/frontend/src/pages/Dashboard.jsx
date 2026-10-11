@@ -354,18 +354,32 @@ const Dashboard = () => {
   const totalCustomersServed = stats.customersServed || 0;
   const totalItemsSold = stats.totalItemsSold || totalProductSoldQty;
 
-  const directPaymentMethodProceeds = paymentMethodProceeds.filter(
-    (method) => String(method.method).toLowerCase() !== 'credit'
-  );
-  const creditByMethodProceeds = creditSettlementSummary || [];
-  const totalDirectPaymentProceeds = directPaymentMethodProceeds.reduce(
-    (sum, method) => sum + Number(method.totalAmount || 0),
-    0
-  );
-  const totalCreditPaidByMethod = creditByMethodProceeds.reduce(
-    (sum, method) => sum + Number(method.amount || 0),
-    0
-  );
+  const collectedByMethod = (() => {
+    const amounts = new Map();
+    const addAmount = (method, amount) => {
+      let key = String(method || '').trim().toLowerCase().replace(/[\s-]+/g, '_');
+      if (key.startsWith('credit_')) key = key.slice('credit_'.length);
+      if (!key || key === 'credit') return;
+      amounts.set(key, (amounts.get(key) || 0) + Number(amount || 0));
+    };
+
+    paymentMethodProceeds.forEach((method) => addAmount(method.method, method.totalAmount));
+    (creditSettlementSummary || []).forEach((method) => addAmount(method.method, method.amount));
+
+    const labels = {
+      cash: 'Cash',
+      airtel_money: 'Airtel Money',
+      mpamba: 'Mpamba',
+      bank_account: 'Bank Account'
+    };
+    const orderedMethods = ['cash', 'airtel_money', 'mpamba', 'bank_account'];
+    const extraMethods = [...amounts.keys()].filter((method) => !orderedMethods.includes(method)).sort();
+    return [...orderedMethods, ...extraMethods].map((method) => ({
+      method: labels[method] || method.replace(/_/g, ' ').replace(/\b\w/g, (character) => character.toUpperCase()),
+      amount: amounts.get(method) || 0
+    }));
+  })();
+  const totalCollectedByMethod = collectedByMethod.reduce((sum, method) => sum + method.amount, 0);
   const outstandingCreditValue = Number(outstandingCreditInPeriod || 0);
 
   if (loading) {
@@ -734,80 +748,31 @@ const Dashboard = () => {
 
           <div className="fade-in" style={{ marginBottom: '20px' }}>
             <UnifiedCard title="💳 Payment Summary & Credit Breakdown">
-              {(paymentMethodProceeds.length > 0 || creditByMethodProceeds.length > 0) ? (
-                <>
-                  <div style={styles.sectionTitleRow}>
-                    <div style={styles.sectionTitle}>Direct POS Sales by Payment Method</div>
-                  </div>
-                  {directPaymentMethodProceeds.length > 0 ? (
-                    <div style={styles.tableWrapper}>
-                      <table style={styles.table}>
-                        <thead>
-                          <tr>
-                            <th>Payment Method</th>
-                            <th style={styles.paymentAmountHeader}>Amount</th>
-                          </tr>
-                        </thead>
-                        <tbody>
-                          {directPaymentMethodProceeds.map((method) => (
-                            <tr key={method.method} style={styles.tableRow}>
-                              <td style={styles.orderNumber}>{method.method}</td>
-                              <td style={styles.paymentAmount}>{formatPriceMK(method.totalAmount)}</td>
-                            </tr>
-                          ))}
-                          <tr style={styles.tableRow}>
-                            <td style={styles.orderNumber}><strong>Total</strong></td>
-                            <td style={styles.paymentAmount}><strong>{formatPriceMK(totalDirectPaymentProceeds)}</strong></td>
-                          </tr>
-                        </tbody>
-                      </table>
-                    </div>
-                  ) : (
-                    <div style={styles.emptyState}>
-                      <p style={styles.emptyIcon}>💳</p>
-                      <p style={styles.emptyText}>No direct payment proceeds recorded for this period</p>
-                    </div>
-                  )}
-
-                  <div style={styles.creditSummaryRow}>
-                    <div style={styles.creditSummaryLabel}>Outstanding Credit</div>
-                    <div style={styles.creditSummaryValue}>{formatPriceMK(outstandingCreditValue)}</div>
-                  </div>
-
-                  {creditByMethodProceeds.length > 0 && (
-                    <div style={{ marginTop: '18px' }}>
-                      <div style={styles.sectionTitle}>Bill Repayments</div>
-                      <div style={styles.tableWrapper}>
-                        <table style={styles.table}>
-                          <thead>
-                            <tr>
-                              <th>Payment Method</th>
-                              <th style={styles.paymentAmountHeader}>Amount</th>
-                            </tr>
-                          </thead>
-                          <tbody>
-                            {creditByMethodProceeds.map((method) => (
-                              <tr key={method.method} style={styles.tableRow}>
-                                <td style={styles.orderNumber}>{method.method}</td>
-                                <td style={styles.paymentAmount}>{formatPriceMK(method.amount)}</td>
-                              </tr>
-                            ))}
-                            <tr style={styles.tableRow}>
-                              <td style={styles.orderNumber}><strong>Total</strong></td>
-                              <td style={styles.paymentAmount}><strong>{formatPriceMK(totalCreditPaidByMethod)}</strong></td>
-                            </tr>
-                          </tbody>
-                        </table>
+              <div style={styles.sectionTitleRow}>
+                <div style={styles.sectionTitle}>Collected by method</div>
+              </div>
+              <div style={styles.collectionMethodList}>
+                {collectedByMethod.map((method) => {
+                  const share = totalCollectedByMethod > 0 ? (method.amount / totalCollectedByMethod) * 100 : 0;
+                  return (
+                    <div key={method.method} style={styles.collectionMethodRow}>
+                      <span style={styles.collectionMethodName}>{method.method}</span>
+                      <div style={styles.collectionMethodAmount}>
+                        <strong>{formatPriceMK(method.amount)}</strong>
+                        <span style={styles.collectionMethodShare}>{share.toFixed(2)}%</span>
                       </div>
                     </div>
-                  )}
-                </>
-              ) : (
-                <div style={styles.emptyState}>
-                  <p style={styles.emptyIcon}>💳</p>
-                  <p style={styles.emptyText}>No payment proceeds recorded for this period</p>
+                  );
+                })}
+                <div style={{ ...styles.collectionMethodRow, ...styles.collectionMethodTotal }}>
+                  <strong>Total collected</strong>
+                  <strong>{formatPriceMK(totalCollectedByMethod)}</strong>
                 </div>
-              )}
+              </div>
+              <div style={styles.creditSummaryRow}>
+                <div style={styles.creditSummaryLabel}>Outstanding Credit</div>
+                <div style={styles.creditSummaryValue}>{formatPriceMK(outstandingCreditValue)}</div>
+              </div>
             </UnifiedCard>
           </div>
 
@@ -1451,6 +1416,40 @@ const styles = {
     fontWeight: 'bold',
     color: '#2ecc71',
     textAlign: 'right'
+  },
+  collectionMethodList: {
+    display: 'grid',
+    gap: '2px'
+  },
+  collectionMethodRow: {
+    display: 'flex',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    gap: '16px',
+    padding: '12px 14px',
+    borderBottom: '1px solid #e6e8ed'
+  },
+  collectionMethodName: {
+    color: '#1a1a2e',
+    fontWeight: '600'
+  },
+  collectionMethodAmount: {
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'flex-end',
+    gap: '14px',
+    color: '#2ecc71',
+    textAlign: 'right'
+  },
+  collectionMethodShare: {
+    minWidth: '76px',
+    color: '#64748b',
+    fontSize: '13px'
+  },
+  collectionMethodTotal: {
+    borderBottom: 'none',
+    borderTop: '2px solid #dbe2ea',
+    marginTop: '4px'
   },
   profit: {
     color: '#3498db',

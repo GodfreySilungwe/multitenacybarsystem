@@ -24,6 +24,8 @@ const Bars = () => {
   const [error, setError] = useState('');
   const [pendingApplications, setPendingApplications] = useState(0);
   const [search, setSearch] = useState('');
+  const [reportRecipientDrafts, setReportRecipientDrafts] = useState({});
+  const [savingReportRecipientBarId, setSavingReportRecipientBarId] = useState(null);
 
   const filteredBars = useMemo(() => {
     const query = search.trim().toLowerCase();
@@ -99,6 +101,33 @@ const Bars = () => {
       console.error('Error resetting bar owner password:', err);
       setError(err.response?.data?.message || '❌ Failed to reset bar owner password');
       setTimeout(() => setError(''), 4000);
+    }
+  };
+
+  const handleSaveReportRecipients = async (barId) => {
+    const draft = reportRecipientDrafts[barId] ?? '';
+    const dailyReportRecipients = [...new Set(draft
+      .split(/[\n,;]/)
+      .map((email) => email.trim().toLowerCase())
+      .filter(Boolean))];
+
+    setSavingReportRecipientBarId(barId);
+    setError('');
+    setMessage('');
+    try {
+      const response = await api.patch(`/bars/${barId}/daily-report-recipients`, { dailyReportRecipients });
+      setBars((previous) => previous.map((bar) => (
+        String(bar._id || bar.id) === String(barId) ? { ...bar, ...response.data } : bar
+      )));
+      setReportRecipientDrafts((previous) => ({
+        ...previous,
+        [barId]: dailyReportRecipients.join('\n')
+      }));
+      setMessage('Daily report recipients saved.');
+    } catch (err) {
+      setError(err.response?.data?.message || 'Failed to save daily report recipients.');
+    } finally {
+      setSavingReportRecipientBarId(null);
     }
   };
 
@@ -415,6 +444,31 @@ const Bars = () => {
                         <span style={styles.detailValue}>{bar.owner?.id ? String(bar.owner.id).slice(-8) : '-'}</span>
                       </div>
                     </div>
+
+                    <div style={styles.detailPanel}>
+                      <h4 style={styles.panelTitle}>Daily Report Recipients</h4>
+                      <div style={styles.reportRecipientEditor}>
+                        <textarea
+                          aria-label={`Daily report recipients for ${bar.name}`}
+                          style={styles.reportRecipientInput}
+                          value={reportRecipientDrafts[bar._id || bar.id] ?? (bar.dailyReportRecipients || []).join('\n')}
+                          onChange={(event) => setReportRecipientDrafts((previous) => ({
+                            ...previous,
+                            [bar._id || bar.id]: event.target.value
+                          }))}
+                          placeholder="reports@example.com&#10;manager@example.com"
+                          rows={3}
+                        />
+                        <span style={styles.detailLabel}>The linked bar owner&apos;s email is copied automatically.</span>
+                        <Button
+                          type="button"
+                          disabled={savingReportRecipientBarId === (bar._id || bar.id)}
+                          onClick={() => handleSaveReportRecipients(bar._id || bar.id)}
+                        >
+                          {savingReportRecipientBarId === (bar._id || bar.id) ? 'Saving...' : 'Save Recipients'}
+                        </Button>
+                      </div>
+                    </div>
                   </div>
 
                   {bar.application && (
@@ -627,6 +681,18 @@ const styles = {
     borderRadius: '12px',
     padding: '12px',
     border: '1px solid #e2e8f0'
+  },
+  reportRecipientEditor: {
+    display: 'grid',
+    gap: '10px'
+  },
+  reportRecipientInput: {
+    width: '100%',
+    padding: '10px 12px',
+    border: '1px solid #dbe2ea',
+    borderRadius: '8px',
+    fontSize: '14px',
+    resize: 'vertical'
   },
   applicationPanel: {
     backgroundColor: '#f8fafc',

@@ -6,6 +6,11 @@ import Button from '../components/common/Button';
 import UnifiedCard from '../components/common/UnifiedCard';
 import { formatPriceMK } from '../utils/formatPrice';
 import { confirmTypedDelete } from '../utils/confirmation';
+import { saveAs } from 'file-saver';
+import {
+  createCustomerStatementPdf,
+  createCustomerStatementPrintHtml
+} from '../utils/customerStatement';
 
 const Customers = () => {
   const { user: currentUser } = useAuth();
@@ -27,6 +32,7 @@ const Customers = () => {
   const [settleMethods, setSettleMethods] = useState({});
   const [settleReferences, setSettleReferences] = useState({});
   const [settleLoading, setSettleLoading] = useState({});
+  const [statementAction, setStatementAction] = useState(null);
   const [settlements, setSettlements] = useState([]);
   const [settlementConfirmation, setSettlementConfirmation] = useState(null);
   const [successMessage, setSuccessMessage] = useState(null);
@@ -125,6 +131,89 @@ const Customers = () => {
 
   const getSettlementAmount = (entry) => Number(entry?.amount ?? entry?.amountApplied ?? entry?.amountRequested ?? 0);
   const isConfirmedSettlement = (entry) => (entry?.status || 'confirmed') === 'confirmed';
+
+  const getBusinessName = () => {
+    try {
+      return JSON.parse(localStorage.getItem('businessSettings') || '{}').name || 'SMART BAR';
+    } catch {
+      return 'SMART BAR';
+    }
+  };
+
+  const createStatementFilename = () => 'Outstanding-Bills.pdf';
+
+  const handlePrintStatement = (customer) => {
+    const printWindow = window.open('', '_blank', 'width=900,height=700');
+    if (!printWindow) {
+      window.alert('Please allow pop-ups to print the statement.');
+      return;
+    }
+
+    printWindow.document.open();
+    printWindow.document.write(createCustomerStatementPrintHtml(customer, getBusinessName()));
+    printWindow.document.close();
+    printWindow.focus();
+    setTimeout(() => printWindow.print(), 300);
+  };
+
+  const handleShareStatement = async (customer) => {
+    if (statementAction) return;
+    setStatementAction(customer._id);
+
+    try {
+      const filename = createStatementFilename();
+      let customerAccessUrl = '';
+      if (customer.accountUserId && (customer.accountUsername || customer.username)) {
+        const accessResponse = await api.post(
+          `/customers/${encodeURIComponent(customer._id)}/receipt-access-link`
+        );
+        if (!accessResponse.data?.token) {
+          throw new Error('Could not create a customer bills QR code.');
+        }
+        customerAccessUrl = `${window.location.origin}/customer-receipt-access#token=${encodeURIComponent(accessResponse.data.token)}`;
+      }
+
+      const pdfBlob = await createCustomerStatementPdf(customer, getBusinessName(), customerAccessUrl);
+      const pdfFile = typeof File === 'function'
+        ? new File([pdfBlob], filename, { type: 'application/pdf' })
+        : null;
+      let canShareFile = false;
+
+      if (pdfFile && typeof navigator.share === 'function' && typeof navigator.canShare === 'function') {
+        try {
+          canShareFile = navigator.canShare({ files: [pdfFile] });
+        } catch {
+          canShareFile = false;
+        }
+      }
+
+      if (canShareFile) {
+        try {
+          await navigator.share({
+            files: [pdfFile],
+            title: `Outstanding statement for ${customer.name}`,
+            text: `Outstanding balance statement for ${customer.name}`
+          });
+          setSuccessMessage('Share sheet opened. Choose WhatsApp, then select a contact.');
+        } catch (shareError) {
+          if (shareError.name === 'AbortError') throw shareError;
+          saveAs(pdfBlob, filename);
+          setSuccessMessage('PDF downloaded. Open it in WhatsApp on this device and choose a contact.');
+        }
+      } else {
+        saveAs(pdfBlob, filename);
+        setSuccessMessage('PDF downloaded. Open it in WhatsApp on this device and choose a contact.');
+      }
+      setTimeout(() => setSuccessMessage(null), 6000);
+    } catch (err) {
+      if (err.name !== 'AbortError') {
+        console.error('Error sharing customer statement:', err);
+        window.alert('Could not create or share the customer statement.');
+      }
+    } finally {
+      setStatementAction(null);
+    }
+  };
 
   const handleSubmit = async (e) => {
     e.preventDefault();
@@ -370,10 +459,6 @@ const Customers = () => {
                   </button>
                 </div>
               </div>
-              <div style={styles.customerStats} className="customer-card__stats">
-                <span>💰 Total Spent: {formatPriceMK(customer.totalSpent || 0)}</span>
-                <span>⭐ Loyalty Points: {customer.loyaltyPoints || 0}</span>
-              </div>
               {(customer.accountUsername || customer.accountUserId || customer.username || customer.accountPassword || customer.password) && (
                 <div style={styles.accountBox} className="customer-card__account">
                   <div style={styles.accountLabel}>Account Login</div>
@@ -385,6 +470,29 @@ const Customers = () => {
                 <span style={styles.balanceLabel}>Outstanding Credit</span>
                 <span style={styles.balanceValue}>{formatPriceMK(customer.creditBalance || 0)}</span>
               </div>
+              {Number(customer.creditBalance || 0) > 0 && (
+                <div style={styles.statementActions} className="customer-card__statement-actions">
+                  <button
+                    type="button"
+                    style={{...styles.statementBtn, ...styles.printStatementBtn}}
+                    onClick={() => handlePrintStatement(customer)}
+                  >
+                    Print Statement
+                  </button>
+                  <button
+                    type="button"
+                    style={{
+                      ...styles.statementBtn,
+                      ...styles.shareStatementBtn,
+                      ...(statementAction ? styles.statementBtnDisabled : {})
+                    }}
+                    onClick={() => handleShareStatement(customer)}
+                    disabled={Boolean(statementAction)}
+                  >
+                    {statementAction === customer._id ? 'Preparing PDF...' : 'Share PDF on WhatsApp'}
+                  </button>
+                </div>
+              )}
               <div style={styles.settlementSection} className="customer-card__settlements">
                 <div style={styles.creditHistoryHeader}>Recent settlements</div>
                 <div style={styles.settlementHistoryList}>
@@ -421,12 +529,11 @@ const Customers = () => {
               {(customer.creditSummary || []).length > 0 && (
                 <div style={styles.creditHistorySection} className="customer-card__credit-history">
                   <div style={styles.creditHistoryHeader}>Unpaid credit purchases</div>
-                  {/* Per-account breakdown summary */}
                   <div style={styles.accountBreakdownSection}>
                     <div style={styles.accountBreakdownTitle}>Credit by sales account:</div>
                     {(() => {
                       const byAccount = {};
-                      (customer.creditSummary || []).forEach((entry) => {
+                      customer.creditSummary.forEach((entry) => {
                         const account = entry.processedByName || entry.salesAccount || 'Unassigned (legacy)';
                         if (!byAccount[account]) {
                           byAccount[account] = { total: 0, count: 0 };
@@ -704,16 +811,6 @@ const styles = {
     borderRadius: '8px',
     transition: 'background 0.3s ease'
   },
-  customerStats: {
-    paddingTop: '10px',
-    borderTop: '1px solid #f0f0f0',
-    display: 'flex',
-    justifyContent: 'space-between',
-    flexWrap: 'wrap',
-    gap: '8px',
-    fontSize: '13px',
-    color: '#666'
-  },
   accountBox: {
     padding: '10px 12px',
     borderRadius: '10px',
@@ -753,6 +850,33 @@ const styles = {
     fontSize: '15px',
     color: '#b91c1c',
     fontWeight: '700'
+  },
+  statementActions: {
+    display: 'flex',
+    gap: '8px',
+    flexWrap: 'wrap',
+    margin: '10px 0'
+  },
+  statementBtn: {
+    flex: '1 1 150px',
+    minHeight: '40px',
+    padding: '9px 12px',
+    border: 'none',
+    borderRadius: '6px',
+    color: 'white',
+    fontSize: '13px',
+    fontWeight: '600',
+    cursor: 'pointer'
+  },
+  printStatementBtn: {
+    backgroundColor: '#34495e'
+  },
+  shareStatementBtn: {
+    backgroundColor: '#198754'
+  },
+  statementBtnDisabled: {
+    opacity: 0.6,
+    cursor: 'not-allowed'
   },
   settlementSection: {
     border: '1px solid #f3d8df',

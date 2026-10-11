@@ -55,6 +55,14 @@ export const AuthProvider = ({ children }) => {
     }
   };
 
+  const acceptSession = (authToken, authUser) => {
+    setError(null);
+    localStorage.setItem('token', authToken);
+    api.defaults.headers.common.Authorization = `Bearer ${authToken}`;
+    setToken(authToken);
+    setUser(authUser);
+  };
+
   // Register
   const register = async (userData) => {
     try {
@@ -85,6 +93,7 @@ export const AuthProvider = ({ children }) => {
       loading,
       error,
       login,
+      acceptSession,
       register,
       logout,
       isAuthenticated: Boolean(token),

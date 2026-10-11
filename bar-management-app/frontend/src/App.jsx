@@ -15,6 +15,7 @@ const Customers = lazy(() => import('./pages/Customers'));
 const PaymentHistory = lazy(() => import('./pages/PaymentHistory'));
 const Orders = lazy(() => import('./pages/Orders'));
 const CustomerPortal = lazy(() => import('./pages/CustomerPortal'));
+const CustomerReceiptAccess = lazy(() => import('./pages/CustomerReceiptAccess'));
 const Reports = lazy(() => import('./pages/Reports'));
 const Inventory = lazy(() => import('./pages/Inventory'));
 const AuditLog = lazy(() => import('./pages/AuditLog'));
@@ -61,6 +62,7 @@ function App() {
             {/* Public Routes */}
             <Route path="/login" element={<Login />} />
             <Route path="/register" element={<Register />} />
+            <Route path="/customer-receipt-access" element={<CustomerReceiptAccess />} />
 
             {/* Protected Routes - All authenticated users */}
             <Route path="/" element={

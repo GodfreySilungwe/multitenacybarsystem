@@ -537,6 +537,8 @@ const POS = () => {
 
     setReceiptOrder({
       ...newOrder,
+      receiptOrderId: newOrder._id || newOrder.id,
+      customerId: selectedCustomer || newOrder.customerId || newOrder.customer?._id || (typeof newOrder.customer === 'string' ? newOrder.customer : null),
       customerName: selectedCustomerData?.name || newOrder.customerName || 'Walk-in Customer',
       customerAccount: receiptCustomerAccount
     });
