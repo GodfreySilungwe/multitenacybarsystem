@@ -75,7 +75,7 @@ const BarApplications = () => {
                     <td>{application.ownerFullName}</td>
                     <td>{application.ownerEmail}</td>
                     <td>{application.ownerPhone}</td>
-                    <td style={styles.status}>{application.status}</td>
+                    <td style={styles.status}>{application.status === 'bar_deleted' ? 'Bar deleted' : application.status}</td>
                     <td>{new Date(application.createdAt).toLocaleString()}</td>
                     <td style={styles.actionsCell}>
                       {application.status === 'pending' ? (
