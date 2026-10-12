@@ -5,6 +5,7 @@ const Bar = require('../models/Bar');
 const User = require('../models/User');
 const BarApplication = require('../models/BarApplication');
 const { protect, isGlobalOwner } = require('../middleware/auth');
+const { matchesApplicationDetails } = require('../lib/barApplicationLifecycle');
 
 const normalizeUsername = (value, fallback = 'owner') => {
   const normalized = String(value || fallback).trim().toLowerCase().replace(/\s+/g, '');
@@ -22,6 +23,22 @@ const generatePassword = (username) => {
   const base = String(username || 'owner').replace(/[^a-z0-9]/gi, '').toLowerCase();
   const suffix = Math.floor(1000 + Math.random() * 9000);
   return `${base || 'owner'}${suffix}`;
+};
+
+const archiveDeletedBarApplication = async (application, { barId, userId, reason }) => {
+  application.status = 'bar_deleted';
+  if (barId) application.barId = barId;
+  application.barDeletedAt = new Date().toISOString();
+  if (userId) application.barDeletedBy = userId;
+  application.archiveReason = reason;
+  application.ownerPassword = null;
+  if (application.adminCredentials) {
+    application.adminCredentials = {
+      username: application.adminCredentials.username,
+      password: null
+    };
+  }
+  await application.save();
 };
 
 router.post('/', async (req, res) => {
@@ -57,27 +74,42 @@ router.post('/', async (req, res) => {
     if (existingUser) {
       return res.status(400).json({ message: 'That username is already in use.' });
     }
-    const existingBar = await Bar.findOne({ $or: [{ name: barName }, { code: normalizedPhone }] });
+    const existingBar = await Bar.findOne({ name: barName });
     if (existingBar) {
       return res.status(400).json({ message: 'A bar with that name or code already exists.' });
     }
 
-    const existingApplication = await BarApplication.findOne({
-      $or: [
-        { barName },
-        { ownerEmail: normalizedEmail },
-        { ownerPhone },
-        { ownerUsername: normalizedUsername }
-      ]
-    });
+    const matchingApplications = (await BarApplication.find())
+      .filter((application) => matchesApplicationDetails(application, {
+        barName,
+        ownerEmail: normalizedEmail,
+        ownerPhone: normalizedPhone,
+        ownerUsername: normalizedUsername
+      }));
 
-    if (existingApplication) {
+    for (const application of matchingApplications) {
+      if (application.status === 'approved') {
+        const linkedBar = application.barId
+          ? await Bar.findById(application.barId)
+          : await Bar.findOne({
+              $or: [
+                { name: application.barName },
+                ...(application.barCode ? [{ code: application.barCode }] : [])
+              ]
+            });
+
+        if (!linkedBar) {
+          await archiveDeletedBarApplication(application, { reason: 'bar_not_found' });
+          continue;
+        }
+      }
+
       return res.status(400).json({ message: 'An application with matching bar or owner details already exists.' });
     }
 
     const application = new BarApplication({
       barName,
-      barCode: normalizedPhone,
+      barCode: null,
       description,
       ownerFullName,
       ownerEmail: normalizedEmail,
@@ -118,7 +150,14 @@ router.patch('/:id/approve', async (req, res) => {
       return res.status(400).json({ message: 'Only pending applications can be approved.' });
     }
 
-    const existingBar = await Bar.findOne({ $or: [{ name: application.barName }, { code: application.barCode }] });
+    const applicationBarCode = String(application.barCode || '').trim();
+    const ownerPhone = String(application.ownerPhone || '').trim();
+    const hasDistinctBarCode = applicationBarCode
+      && applicationBarCode.toLowerCase() !== ownerPhone.toLowerCase();
+    const existingBarQuery = hasDistinctBarCode
+      ? { $or: [{ name: application.barName }, { code: applicationBarCode }] }
+      : { name: application.barName };
+    const existingBar = await Bar.findOne(existingBarQuery);
     if (existingBar) {
       return res.status(400).json({ message: 'A bar with this name or code already exists.' });
     }
@@ -131,7 +170,7 @@ router.patch('/:id/approve', async (req, res) => {
 
     const bar = new Bar({
       name: application.barName,
-      code: application.barCode,
+      code: hasDistinctBarCode ? applicationBarCode : null,
       description: application.description,
       createdAt: new Date().toISOString()
     });
@@ -156,6 +195,7 @@ router.patch('/:id/approve', async (req, res) => {
     await bar.save();
 
     application.status = 'approved';
+    application.barId = bar._id;
     application.approvedAt = new Date().toISOString();
     application.approvedBy = req.user._id;
     application.adminCredentials = {

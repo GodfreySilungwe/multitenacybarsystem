@@ -3,6 +3,7 @@ const jwt = require('jsonwebtoken');
 const bcrypt = require('bcryptjs');
 const router = express.Router();
 const User = require('../models/User');
+const { selectLoginUser } = require('../lib/loginIdentity');
 const Customer = require('../models/Customer');
 const Bar = require('../models/Bar');
 const { protect, hasSubscriptionAccess } = require('../middleware/auth');
@@ -171,13 +172,13 @@ router.post('/login', async (req, res) => {
 
     console.log('Login attempt:', { username, password: password ? '[REDACTED]' : undefined, body });
 
-    const query = {
-      $or: [{ username }, { email: username }]
-    };
-    if (req.body.barId) {
-      query.barId = req.body.barId;
+    const loginMatches = await User.findGlobalLoginMatches(username, body.barId || null);
+    const { user, ambiguous } = selectLoginUser(loginMatches, username);
+    if (ambiguous) {
+      return res.status(409).json({
+        message: 'This email is linked to multiple bar accounts. Sign in with your unique username.'
+      });
     }
-    const user = await User.findOne(query);
     console.log('Login lookup result:', !!user, user ? { id: user._id, username: user.username, email: user.email, role: user.role, isActive: user.isActive } : null);
 
     if (!user) {

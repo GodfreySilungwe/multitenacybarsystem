@@ -22,6 +22,19 @@ class User extends BaseModel {
     const record = records.find((candidate) => String(candidate.username || '').trim().toLowerCase().replace(/\s+/g, '') === normalizedUsername);
     return record ? new this(record) : null;
   }
+
+  static async findGlobalLoginMatches(identifier, barId = null) {
+    const normalizedIdentifier = String(identifier || '').trim().toLowerCase();
+    const records = await listAllEntities(this.entityType);
+    return records
+      .filter((record) => {
+        const username = String(record.username || '').trim().toLowerCase().replace(/\s+/g, '');
+        const email = String(record.email || '').trim().toLowerCase();
+        return (!barId || String(record.barId || '') === String(barId))
+          && (username === normalizedIdentifier.replace(/\s+/g, '') || email === normalizedIdentifier);
+      })
+      .map((record) => new this(record));
+  }
 }
 
 module.exports = User;

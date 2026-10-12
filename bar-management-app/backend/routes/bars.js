@@ -14,6 +14,7 @@ const PurchaseOrder = require('../models/PurchaseOrder');
 const Supplier = require('../models/Supplier');
 const BarApplication = require('../models/BarApplication');
 const { protect, isGlobalOwner } = require('../middleware/auth');
+const { applicationBelongsToBar } = require('../lib/barApplicationLifecycle');
 
 const normalizeUsername = (value, fallback = 'admin') => {
   const normalized = String(value || fallback || 'admin').trim().toLowerCase().replace(/\s+/g, '');
@@ -26,6 +27,12 @@ const normalizeEmail = (value, fallback = 'admin@bar.local') => {
   }
   return fallback;
 };
+
+const isValidEmail = (email) => (
+  typeof email === 'string'
+  && /^[^\s<>@]+@[^\s<>@]+\.[^\s<>@]+$/.test(email)
+  && !/[\r\n]/.test(email)
+);
 
 router.use(protect, isGlobalOwner);
 
@@ -96,6 +103,38 @@ router.get('/:id', async (req, res) => {
   }
 });
 
+router.patch('/:id/daily-report-recipients', async (req, res) => {
+  try {
+    const recipients = req.body?.dailyReportRecipients;
+    if (!Array.isArray(recipients) || recipients.some((email) => typeof email !== 'string')) {
+      return res.status(400).json({ message: 'Daily report recipients must be an array of email addresses.' });
+    }
+
+    const normalizedRecipients = [...new Set(recipients.map((email) => email.trim().toLowerCase()).filter(Boolean))];
+    if (normalizedRecipients.length > 49) {
+      return res.status(400).json({ message: 'A maximum of 49 daily report recipients is allowed.' });
+    }
+    if (normalizedRecipients.some((email) => !isValidEmail(email))) {
+      return res.status(400).json({ message: 'Enter valid email addresses for all daily report recipients.' });
+    }
+
+    const bar = await Bar.findById(req.params.id);
+    if (!bar) {
+      return res.status(404).json({ message: 'Bar not found' });
+    }
+
+    bar.dailyReportRecipients = normalizedRecipients;
+    bar.dailyReportRecipientsUpdatedAt = new Date().toISOString();
+    bar.dailyReportRecipientsUpdatedBy = req.user._id;
+    await bar.save();
+
+    res.json(bar);
+  } catch (error) {
+    console.error('Error updating daily report recipients:', error);
+    res.status(500).json({ message: error.message });
+  }
+});
+
 router.post('/', async (req, res) => {
   try {
     if (req.user?.barId) {
@@ -120,9 +159,9 @@ router.post('/', async (req, res) => {
     const normalizedUsername = normalizeUsername(adminUsername, name);
     const normalizedEmail = normalizeEmail(adminEmail, `${normalizedUsername}@bar.local`);
 
-    const existingUser = await User.findGlobalOne({ $or: [{ username: normalizedUsername }, { email: normalizedEmail }] });
+    const existingUser = await User.findGlobalByUsername(normalizedUsername);
     if (existingUser) {
-      return res.status(400).json({ message: 'Bar admin username or email already exists.' });
+      return res.status(400).json({ message: 'Bar admin username already exists.' });
     }
 
     const bar = new Bar({ name, code, description, status: 'active', createdAt: new Date().toISOString() });
@@ -213,6 +252,26 @@ router.patch('/:id/status', async (req, res) => {
     if (status === 'deleted') {
       // Models don't support deleteMany; fetch and delete each record instead.
       const tasks = [];
+
+      const applications = await BarApplication.find();
+      const linkedApplications = applications.filter((application) => (
+        application.status === 'approved' && applicationBelongsToBar(application, bar)
+      ));
+      linkedApplications.forEach((application) => {
+        application.status = 'bar_deleted';
+        application.barId = bar._id;
+        application.barDeletedAt = new Date().toISOString();
+        application.barDeletedBy = req.user._id;
+        application.archiveReason = 'bar_deleted';
+        application.ownerPassword = null;
+        if (application.adminCredentials) {
+          application.adminCredentials = {
+            username: application.adminCredentials.username,
+            password: null
+          };
+        }
+        tasks.push(application.save());
+      });
 
       const users = await User.find({ barId: bar._id });
       tasks.push(...users.map((u) => u.delete()));
