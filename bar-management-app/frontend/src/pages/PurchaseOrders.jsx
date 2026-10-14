@@ -9,7 +9,6 @@ const PurchaseOrders = () => {
   const [orders, setOrders] = useState([]);
   const [suppliers, setSuppliers] = useState([]);
   const [products, setProducts] = useState([]);
-  const [productSearch, setProductSearch] = useState('');
   const [loading, setLoading] = useState(true);
   const [showForm, setShowForm] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -17,11 +16,10 @@ const PurchaseOrders = () => {
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
   const [currentPage, setCurrentPage] = useState(1);
-  const [activeItemIndex, setActiveItemIndex] = useState(0);
   const ORDERS_PAGE_SIZE = 5;
   const [formData, setFormData] = useState({
     supplier: '',
-    items: [{ product: '', quantity: '', costPrice: '' }],
+    items: [{ product: '', productSearch: '', quantity: '', costPrice: '' }],
     expectedDelivery: '',
     notes: ''
   });
@@ -48,24 +46,24 @@ const PurchaseOrders = () => {
   };
 
   const handleAddItem = () => {
-    const newItemIndex = formData.items.length;
     setFormData({
       ...formData,
-      items: [...formData.items, { product: '', quantity: '', costPrice: '' }]
+      items: [...formData.items, { product: '', productSearch: '', quantity: '', costPrice: '' }]
     });
-    setActiveItemIndex(newItemIndex);
   };
 
   const handleRemoveItem = (index) => {
     if (formData.items.length === 1) return;
     const newItems = formData.items.filter((_, i) => i !== index);
     setFormData({ ...formData, items: newItems });
-    setActiveItemIndex((currentIndex) => Math.min(currentIndex, newItems.length - 1));
   };
 
   const handleItemChange = (index, field, value) => {
     const newItems = [...formData.items];
-    newItems[index][field] = value;
+    newItems[index] = { ...newItems[index], [field]: value };
+    if (field === 'product') {
+      newItems[index].productSearch = '';
+    }
     if (field === 'product' && !newItems[index].costPrice) {
       const selectedProduct = products.find((product) => product._id === value);
       if (selectedProduct?.costPrice !== undefined && selectedProduct?.costPrice !== null) {
@@ -106,7 +104,7 @@ const PurchaseOrders = () => {
       setShowForm(false);
       setFormData({
         supplier: '',
-        items: [{ product: '', quantity: '', costPrice: '' }],
+        items: [{ product: '', productSearch: '', quantity: '', costPrice: '' }],
         expectedDelivery: '',
         notes: ''
       });
@@ -164,15 +162,6 @@ const PurchaseOrders = () => {
     (currentPage - 1) * ORDERS_PAGE_SIZE,
     currentPage * ORDERS_PAGE_SIZE
   );
-  const normalizedProductSearch = productSearch.trim().toLowerCase();
-  const filteredProducts = products.filter((product) => {
-    if (!normalizedProductSearch) return true;
-    return (
-      product.name?.toLowerCase().includes(normalizedProductSearch) ||
-      product.category?.name?.toLowerCase().includes(normalizedProductSearch)
-    );
-  });
-
   if (loading) {
     return (
       <PageContainer title="📦 Purchase Orders">
@@ -217,95 +206,111 @@ const PurchaseOrders = () => {
               <div style={styles.itemsSection}>
                 <div style={styles.itemsHeader}>
                   <label style={styles.label}>Items *</label>
-                  <span style={styles.searchSummary}>
-                    {normalizedProductSearch ? `${filteredProducts.length} matches` : `${products.length} products`}
-                  </span>
-                </div>
-                <div className="purchase-order-search-box" style={styles.searchBox}>
-                  <span aria-hidden="true" style={styles.searchIcon}>⌕</span>
-                  <input
-                    type="search"
-                    aria-label="Search products for this order"
-                    placeholder="Search by product or category..."
-                    value={productSearch}
-                    onChange={(e) => setProductSearch(e.target.value)}
-                    className="purchase-order-search-input"
-                    style={styles.searchInput}
-                  />
-                  {productSearch && (
-                    <button
-                      type="button"
-                      aria-label="Clear product search"
-                      onClick={() => setProductSearch('')}
-                      className="purchase-order-clear-search"
-                      style={styles.clearSearch}
-                    >
-                      ✕
-                    </button>
-                  )}
-                </div>
-                <p style={styles.searchHint}>Select a product below for Item {activeItemIndex + 1}.</p>
-                <div className="purchase-order-product-results" style={styles.productResults}>
-                  {filteredProducts.length === 0 ? (
-                    <p style={styles.noResults}>No products match your search.</p>
-                  ) : (
-                    filteredProducts.map((product) => (
-                      <button
-                        key={product._id}
-                        type="button"
-                        className="purchase-order-product-result"
-                        style={styles.productResult}
-                        onClick={() => handleItemChange(activeItemIndex, 'product', product._id)}
-                      >
-                        <span style={styles.productResultName}>{product.name}</span>
-                        <span style={styles.productResultCategory}>{product.category?.name || 'Uncategorized'}</span>
-                      </button>
-                    ))
-                  )}
                 </div>
                 {formData.items.map((item, index) => (
-                  <div key={index} style={{...styles.itemRow, ...(activeItemIndex === index ? styles.activeItemRow : {})}}>
-                    <button
-                      type="button"
-                      style={{...styles.productPicker, flex: 2}}
-                      onClick={() => setActiveItemIndex(index)}
-                    >
-                      {item.product
-                        ? products.find((product) => product._id === item.product)?.name || 'Selected product'
-                        : 'Choose product from results'}
-                    </button>
-                    <input
-                      type="number"
-                      required
-                      placeholder="Qty"
-                      style={{...styles.input, flex: 1}}
-                      value={item.quantity}
-                      onChange={(e) => handleItemChange(index, 'quantity', e.target.value)}
-                    />
-                    <input
-                      type="number"
-                      required
-                      placeholder="Cost"
-                      style={{...styles.input, flex: 1}}
-                      value={item.costPrice}
-                      onChange={(e) => handleItemChange(index, 'costPrice', e.target.value)}
-                    />
-                    <button
-                      type="button"
-                      style={styles.removeBtn}
-                      onClick={() => handleRemoveItem(index)}
-                      onMouseEnter={(e) => {
-                        e.currentTarget.style.backgroundColor = '#fde8e8';
-                        e.currentTarget.style.borderColor = '#e74c3c';
-                      }}
-                      onMouseLeave={(e) => {
-                        e.currentTarget.style.backgroundColor = 'white';
-                        e.currentTarget.style.borderColor = '#ddd';
-                      }}
-                    >
-                      ✕
-                    </button>
-                  </div>
+                  (() => {
+                    const query = (item.productSearch || '').trim().toLowerCase();
+                    const matchingProducts = query
+                      ? products.filter((product) => (
+                          product.name?.toLowerCase().includes(query)
+                          || product.category?.name?.toLowerCase().includes(query)
+                        ))
+                      : [];
+                    const selectedProduct = products.find((product) => product._id === item.product);
+
+                    return (
+                      <div key={index} style={styles.itemCard}>
+                        <div style={styles.itemCardHeader}>
+                          <strong style={styles.itemCardTitle}>Item {index + 1}</strong>
+                          <button
+                            type="button"
+                            aria-label={`Remove item ${index + 1}`}
+                            style={{ ...styles.removeBtn, ...(formData.items.length === 1 ? styles.removeBtnDisabled : {}) }}
+                            disabled={formData.items.length === 1}
+                            onClick={() => handleRemoveItem(index)}
+                          >
+                            ✕
+                          </button>
+                        </div>
+                        <div className="purchase-order-search-box" style={styles.searchBox}>
+                          <span aria-hidden="true" style={styles.searchIcon}>⌕</span>
+                          <input
+                            type="search"
+                            aria-label={`Search products for item ${index + 1}`}
+                            placeholder="Search product or category..."
+                            value={item.productSearch || ''}
+                            onChange={(event) => handleItemChange(index, 'productSearch', event.target.value)}
+                            className="purchase-order-search-input"
+                            style={styles.searchInput}
+                          />
+                          <span style={styles.searchSummary}>
+                            {query ? `${matchingProducts.length} matches` : `${products.length} products`}
+                          </span>
+                          {item.productSearch && (
+                            <button
+                              type="button"
+                              aria-label={`Clear search for item ${index + 1}`}
+                              onClick={() => handleItemChange(index, 'productSearch', '')}
+                              className="purchase-order-clear-search"
+                              style={styles.clearSearch}
+                            >
+                              ✕
+                            </button>
+                          )}
+                        </div>
+                        {query && (
+                          <div className="purchase-order-product-results" style={styles.productResults}>
+                            {matchingProducts.length === 0 ? (
+                              <p style={styles.noResults}>No products match this search.</p>
+                            ) : (
+                              matchingProducts.map((product) => (
+                                <button
+                                  key={product._id}
+                                  type="button"
+                                  className="purchase-order-product-result"
+                                  style={styles.productResult}
+                                  onClick={() => handleItemChange(index, 'product', product._id)}
+                                >
+                                  <span style={styles.productResultName}>{product.name}</span>
+                                  <span style={styles.productResultCategory}>{product.category?.name || 'Uncategorized'}</span>
+                                </button>
+                              ))
+                            )}
+                          </div>
+                        )}
+                        <div style={styles.itemDetails}>
+                          <div style={{ ...styles.selectedProduct, ...(selectedProduct ? styles.selectedProductChosen : {}) }}>
+                            <span style={styles.selectedProductLabel}>Product</span>
+                            <strong>{selectedProduct?.name || 'Choose a product above'}</strong>
+                            {selectedProduct?.category?.name && <span>{selectedProduct.category.name}</span>}
+                          </div>
+                          <div style={styles.itemFields}>
+                            <input
+                              type="number"
+                              required
+                              min="1"
+                              placeholder="Qty"
+                              aria-label={`Quantity for item ${index + 1}`}
+                              style={{ ...styles.input, flex: 1 }}
+                              value={item.quantity}
+                              onChange={(event) => handleItemChange(index, 'quantity', event.target.value)}
+                            />
+                            <input
+                              type="number"
+                              required
+                              min="0"
+                              step="0.01"
+                              placeholder="Unit cost"
+                              aria-label={`Unit cost for item ${index + 1}`}
+                              style={{ ...styles.input, flex: 1 }}
+                              value={item.costPrice}
+                              onChange={(event) => handleItemChange(index, 'costPrice', event.target.value)}
+                            />
+                          </div>
+                        </div>
+                      </div>
+                    );
+                  })()
                 ))}
                 <Button variant="secondary" onClick={handleAddItem} size="small">
                   + Add Item
@@ -643,9 +648,9 @@ const styles = {
     gap: '8px',
     width: '100%',
     padding: '0 10px',
-    border: '1px solid #cfd4dc',
-    borderRadius: '10px',
-    backgroundColor: '#f8fafc',
+    border: '1px solid #a9c4e4',
+    borderRadius: '8px',
+    backgroundColor: '#eaf3ff',
     transition: 'border-color 0.2s ease, box-shadow 0.2s ease'
   },
   searchIcon: {
@@ -653,11 +658,23 @@ const styles = {
     fontSize: '22px',
     lineHeight: 1
   },
-  itemRow: {
+  itemCard: {
+    display: 'grid',
+    gap: '12px',
+    padding: '14px',
+    border: '1px solid #a8d5bc',
+    borderRadius: '10px',
+    backgroundColor: '#f0f8f4'
+  },
+  itemCardHeader: {
     display: 'flex',
-    gap: '10px',
+    justifyContent: 'space-between',
     alignItems: 'center',
-    flexWrap: 'wrap'
+    gap: '12px'
+  },
+  itemCardTitle: {
+    color: '#245b43',
+    fontSize: '14px'
   },
   input: {
     padding: '12px 14px',
@@ -692,11 +709,6 @@ const styles = {
     cursor: 'pointer',
     fontSize: '12px'
   },
-  searchHint: {
-    margin: '-3px 0 2px',
-    color: '#667085',
-    fontSize: '12px'
-  },
   productResults: {
     display: 'grid',
     gridTemplateColumns: 'repeat(auto-fill, minmax(180px, 1fr))',
@@ -704,9 +716,9 @@ const styles = {
     maxHeight: '220px',
     overflowY: 'auto',
     padding: '4px',
-    border: '1px solid #e4e7ec',
-    borderRadius: '10px',
-    backgroundColor: '#f8fafc'
+    border: '1px solid #c4d8ef',
+    borderRadius: '8px',
+    backgroundColor: '#eaf3ff'
   },
   productResult: {
     display: 'flex',
@@ -715,7 +727,7 @@ const styles = {
     gap: '4px',
     minHeight: '62px',
     padding: '10px 12px',
-    border: '1px solid #d0d5dd',
+    border: '1px solid #b8cce4',
     borderRadius: '8px',
     backgroundColor: 'white',
     color: '#1d2939',
@@ -739,6 +751,40 @@ const styles = {
     fontSize: '13px',
     textAlign: 'center'
   },
+  itemDetails: {
+    display: 'grid',
+    gridTemplateColumns: 'repeat(auto-fit, minmax(min(100%, 220px), 1fr))',
+    gap: '10px',
+    alignItems: 'stretch'
+  },
+  selectedProduct: {
+    display: 'grid',
+    alignContent: 'center',
+    gap: '4px',
+    minHeight: '64px',
+    padding: '10px 12px',
+    border: '1px solid #cbd5e1',
+    borderRadius: '8px',
+    backgroundColor: '#f8fafc',
+    color: '#334155',
+    fontSize: '14px'
+  },
+  selectedProductChosen: {
+    borderColor: '#71bd91',
+    backgroundColor: '#e2f4e9',
+    color: '#245b43'
+  },
+  selectedProductLabel: {
+    color: '#667085',
+    fontSize: '11px',
+    fontWeight: '700',
+    textTransform: 'uppercase'
+  },
+  itemFields: {
+    display: 'grid',
+    gridTemplateColumns: 'repeat(2, minmax(0, 1fr))',
+    gap: '8px'
+  },
   label: {
     fontSize: '14px',
     fontWeight: '500',
@@ -753,25 +799,9 @@ const styles = {
     fontSize: '14px',
     transition: 'all 0.3s ease'
   },
-  activeItemRow: {
-    padding: '8px',
-    borderRadius: '10px',
-    backgroundColor: '#fff6f7',
-    outline: '1px solid #f4b4bf'
-  },
-  productPicker: {
-    display: 'flex',
-    alignItems: 'center',
-    minHeight: '44px',
-    padding: '12px 14px',
-    borderRadius: '8px',
-    border: '1px solid #ddd',
-    backgroundColor: 'white',
-    color: '#344054',
-    cursor: 'pointer',
-    fontSize: '15px',
-    fontFamily: 'inherit',
-    textAlign: 'left'
+  removeBtnDisabled: {
+    opacity: 0.45,
+    cursor: 'not-allowed'
   },
   formActions: {
     display: 'flex',

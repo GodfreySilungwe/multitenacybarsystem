@@ -1,13 +1,17 @@
 import { useEffect, useState } from 'react';
 import QRCode from 'qrcode';
 import api from '../../api/api';
+import { useAuth } from '../../context/AuthContext';
 import { formatPriceMK } from '../../utils/formatPrice';
 
 const APPLY_URL = 'https://www.smartbarmw.tech/apply';
 
 const ReceiptModal = ({ order, onClose }) => {
+  const { user } = useAuth();
   const [qrCodeDataUrl, setQrCodeDataUrl] = useState('');
   const [qrCaption, setQrCaption] = useState('Interested in this App? Scan here');
+  const [shopDetails, setShopDetails] = useState(null);
+  const [shopDetailsLoaded, setShopDetailsLoaded] = useState(false);
   const hasCustomerAccount = Boolean(
     order?.customerAccount?.username
     || order?.customer?.accountUsername
@@ -59,6 +63,59 @@ const ReceiptModal = ({ order, onClose }) => {
     };
   }, [hasCustomerAccount, order]);
 
+  useEffect(() => {
+    let isMounted = true;
+    const cacheKey = user?.barId ? `receiptShopDetails:${user.barId}` : null;
+    setShopDetails(null);
+    setShopDetailsLoaded(false);
+
+    if (cacheKey) {
+      try {
+        const cachedDetails = JSON.parse(localStorage.getItem(cacheKey) || 'null');
+        const hasCachedDetails = cachedDetails && ['name', 'email', 'phone'].some((field) => (
+          typeof cachedDetails[field] === 'string' && cachedDetails[field].trim()
+        ));
+        if (hasCachedDetails) {
+          setShopDetails(cachedDetails);
+          setShopDetailsLoaded(true);
+          return () => {
+            isMounted = false;
+          };
+        }
+      } catch (error) {
+        try {
+          localStorage.removeItem(cacheKey);
+        } catch (storageError) {
+          console.warn('Could not clear invalid receipt shop details cache:', storageError);
+        }
+      }
+    }
+
+    const loadShopDetails = async () => {
+      try {
+        const response = await api.get('/auth/me');
+        const details = response.data?.barDetails || null;
+        if (details && cacheKey) {
+          try {
+            localStorage.setItem(cacheKey, JSON.stringify(details));
+          } catch (error) {
+            console.warn('Could not cache shop details for receipt:', error);
+          }
+        }
+        if (isMounted) setShopDetails(details);
+      } catch (error) {
+        console.error('Could not load shop details for receipt:', error);
+      } finally {
+        if (isMounted) setShopDetailsLoaded(true);
+      }
+    };
+
+    loadShopDetails();
+    return () => {
+      isMounted = false;
+    };
+  }, [user?.barId]);
+
   if (!order) return null;
 
   const savedBusiness = (() => {
@@ -71,10 +128,19 @@ const ReceiptModal = ({ order, onClose }) => {
   })();
 
   const customerName = order.customerName || order.customer?.name || order.customer?.fullName || 'Walk-in Customer';
-  const shopName = savedBusiness.name || order.shopName || order.barName || 'SMART BAR';
+  const shopName = shopDetails?.name || savedBusiness.name || order.shopName || order.barName || 'SMART BAR';
+  const shopEmail = shopDetails?.email || savedBusiness.email || '';
+  const shopPhone = shopDetails?.phone || savedBusiness.phone || '';
   const qrAlt = qrCaption === 'Scan to check your bill'
     ? 'QR code to view customer bills'
     : 'QR code to apply at Smart Bar';
+  const escapeHtml = (value) => String(value || '').replace(/[&<>"']/g, (character) => ({
+    '&': '&amp;',
+    '<': '&lt;',
+    '>': '&gt;',
+    '"': '&quot;',
+    "'": '&#39;'
+  })[character]);
 
   const handlePrint = () => {
     const printWindow = window.open('', '_blank', 'width=420,height=720');
@@ -120,7 +186,9 @@ const ReceiptModal = ({ order, onClose }) => {
         <body>
           <div class="receipt">
             <div class="center">
-              <div class="bold">${shopName}</div>
+              <div class="bold">${escapeHtml(shopName)}</div>
+              ${shopEmail ? `<div>${escapeHtml(shopEmail)}</div>` : ''}
+              ${shopPhone ? `<div>${escapeHtml(shopPhone)}</div>` : ''}
             </div>
             <div class="divider"></div>
             <div>Order #: ${order.orderNumber}</div>
@@ -180,11 +248,13 @@ const ReceiptModal = ({ order, onClose }) => {
   return (
     <div style={styles.overlay} onClick={onClose}>
       <div style={styles.modal} onClick={(e) => e.stopPropagation()}>
-        <button style={styles.closeBtn} onClick={onClose}>✕</button>
+        <button type="button" className="receipt-modal-close" aria-label="Close receipt" style={styles.closeBtn} onClick={onClose}>✕</button>
 
         <div id="receipt" style={styles.receipt}>
           <div style={styles.header}>
             <h1 style={styles.barName}>{shopName}</h1>
+            {shopEmail && <p style={styles.address}>{shopEmail}</p>}
+            {shopPhone && <p style={styles.phone}>{shopPhone}</p>}
             <div style={styles.divider} />
           </div>
 
@@ -252,9 +322,9 @@ const ReceiptModal = ({ order, onClose }) => {
           <button
             style={{...styles.printBtn, ...(!qrCodeDataUrl ? styles.disabledPrintBtn : {})}}
             onClick={handlePrint}
-            disabled={!qrCodeDataUrl}
+            disabled={!qrCodeDataUrl || !shopDetailsLoaded}
           >
-            {qrCodeDataUrl ? '🖨️ Print Receipt' : 'Preparing receipt...'}
+            {qrCodeDataUrl && shopDetailsLoaded ? '🖨️ Print Receipt' : 'Preparing receipt...'}
           </button>
           <button style={styles.closeBtnModal} onClick={onClose}>
             Close
@@ -293,12 +363,18 @@ const styles = {
   closeBtn: {
     position: 'absolute',
     top: '12px',
-    right: '16px',
-    background: 'none',
+    left: '16px',
+    width: '36px',
+    height: '36px',
+    display: 'grid',
+    placeItems: 'center',
     border: 'none',
-    fontSize: '24px',
+    borderRadius: '8px',
+    backgroundColor: '#dc2626',
+    fontSize: '18px',
     cursor: 'pointer',
-    color: '#888',
+    color: '#fff',
+    lineHeight: 1,
     zIndex: 10
   },
   receipt: {

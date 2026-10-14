@@ -154,6 +154,9 @@ const Sidebar = ({ isMobileOpen = false, onClose = () => {} }) => {
         <div style={styles.userInfo}>
           <div style={styles.userName}>{user?.fullName || 'User'}</div>
           <div style={styles.userRole}>{user?.role || 'Staff'}</div>
+          {user?.barId && user?.barDetails?.name && (
+            <div style={styles.barName}>{user.barDetails.name}</div>
+          )}
         </div>
         <button
           style={styles.logoutBtn}
@@ -273,6 +276,14 @@ const styles = {
     fontSize: '12px',
     color: '#888',
     textTransform: 'capitalize'
+  },
+  barName: {
+    marginTop: '6px',
+    color: '#e8b66a',
+    fontSize: '12px',
+    fontWeight: '600',
+    lineHeight: 1.35,
+    overflowWrap: 'anywhere'
   },
   logoutBtn: {
     width: '100%',
