@@ -15,6 +15,7 @@ const Supplier = require('../models/Supplier');
 const BarApplication = require('../models/BarApplication');
 const { protect, isGlobalOwner } = require('../middleware/auth');
 const { applicationBelongsToBar } = require('../lib/barApplicationLifecycle');
+const { cloneProductsAcrossBars } = require('../lib/productImport');
 
 const normalizeUsername = (value, fallback = 'admin') => {
   const normalized = String(value || fallback || 'admin').trim().toLowerCase().replace(/\s+/g, '');
@@ -99,6 +100,90 @@ router.get('/:id', async (req, res) => {
     res.json(bar);
   } catch (error) {
     console.error('Error fetching bar:', error);
+    res.status(500).json({ message: error.message });
+  }
+});
+
+router.get('/:id/products', async (req, res) => {
+  try {
+    const bar = await Bar.findById(req.params.id);
+    if (!bar) {
+      return res.status(404).json({ message: 'Bar not found' });
+    }
+
+    const products = await Product.find({ barId: req.params.id }).populate('category', 'name').sort({ name: 1 });
+    res.json(products);
+  } catch (error) {
+    console.error('Error fetching bar products:', error);
+    res.status(500).json({ message: error.message });
+  }
+});
+
+router.post('/:id/import-products', async (req, res) => {
+  try {
+    const targetBarId = req.params.id;
+    const targetBar = await Bar.findById(targetBarId);
+    if (!targetBar) {
+      return res.status(404).json({ message: 'Target bar not found' });
+    }
+
+    const sourceBarId = String(req.body?.sourceBarId || '').trim();
+    const productIds = Array.isArray(req.body?.productIds) ? req.body.productIds : [];
+    const preservePrices = req.body?.preservePrices !== false;
+    const resetStock = req.body?.resetStock !== false;
+
+    if (!sourceBarId) {
+      return res.status(400).json({ message: 'Select a source bar to import products from.' });
+    }
+
+    if (String(sourceBarId) === String(targetBarId)) {
+      return res.status(400).json({ message: 'A bar cannot import products into itself.' });
+    }
+
+    const sourceBar = await Bar.findById(sourceBarId);
+    if (!sourceBar) {
+      return res.status(404).json({ message: 'Source bar not found' });
+    }
+
+    const sourceProducts = await Product.find({ barId: sourceBarId }).populate('category', 'name').sort({ name: 1 });
+    const targetProducts = await Product.find({ barId: targetBarId }).populate('category', 'name');
+    const targetCategories = await Category.find({ barId: targetBarId }).sort({ name: 1 });
+
+    if (!sourceProducts.length) {
+      return res.status(400).json({ message: `The source bar "${sourceBar.name || sourceBarId}" has no products to import.` });
+    }
+
+    const selection = productIds.length > 0
+      ? sourceProducts.filter((product) => productIds.some((id) => String(product._id || product.id) === String(id)))
+      : sourceProducts;
+
+    if (!selection.length) {
+      return res.status(400).json({ message: 'Select at least one product to import.' });
+    }
+
+    const result = await cloneProductsAcrossBars({
+      sourceBarId,
+      targetBarId,
+      sourceProducts: sourceProducts,
+      targetProducts,
+      productIds: selection.map((product) => product._id || product.id),
+      preservePrices,
+      resetStock,
+      targetCategories
+    });
+
+    if (!result.created.length && !result.skipped.length && result.errors.length) {
+      return res.status(400).json({ message: result.errors[0].message || 'Product import failed.' });
+    }
+
+    res.status(201).json({
+      ...result,
+      targetBarName: targetBar.name,
+      sourceBarName: sourceBar.name,
+      importedCount: result.created.length
+    });
+  } catch (error) {
+    console.error('Error importing products across bars:', error);
     res.status(500).json({ message: error.message });
   }
 });

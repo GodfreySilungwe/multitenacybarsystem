@@ -378,9 +378,23 @@ router.get('/me', async (req, res) => {
     const linkedCustomer = user.role === 'customer'
       ? await Customer.findOne({ accountUserId: user._id, barId: user.barId })
       : null;
+    let barDetails = null;
+    if (user.barId) {
+      const bar = await Bar.findById(user.barId);
+      let barOwner = bar?.ownerUserId ? await User.findById(bar.ownerUserId) : null;
+      if (!barOwner || barOwner.role !== 'owner' || String(barOwner.barId || '') !== String(user.barId)) {
+        barOwner = await User.findOne({ barId: user.barId, role: 'owner' });
+      }
+      barDetails = {
+        name: bar?.name || '',
+        email: barOwner?.email || '',
+        phone: barOwner?.phone || ''
+      };
+    }
 
     const safeUser = { ...user };
     if (safeUser.password) delete safeUser.password;
+    if (barDetails) safeUser.barDetails = barDetails;
     if (linkedCustomer) {
       safeUser.customerId = linkedCustomer._id;
     }
