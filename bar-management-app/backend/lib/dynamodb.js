@@ -734,6 +734,23 @@ async function createEntity(entityType, data) {
   return fromDynamoItem(item);
 }
 
+async function createEntityIfAbsent(entityType, data) {
+  await ensureTableExists();
+  const item = toDynamoItem(entityType, data);
+
+  try {
+    await docClient.send(new PutCommand({
+      TableName: TABLE_NAME,
+      Item: item,
+      ConditionExpression: 'attribute_not_exists(pk)'
+    }));
+    return true;
+  } catch (error) {
+    if (error.name === 'ConditionalCheckFailedException') return false;
+    throw error;
+  }
+}
+
 async function createCustomerReceiptAccessToken(data) {
   await ensureTableExists();
   const item = {
@@ -877,6 +894,7 @@ module.exports = {
   getEntity,
   getEntitiesByIds,
   createEntity,
+  createEntityIfAbsent,
   createCustomerReceiptAccessToken,
   getCustomerReceiptAccessToken,
   consumeCustomerReceiptAccessToken,

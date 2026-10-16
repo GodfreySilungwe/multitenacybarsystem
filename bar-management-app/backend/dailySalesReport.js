@@ -4,6 +4,8 @@ const {
   getEntity,
   listEntities,
   getEntitiesByIds,
+  createEntityIfAbsent,
+  updateEntity,
   queryEntities,
   queryPaymentRequestsByBarStatus,
   decodeLastEvaluatedKey
@@ -472,6 +474,32 @@ const buildRawEmail = ({ from, to, cc = [], subject, text, filename, attachment 
   return Buffer.from(message);
 };
 
+const buildNoSalesReminderText = ({ barName, window }) => (
+  `Hello,\r\n\r\n`
+  + `We did not record sales for ${barName || 'your bar'} during `
+  + `${formatDateTime(window.startDate)} to ${formatDateTime(window.endExclusive)} CAT.\r\n\r\n`
+  + `If you are still getting set up, add your products and prices in SmartBar, then you will be ready to start recording sales. `
+  + `To complete setup, go to www.smartbarmw.tech. `
+  + `For help getting started or loading products, contact our support team on WhatsApp at 0995718815.\r\n\r\n`
+  + `Please do not reply to this email. This inbox is not monitored. For assistance, contact us on WhatsApp at 0995718815.\r\n\r\n`
+  + `SmartBar Support`
+);
+
+const buildRawTextEmail = ({ from, to, subject, text }) => {
+  const encodedText = Buffer.from(text, 'utf8').toString('base64').replace(/.{1,76}/g, '$&\r\n');
+  const message = [
+    `From: ${from}`,
+    `To: ${formatEmailHeader(to)}`,
+    `Subject: ${subject}`,
+    'MIME-Version: 1.0',
+    'Content-Type: text/plain; charset=UTF-8',
+    'Content-Transfer-Encoding: base64',
+    '',
+    encodedText
+  ].join('\r\n');
+  return Buffer.from(message);
+};
+
 const collectBarOrders = async (barId, window) => {
   const orders = [];
   let lastEvaluatedKey;
@@ -641,6 +669,16 @@ const sendReport = async ({ to, cc, from, barName, pdf, window }) => {
   await sesClient.send(new SendRawEmailCommand({ RawMessage: { Data: raw } }));
 };
 
+const sendNoSalesReminder = async ({ to, from, barName, window }) => {
+  const raw = buildRawTextEmail({
+    from,
+    to,
+    subject: 'Help getting started with SmartBar',
+    text: buildNoSalesReminderText({ barName, window })
+  });
+  await sesClient.send(new SendRawEmailCommand({ RawMessage: { Data: raw } }));
+};
+
 const handler = async (event = {}) => {
   const referenceTime = event.time || new Date();
   const window = getReportWindow(referenceTime, event.reportDate || null);
@@ -657,7 +695,14 @@ const handler = async (event = {}) => {
     throw new Error(`Bar not found: ${event.barId}`);
   }
 
-  const results = { reportDate: window.reportDate, sent: 0, skipped: 0, failed: [] };
+  const results = {
+    reportDate: window.reportDate,
+    sent: 0,
+    noSalesRemindersSent: 0,
+    noSalesRemindersPreviouslyAttempted: 0,
+    skipped: 0,
+    failed: []
+  };
   for (const bar of selectedBars) {
     if (['suspended', 'deleted'].includes(String(bar.status || '').toLowerCase())) {
       results.skipped += 1;
@@ -668,7 +713,42 @@ const handler = async (event = {}) => {
       const orders = await collectBarOrders(bar._id || bar.id, window);
       if (orders.length === 0) {
         results.skipped += 1;
-        console.info('No sales in report window; skipped bar', bar._id || bar.id);
+        const barId = String(bar._id || bar.id);
+        if (String(bar.status || '').toLowerCase() !== 'active') {
+          console.info('No sales reminder not sent for inactive bar', barId);
+          continue;
+        }
+
+        const owner = bar.ownerUserId ? await getEntity('user', bar.ownerUserId) : null;
+        const recipient = getBarOwnerRecipient(bar, owner);
+        if (!recipient) {
+          console.warn('No sales reminder skipped because the linked owner has no valid email', barId);
+          continue;
+        }
+
+        const attemptedAt = new Date().toISOString();
+        const claimed = await createEntityIfAbsent('dailySalesNoSalesReminder', {
+          id: barId,
+          barId,
+          ownerUserId: bar.ownerUserId,
+          recipient,
+          reportDate: window.reportDate,
+          status: 'claimed',
+          attemptedAt
+        });
+        if (!claimed) {
+          results.noSalesRemindersPreviouslyAttempted += 1;
+          console.info('No-sales reminder already attempted; skipped bar', barId);
+          continue;
+        }
+
+        await sendNoSalesReminder({ to: recipient, from, barName: bar.name || 'your bar', window });
+        await updateEntity('dailySalesNoSalesReminder', barId, {
+          status: 'sent',
+          sentAt: new Date().toISOString()
+        });
+        results.noSalesRemindersSent += 1;
+        console.info('One-time no-sales reminder sent', { barId, reportDate: window.reportDate });
         continue;
       }
 
@@ -708,5 +788,7 @@ module.exports = {
   resolveOrderCategoryNames,
   createSalesPdf,
   buildRawEmail,
+  buildNoSalesReminderText,
+  buildRawTextEmail,
   collectBarOrders
 };

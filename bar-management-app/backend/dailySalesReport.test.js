@@ -8,7 +8,9 @@ const {
   getBarReportRecipients,
   resolveOrderCategoryNames,
   createSalesPdf,
-  buildRawEmail
+  buildRawEmail,
+  buildNoSalesReminderText,
+  buildRawTextEmail
 } = require('./dailySalesReport');
 
 test('report window is the prior 06:00 through current 06:00 Malawi time', () => {
@@ -226,4 +228,31 @@ test('raw email includes the owner as a CC recipient', () => {
 
   assert.match(raw, /To: team@example\.com, finance@example\.com/);
   assert.match(raw, /Cc: owner@example\.com/);
+});
+
+test('no-sales reminder gives setup guidance and says not to reply', () => {
+  const window = getReportWindow('2026-10-10T04:05:00.000Z');
+  const text = buildNoSalesReminderText({ barName: 'Test Bar', window });
+
+  assert.match(text, /We did not record sales for Test Bar during 09\/10\/2026, 06:00 to 10\/10\/2026, 06:00 CAT/);
+  assert.match(text, /add your products and prices/);
+  assert.match(text, /To complete setup, go to www\.smartbarmw\.tech/);
+  assert.match(text, /WhatsApp at 0995718815/);
+  assert.match(text, /Please do not reply to this email/);
+  assert.match(text, /This inbox is not monitored/);
+});
+
+test('no-sales reminder email is plain text without a PDF attachment', () => {
+  const text = 'Please do not reply. Contact support on WhatsApp at 0995718815.';
+  const raw = buildRawTextEmail({
+    from: 'reports@example.com',
+    to: 'owner@example.com',
+    subject: 'Help getting started with SmartBar',
+    text
+  }).toString();
+  const [headers, encodedBody] = raw.split('\r\n\r\n');
+
+  assert.match(headers, /Content-Type: text\/plain; charset=UTF-8/);
+  assert.doesNotMatch(headers, /application\/pdf/);
+  assert.equal(Buffer.from(encodedBody.replace(/\r\n/g, ''), 'base64').toString('utf8'), text);
 });
