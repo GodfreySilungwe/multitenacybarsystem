@@ -9,6 +9,7 @@ const {
   resolveOrderCategoryNames,
   createSalesPdf,
   buildRawEmail,
+  buildDailyReportText,
   buildNoSalesReminderText,
   buildRawTextEmail
 } = require('./dailySalesReport');
@@ -213,6 +214,14 @@ test('raw email includes a PDF attachment with base64 content', () => {
   assert.match(raw, /Content-Type: application\/pdf/);
   assert.match(raw, /filename="sales-report\.pdf"/);
   assert.match(raw, /JVBERi10ZXN0/);
+});
+
+test('daily report email body identifies the bar', () => {
+  const window = getReportWindow('2026-10-10T04:05:00.000Z');
+  const text = buildDailyReportText({ barName: 'Test Bar', window });
+
+  assert.match(text, /^Bar: Test Bar/);
+  assert.match(text, /Attached is the sales report for 09\/10\/2026, 06:00 to 10\/10\/2026, 06:00\./);
 });
 
 test('raw email includes the owner as a CC recipient', () => {

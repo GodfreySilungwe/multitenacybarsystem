@@ -474,6 +474,11 @@ const buildRawEmail = ({ from, to, cc = [], subject, text, filename, attachment 
   return Buffer.from(message);
 };
 
+const buildDailyReportText = ({ barName, window }) => (
+  `Bar: ${barName || 'Bar'}\r\n\r\n`
+  + `Attached is the sales report for ${formatDateTime(window.startDate)} to ${formatDateTime(window.endExclusive)}.`
+);
+
 const buildNoSalesReminderText = ({ barName, window }) => (
   `Hello,\r\n\r\n`
   + `We did not record sales for ${barName || 'your bar'} during `
@@ -662,7 +667,7 @@ const sendReport = async ({ to, cc, from, barName, pdf, window }) => {
     to,
     cc,
     subject: `Daily sales report - ${window.reportDate}`,
-    text: `Attached is the sales report for ${formatDateTime(window.startDate)} to ${formatDateTime(window.endExclusive)}.`,
+    text: buildDailyReportText({ barName, window }),
     filename,
     attachment: pdf
   });
@@ -788,6 +793,7 @@ module.exports = {
   resolveOrderCategoryNames,
   createSalesPdf,
   buildRawEmail,
+  buildDailyReportText,
   buildNoSalesReminderText,
   buildRawTextEmail,
   collectBarOrders
