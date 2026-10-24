@@ -116,6 +116,18 @@ function buildBarPaymentGsiKeys(entityType, record) {
   };
 }
 
+function buildBarProductGsiKeys(entityType, record) {
+  const normalizedEntityType = String(entityType || '').toLowerCase();
+  if (normalizedEntityType !== 'product' || !record?.barId || !record?.id) {
+    return {};
+  }
+
+  return {
+    GSI5PK: `BAR#${record.barId}#PRODUCT`,
+    GSI5SK: `${String(record.name || '').trim().toLowerCase()}#${record.id}`
+  };
+}
+
 function serializeValue(value) {
   if (value instanceof Date) {
     return value.toISOString();
@@ -164,6 +176,7 @@ function toDynamoItem(entityType, data) {
   const barCreditGsiKeys = buildBarActiveCreditOrderGsiKeys(entityType, record);
   const paymentGsiKeys = buildBarPaymentGsiKeys(entityType, record);
   const inventoryAdjustmentGsiKeys = buildInventoryAdjustmentGsiKeys(entityType, record);
+  const productGsiKeys = buildBarProductGsiKeys(entityType, record);
 
   if (String(entityType).toLowerCase() === 'order') {
     delete record.GSI2PK;
@@ -194,7 +207,8 @@ function toDynamoItem(entityType, data) {
     ...creditGsiKeys,
     ...barCreditGsiKeys,
     ...inventoryAdjustmentGsiKeys,
-    ...paymentGsiKeys
+    ...paymentGsiKeys,
+    ...productGsiKeys
   };
 }
 
@@ -228,6 +242,10 @@ async function queryEntities(entityType, options = {}) {
   await ensureTableExists();
   const entityPartitionKey = String(entityType).toUpperCase();
   const normalizedEntityType = String(entityType).toLowerCase();
+  const useBarProductGsi = normalizedEntityType === 'product'
+    && options.barId !== undefined
+    && options.barId !== null
+    && options.useGsi !== false;
   const gsi1PartitionSuffix = normalizedEntityType === 'order'
     ? 'ORDER'
     : normalizedEntityType === 'inventoryadjustment'
@@ -237,13 +255,17 @@ async function queryEntities(entityType, options = {}) {
     && options.barId !== undefined
     && options.barId !== null
     && options.useGsi !== false;
+  const useBarGsi = useBarProductGsi || useBarDateGsi;
+  const indexName = useBarProductGsi ? 'GSI5' : 'GSI1';
   const params = {
     TableName: TABLE_NAME,
-    KeyConditionExpression: useBarDateGsi ? 'GSI1PK = :gsiPk' : 'pk = :pk',
-    ExpressionAttributeValues: useBarDateGsi
-      ? { ':gsiPk': `BAR#${options.barId}#${gsi1PartitionSuffix}` }
+    KeyConditionExpression: useBarGsi
+      ? `${useBarProductGsi ? 'GSI5PK' : 'GSI1PK'} = :gsiPk`
+      : 'pk = :pk',
+    ExpressionAttributeValues: useBarGsi
+      ? { ':gsiPk': `BAR#${options.barId}#${useBarProductGsi ? 'PRODUCT' : gsi1PartitionSuffix}` }
       : { ':pk': entityPartitionKey },
-    ...(useBarDateGsi ? { IndexName: 'GSI1' } : {})
+    ...(useBarGsi ? { IndexName: indexName } : {})
   };
 
   if (options.limit && Number.isFinite(Number(options.limit))) {
@@ -528,8 +550,14 @@ async function ensureTableExists() {
 async function listEntities(entityType, options = {}) {
   await ensureTableExists();
   const tenantBarId = getTenantId();
-  const entityPartitionKey = String(entityType).toUpperCase();
+  const normalizedEntityType = String(entityType).toLowerCase();
   const hasOptions = Object.keys(options).length > 0;
+  if (normalizedEntityType === 'product' && tenantBarId != null && !isGlobalAdmin()) {
+    const result = await queryEntities(entityType, { ...options, barId: tenantBarId });
+    return hasOptions ? result : result.items;
+  }
+
+  const entityPartitionKey = String(entityType).toUpperCase();
   const hasLimit = Number.isFinite(Number(options.limit)) && Number(options.limit) > 0;
   const limit = hasLimit ? Math.min(Math.floor(Number(options.limit)), 100) : null;
   const exclusiveStartKey = options.lastEvaluatedKey || null;

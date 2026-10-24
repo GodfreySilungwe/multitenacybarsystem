@@ -119,6 +119,26 @@ node scripts/backfillPaymentGsi4.js --apply --page-size=100 --concurrency=5
 
 The backfill is dry-run by default. Add `--apply` only after GSI4 is `ACTIVE`.
 
+### GSI5: Bar product index
+
+Key attributes:
+
+```text
+GSI5PK = BAR#<barId>#PRODUCT
+GSI5SK = <normalizedProductName>#<productId>
+```
+
+New and updated product records are written with GSI5 keys by the shared DynamoDB serializer. Bar-scoped product collection reads query GSI5, including product listing/search and product reads used by inventory, orders, and purchase orders. Exact product-ID lookups and batch lookups continue to use the primary key, since those are already targeted reads. Existing products must be backfilled before deploying the GSI5 read path.
+
+Run a dry run first, then apply the backfill after reviewing its counts:
+
+```powershell
+node scripts/backfillProductGsi5.js
+node scripts/backfillProductGsi5.js --apply --page-size=100 --concurrency=5
+```
+
+The script only applies updates when GSI5 is `ACTIVE`. It skips products without a bar ID, product ID, or name, and only updates a record if its bar ID and name have not changed since it was read.
+
 ## Dashboard and Reports
 
 ### Dashboard

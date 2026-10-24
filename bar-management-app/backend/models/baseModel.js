@@ -82,10 +82,15 @@ class BaseModel {
             : {})
         }
       : null;
+    const productIndexOptions = entityType === 'product' && query?.barId
+      ? { barId: query.barId }
+      : null;
 
     const recordsPromise = orderDateOptions
       ? dynamodb.queryEntities(entityType, orderDateOptions).then((result) => result.items)
-      : dynamodb.listEntities(entityType);
+      : productIndexOptions
+        ? dynamodb.queryEntities(entityType, productIndexOptions).then((result) => result.items)
+        : dynamodb.listEntities(entityType);
 
     return recordsPromise.then((records) => {
       if (!query || Object.keys(query).length === 0) {
