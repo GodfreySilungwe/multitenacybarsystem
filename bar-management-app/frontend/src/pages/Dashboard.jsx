@@ -47,6 +47,7 @@ const Dashboard = () => {
     pendingApplicationRatio: 0
   });
   const [globalBars, setGlobalBars] = useState([]);
+  const [globalRecordSearch, setGlobalRecordSearch] = useState('');
   const [subscriptions, setSubscriptions] = useState([]);
   const [subscriptionForm, setSubscriptionForm] = useState(null);
   const [subscriptionHistory, setSubscriptionHistory] = useState({});
@@ -144,7 +145,7 @@ const Dashboard = () => {
           activeRatio,
           pendingApplicationRatio
         }));
-        setGlobalBars(bars.slice(0, 5));
+        setGlobalBars(bars);
         setSubscriptions(subscriptionData);
         setRecentOrders([]);
         setLowStockProducts([]);
@@ -381,6 +382,34 @@ const Dashboard = () => {
   })();
   const totalCollectedByMethod = collectedByMethod.reduce((sum, method) => sum + method.amount, 0);
   const outstandingCreditValue = Number(outstandingCreditInPeriod || 0);
+  const globalRecordSearchTerm = globalRecordSearch.trim().toLowerCase();
+  const matchesGlobalRecordSearch = (...values) => (
+    !globalRecordSearchTerm
+    || values.some((value) => String(value || '').toLowerCase().includes(globalRecordSearchTerm))
+  );
+  const displayedGlobalBars = globalBars
+    .filter((bar) => matchesGlobalRecordSearch(
+      bar.name,
+      bar.code,
+      bar.status,
+      bar._id,
+      bar.id,
+      bar.owner?.fullName,
+      bar.owner?.username,
+      bar.owner?.email,
+      bar.owner?.phone
+    ))
+    .slice(0, globalRecordSearchTerm ? globalBars.length : 5);
+  const displayedSubscriptions = subscriptions.filter((subscription) => matchesGlobalRecordSearch(
+    subscription.barName,
+    subscription.barCode,
+    subscription.barId,
+    subscription.ownerName,
+    subscription.status,
+    subscription.paymentMethod,
+    subscription.paidThrough,
+    subscription.graceEndsAt
+  ));
 
   if (loading) {
     return (
@@ -425,6 +454,20 @@ const Dashboard = () => {
 
       {isGlobalOwner ? (
         <>
+          <div style={styles.globalSearchContainer}>
+            <label htmlFor="global-dashboard-record-search" style={styles.globalSearchLabel}>
+              Search bars and subscription records
+            </label>
+            <input
+              id="global-dashboard-record-search"
+              type="search"
+              value={globalRecordSearch}
+              onChange={(event) => setGlobalRecordSearch(event.target.value)}
+              placeholder="Search by bar name, code, owner, status..."
+              style={styles.globalSearchInput}
+            />
+          </div>
+
           <div style={styles.statsGrid}>
             <div className="fade-in delay-1" style={styles.statItem}>
               <StatsCard title="Total Bars" value={stats.totalBars} icon={faBuilding} color="#3498db" />
@@ -467,9 +510,11 @@ const Dashboard = () => {
             <p style={styles.infoText}>After creation, bars can be suspended, deleted, or restored from the Bars page.</p>
           </UnifiedCard>
 
-          <UnifiedCard title="Recent Bars">
-            {globalBars.length === 0 ? (
-              <p style={styles.emptyStateText}>No bars available yet.</p>
+          <UnifiedCard title={globalRecordSearchTerm ? 'Matching Bars' : 'Recent Bars'}>
+            {displayedGlobalBars.length === 0 ? (
+              <p style={styles.emptyStateText}>
+                {globalRecordSearchTerm ? 'No bars match your search.' : 'No bars available yet.'}
+              </p>
             ) : (
               <div style={styles.tableWrapper}>
                 <table style={styles.table}>
@@ -481,7 +526,7 @@ const Dashboard = () => {
                     </tr>
                   </thead>
                   <tbody>
-                    {globalBars.map((bar) => (
+                    {displayedGlobalBars.map((bar) => (
                       <tr key={bar._id || bar.id} style={styles.tableRow}>
                         <td style={styles.orderNumber}>{bar.name}</td>
                         <td>{bar.code || '-'}</td>
@@ -515,7 +560,7 @@ const Dashboard = () => {
                 <table style={styles.table}>
                   <thead><tr><th>Bar</th><th>Status</th><th>Paid through</th><th>Grace ends</th><th>Action</th></tr></thead>
                   <tbody>
-                    {subscriptions.map((subscription) => (
+                    {displayedSubscriptions.map((subscription) => (
                       <Fragment key={subscription.barId}>
                         <tr style={styles.tableRow}>
                           <td><strong>{subscription.barName}</strong><br /><small>{subscription.ownerName}</small></td>
@@ -574,6 +619,11 @@ const Dashboard = () => {
                         )}
                       </Fragment>
                     ))}
+                    {displayedSubscriptions.length === 0 && (
+                      <tr>
+                        <td colSpan="5" style={styles.emptyStateText}>No subscription records match your search.</td>
+                      </tr>
+                    )}
                   </tbody>
                 </table>
               </div>
@@ -990,6 +1040,28 @@ const styles = {
     fontSize: '16px',
     color: '#666',
     margin: '0 0 5px 0'
+  },
+  globalSearchContainer: {
+    display: 'flex',
+    flexDirection: 'column',
+    gap: '6px',
+    marginBottom: '20px'
+  },
+  globalSearchLabel: {
+    color: '#374151',
+    fontSize: '13px',
+    fontWeight: '600'
+  },
+  globalSearchInput: {
+    boxSizing: 'border-box',
+    width: '100%',
+    maxWidth: '520px',
+    padding: '11px 14px',
+    border: '1px solid #cbd5e1',
+    borderRadius: '8px',
+    backgroundColor: 'white',
+    color: '#1f2937',
+    fontSize: '14px'
   },
   lastUpdated: {
     fontSize: '13px',

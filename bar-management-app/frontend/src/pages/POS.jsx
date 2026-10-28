@@ -30,12 +30,12 @@ const POS = () => {
   const [backendSearchLoading, setBackendSearchLoading] = useState(false);
   const [categories, setCategories] = useState([]);
   const [cart, setCart] = useState([]);
+  const [quantityDrafts, setQuantityDrafts] = useState({});
   const [selectedCategory, setSelectedCategory] = useState('all');
   const [productSearch, setProductSearch] = useState('');
   const [customers, setCustomers] = useState([]);
   const [selectedCustomer, setSelectedCustomer] = useState('');
   const [paymentMethod, setPaymentMethod] = useState('cash');
-  const [paymentAmount, setPaymentAmount] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
@@ -493,15 +493,69 @@ const POS = () => {
     });
   };
 
+  const commitCartQuantity = (productId, value) => {
+    setQuantityDrafts((prev) => {
+      const next = { ...prev };
+      delete next[productId];
+      return next;
+    });
+
+    if (value === '') {
+      return;
+    }
+
+    const quantity = Number(value);
+    if (!Number.isInteger(quantity) || quantity < 0) {
+      setError('Quantity must be a whole number zero or greater.');
+      setTimeout(() => setError(''), 3000);
+      return;
+    }
+
+    const item = cart.find((cartItem) => cartItem._id === productId);
+    if (!item) {
+      return;
+    }
+    if (quantity === 0) {
+      setCart((prev) => prev.filter((cartItem) => cartItem._id !== productId));
+      return;
+    }
+
+    const availableStock = item
+      ? Math.max(0, Number(item.currentStock || 0) - Number(item.reservedStock || 0))
+      : 0;
+    if (quantity > availableStock) {
+      setError(`⚠️ Only ${availableStock} available for ${item?.name || 'this product'}.`);
+      setTimeout(() => setError(''), 3000);
+      return;
+    }
+
+    setCart((prev) => prev.map((cartItem) => (
+      cartItem._id === productId ? { ...cartItem, quantity } : cartItem
+    )));
+  };
+
   const clearCart = () => {
     if (cart.length === 0) return;
     if (window.confirm('Are you sure you want to clear the cart?')) {
       setCart([]);
+      setQuantityDrafts({});
     }
   };
 
-  const subtotal = cart.reduce((sum, item) => sum + (item.sellingPrice * item.quantity), 0);
-  const totalItems = cart.reduce((sum, item) => sum + item.quantity, 0);
+  const getDisplayedQuantity = (item) => {
+    const draft = quantityDrafts[item._id];
+    if (draft === undefined) {
+      return item.quantity;
+    }
+    if (draft === '') {
+      return 0;
+    }
+
+    const quantity = Number(draft);
+    return Number.isInteger(quantity) && quantity >= 0 ? quantity : item.quantity;
+  };
+  const subtotal = cart.reduce((sum, item) => sum + (item.sellingPrice * getDisplayedQuantity(item)), 0);
+  const totalItems = cart.reduce((sum, item) => sum + getDisplayedQuantity(item), 0);
 
   const createOrderWithRetry = async (orderData, checkoutId, maxAttempts = 3) => {
     for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
@@ -550,7 +604,6 @@ const POS = () => {
     }
     setSuccess(`✅ Order ${newOrder.orderNumber} completed!`);
     setCart([]);
-    setPaymentAmount('');
     setPaymentMethod('cash');
     setSelectedCustomer('');
     checkoutIdRef.current = null;
@@ -582,9 +635,7 @@ const POS = () => {
         return;
       }
 
-      const normalizedPaymentAmount = paymentMethod === 'credit'
-        ? (Number.isFinite(Number(paymentAmount)) ? Number(paymentAmount) : 0)
-        : subtotal;
+      const normalizedPaymentAmount = paymentMethod === 'credit' ? 0 : subtotal;
 
       if (!checkoutIdRef.current) {
         checkoutIdRef.current = window.crypto?.randomUUID?.() || `${Date.now()}-${Math.random().toString(36).slice(2)}`;
@@ -1065,7 +1116,6 @@ const POS = () => {
                   setSelectedCustomer(nextCustomerId);
                   if (paymentMethod === 'credit' && !nextRegistered) {
                     setPaymentMethod('cash');
-                    setPaymentAmount('');
                   }
                 }}
               >
@@ -1092,7 +1142,7 @@ const POS = () => {
                     <div style={styles.cartItemInfo}>
                       <div style={styles.cartItemName}>{item.name}</div>
                       <div style={styles.cartItemPrice}>
-                        {formatPriceMK(item.sellingPrice)} x {item.quantity}
+                        {formatPriceMK(item.sellingPrice)} x {getDisplayedQuantity(item)} = {formatPriceMK(item.sellingPrice * getDisplayedQuantity(item))}
                       </div>
                     </div>
                     <div style={styles.cartItemActions} className="pos-mobile-cart-item-actions">
@@ -1108,7 +1158,20 @@ const POS = () => {
                       >
                         −
                       </button>
-                      <span style={styles.cartItemQty}>{item.quantity}</span>
+                      <input
+                        type="number"
+                        min="0"
+                        max={Math.max(0, Number(item.currentStock || 0) - Number(item.reservedStock || 0))}
+                        step="1"
+                        value={quantityDrafts[item._id] ?? item.quantity}
+                        aria-label={`Quantity for ${item.name}`}
+                        style={styles.cartItemQuantityInput}
+                        onChange={(event) => setQuantityDrafts((prev) => ({
+                          ...prev,
+                          [item._id]: event.target.value
+                        }))}
+                        onBlur={(event) => commitCartQuantity(item._id, event.target.value)}
+                      />
                       <button
                         style={styles.cartItemBtn}
                         onClick={() => addToCart(item)}
@@ -1171,9 +1234,6 @@ const POS = () => {
                             return;
                           }
                           setPaymentMethod(method.value);
-                          if (method.value !== 'credit') {
-                            setPaymentAmount('');
-                          }
                         }}
                       />
                       <span>{method.label}</span>
@@ -1191,18 +1251,8 @@ const POS = () => {
 
             {paymentMethod === 'credit' && canUseCreditPayment && (
               <div style={styles.creditSection}>
-                <label style={styles.paymentLabel}>Amount Paid Now:</label>
-                <input
-                  type="number"
-                  min="0"
-                  step="0.01"
-                  style={styles.creditInput}
-                  value={paymentAmount}
-                  onChange={(e) => setPaymentAmount(e.target.value)}
-                  placeholder={`Enter amount up to ${formatPriceMK(subtotal)}`}
-                />
                 <div style={styles.creditHint}>
-                  Customer balance will be {formatPriceMK(Math.max(0, subtotal - (Number.isFinite(Number(paymentAmount)) ? Number(paymentAmount) : 0)) + selectedCustomerCreditBalance)} after this order.
+                  The full order amount will be added to this customer's balance. Record any payment separately through bill management.
                 </div>
               </div>
             )}
@@ -1487,9 +1537,15 @@ productUnit: {
     justifyContent: 'center',
     transition: 'all 0.2s ease'
   },
-  cartItemQty: {
+  cartItemQuantityInput: {
+    width: '52px',
+    height: '32px',
+    boxSizing: 'border-box',
+    padding: '4px',
+    border: '1px solid #ddd',
+    borderRadius: '6px',
+    fontSize: '14px',
     fontWeight: 'bold',
-    minWidth: '20px',
     textAlign: 'center'
   },
   totals: {

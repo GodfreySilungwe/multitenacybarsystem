@@ -26,6 +26,9 @@ const Bars = () => {
   const [search, setSearch] = useState('');
   const [reportRecipientDrafts, setReportRecipientDrafts] = useState({});
   const [savingReportRecipientBarId, setSavingReportRecipientBarId] = useState(null);
+  const [importDrafts, setImportDrafts] = useState({});
+  const [sourceProducts, setSourceProducts] = useState({});
+  const [importingProductsBarId, setImportingProductsBarId] = useState(null);
 
   const filteredBars = useMemo(() => {
     const query = search.trim().toLowerCase();
@@ -128,6 +131,103 @@ const Bars = () => {
       setError(err.response?.data?.message || 'Failed to save daily report recipients.');
     } finally {
       setSavingReportRecipientBarId(null);
+    }
+  };
+
+  const loadSourceProducts = async (sourceBarId, targetBarId) => {
+    if (!sourceBarId) {
+      setSourceProducts((previous) => ({ ...previous, [targetBarId]: [] }));
+      setImportDrafts((previous) => ({
+        ...previous,
+        [targetBarId]: {
+          ...(previous[targetBarId] || {}),
+          sourceBarId: '',
+          productIds: []
+        }
+      }));
+      return;
+    }
+
+    try {
+      const response = await api.get(`/bars/${sourceBarId}/products`);
+      setSourceProducts((previous) => ({ ...previous, [targetBarId]: response.data || [] }));
+      setImportDrafts((previous) => ({
+        ...previous,
+        [targetBarId]: {
+          ...(previous[targetBarId] || {}),
+          sourceBarId,
+          productIds: []
+        }
+      }));
+    } catch (err) {
+      console.error('Error loading source bar products:', err);
+      setError(err.response?.data?.message || 'Failed to load source bar products');
+    }
+  };
+
+  const handleSelectAllProducts = (targetBarId, shouldSelectAll) => {
+    const barProducts = sourceProducts[targetBarId] || [];
+    setImportDrafts((previous) => ({
+      ...previous,
+      [targetBarId]: {
+        ...(previous[targetBarId] || {}),
+        productIds: shouldSelectAll
+          ? barProducts.map((product) => product._id || product.id)
+          : []
+      }
+    }));
+  };
+
+  const handleImportProducts = async (targetBarId) => {
+    const draft = importDrafts[targetBarId] || {};
+    const sourceBarId = draft.sourceBarId;
+    const productIds = draft.productIds || [];
+
+    if (!sourceBarId) {
+      setError('Select a source bar before importing products.');
+      return;
+    }
+
+    if (!productIds.length) {
+      setError('Select at least one product to import.');
+      return;
+    }
+
+    if (!window.confirm(`Import ${productIds.length} product(s) from the selected bar into this bar?`)) {
+      return;
+    }
+
+    setImportingProductsBarId(targetBarId);
+    setError('');
+    setMessage('');
+
+    try {
+      const response = await api.post(`/bars/${targetBarId}/import-products`, {
+        sourceBarId,
+        productIds,
+        preservePrices: draft.preservePrices !== false,
+        resetStock: draft.resetStock !== false
+      });
+
+      const importedCount = response.data?.importedCount || 0;
+      const skippedCount = response.data?.skipped?.length || 0;
+      setMessage(`✅ Imported ${importedCount} product(s). ${skippedCount ? `${skippedCount} skipped due to duplicates.` : ''}`);
+      setImportDrafts((previous) => ({
+        ...previous,
+        [targetBarId]: {
+          sourceBarId: '',
+          productIds: [],
+          preservePrices: true,
+          resetStock: true
+        }
+      }));
+      setSourceProducts((previous) => ({ ...previous, [targetBarId]: [] }));
+      await loadBars();
+    } catch (err) {
+      setError(err.response?.data?.message || 'Failed to import products.');
+    } finally {
+      setImportingProductsBarId(null);
+      window.setTimeout(() => setMessage(''), 7000);
     }
   };
 
@@ -469,6 +569,127 @@ const Bars = () => {
                         </Button>
                       </div>
                     </div>
+
+                    <div style={styles.detailPanel}>
+                      <h4 style={styles.panelTitle}>Import Products</h4>
+                      <div style={styles.importPanel}>
+                        <select
+                          style={styles.input}
+                          value={importDrafts[bar._id || bar.id]?.sourceBarId || ''}
+                          onChange={(event) => {
+                            const selectedSourceBarId = event.target.value;
+                            setImportDrafts((previous) => ({
+                              ...previous,
+                              [bar._id || bar.id]: {
+                                ...(previous[bar._id || bar.id] || {}),
+                                sourceBarId: selectedSourceBarId,
+                                productIds: []
+                              }
+                            }));
+                            loadSourceProducts(selectedSourceBarId, bar._id || bar.id);
+                          }}
+                        >
+                          <option value="">Choose source bar</option>
+                          {bars
+                            .filter((sourceBar) => String(sourceBar._id || sourceBar.id) !== String(bar._id || bar.id))
+                            .map((sourceBar) => (
+                              <option key={sourceBar._id || sourceBar.id} value={sourceBar._id || sourceBar.id}>
+                                {sourceBar.name}
+                              </option>
+                            ))}
+                        </select>
+
+                        <label style={styles.checkboxRow}>
+                          <input
+                            type="checkbox"
+                            checked={importDrafts[bar._id || bar.id]?.preservePrices !== false}
+                            onChange={(event) => setImportDrafts((previous) => ({
+                              ...previous,
+                              [bar._id || bar.id]: {
+                                ...(previous[bar._id || bar.id] || {}),
+                                preservePrices: event.target.checked
+                              }
+                            }))}
+                          />
+                          Keep product prices
+                        </label>
+
+                        <label style={styles.checkboxRow}>
+                          <input
+                            type="checkbox"
+                            checked={importDrafts[bar._id || bar.id]?.resetStock !== false}
+                            onChange={(event) => setImportDrafts((previous) => ({
+                              ...previous,
+                              [bar._id || bar.id]: {
+                                ...(previous[bar._id || bar.id] || {}),
+                                resetStock: event.target.checked
+                              }
+                            }))}
+                          />
+                          Reset imported stock to zero
+                        </label>
+
+                        {sourceProducts[bar._id || bar.id]?.length ? (
+                          <div style={styles.productPicker}>
+                            <div style={styles.productPickerHeader}>
+                              <span style={styles.productPickerTitle}>Products</span>
+                              <label style={styles.selectAllRow}>
+                                <input
+                                  type="checkbox"
+                                  className="product-import-checkbox"
+                                  style={styles.productCheckbox}
+                                  checked={
+                                    sourceProducts[bar._id || bar.id].length > 0
+                                    && sourceProducts[bar._id || bar.id].length === (importDrafts[bar._id || bar.id]?.productIds || []).length
+                                  }
+                                  onChange={(event) => handleSelectAllProducts(bar._id || bar.id, event.target.checked)}
+                                />
+                                <span>Select all</span>
+                              </label>
+                            </div>
+                            {sourceProducts[bar._id || bar.id].map((product) => {
+                              const productId = product._id || product.id;
+                              const isSelected = (importDrafts[bar._id || bar.id]?.productIds || []).includes(productId);
+
+                              return (
+                                <label key={productId} style={styles.productOption}>
+                                  <input
+                                    type="checkbox"
+                                    className="product-import-checkbox"
+                                    style={styles.productCheckbox}
+                                    checked={isSelected}
+                                    onChange={(event) => {
+                                      const nextProductIds = event.target.checked
+                                        ? [...(importDrafts[bar._id || bar.id]?.productIds || []), productId]
+                                        : (importDrafts[bar._id || bar.id]?.productIds || []).filter((id) => id !== productId);
+
+                                      setImportDrafts((previous) => ({
+                                        ...previous,
+                                        [bar._id || bar.id]: {
+                                          ...(previous[bar._id || bar.id] || {}),
+                                          productIds: nextProductIds
+                                        }
+                                      }));
+                                    }}
+                                  />
+                                  <span style={styles.productOptionText}>{product.name}</span>
+                                </label>
+                              );
+                            })}
+                          </div>
+                        ) : (
+                          <span style={styles.emptyHint}>Select a source bar to view its products.</span>
+                        )}
+
+                        <Button
+                          type="button"
+                          disabled={importingProductsBarId === (bar._id || bar.id) || !(importDrafts[bar._id || bar.id]?.sourceBarId && (importDrafts[bar._id || bar.id]?.productIds || []).length)}
+                          onClick={() => handleImportProducts(bar._id || bar.id)}
+                        >
+                          {importingProductsBarId === (bar._id || bar.id) ? 'Importing...' : 'Import Selected'}
+                        </Button>
+                      </div>
+                    </div>
                   </div>
 
                   {bar.application && (
@@ -693,6 +914,74 @@ const styles = {
     borderRadius: '8px',
     fontSize: '14px',
     resize: 'vertical'
+  },
+  importPanel: {
+    display: 'grid',
+    gap: '10px'
+  },
+  checkboxRow: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: '8px',
+    fontSize: '13px',
+    color: '#334155'
+  },
+  productPicker: {
+    display: 'grid',
+    gap: '6px',
+    border: '1px solid #e2e8f0',
+    backgroundColor: '#fff',
+    borderRadius: '8px',
+    padding: '8px',
+    alignItems: 'stretch'
+  },
+  productPickerHeader: {
+    display: 'flex',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    gap: '8px',
+    borderBottom: '1px solid #edf2f7',
+    paddingBottom: '5px'
+  },
+  productPickerTitle: {
+    fontSize: '12px',
+    fontWeight: '700',
+    color: '#475569',
+    textTransform: 'uppercase',
+    letterSpacing: '0.04em'
+  },
+  selectAllRow: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: '5px',
+    fontSize: '12px',
+    fontWeight: '600',
+    color: '#334155'
+  },
+  productOption: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: '8px',
+    padding: '5px 7px',
+    borderRadius: '6px',
+    fontSize: '13px',
+    color: '#0f172a',
+    lineHeight: 1.4,
+    border: '1px solid transparent',
+    backgroundColor: '#f8fafc'
+  },
+  productCheckbox: {
+    flexShrink: 0,
+    margin: 0
+  },
+  productOptionText: {
+    flex: 1,
+    minWidth: 0,
+    wordBreak: 'break-word'
+  },
+  emptyHint: {
+    color: '#64748b',
+    fontSize: '12px'
   },
   applicationPanel: {
     backgroundColor: '#f8fafc',

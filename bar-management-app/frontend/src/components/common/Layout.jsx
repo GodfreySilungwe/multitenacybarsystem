@@ -1,9 +1,17 @@
 import { useEffect, useState } from 'react';
 import Sidebar from './Sidebar';
+import { useAuth } from '../../context/AuthContext';
 
 const Layout = ({ children }) => {
+  const { user } = useAuth();
   const [isMobile, setIsMobile] = useState(false);
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
+  const subscriptionGraceNotice = user?.subscriptionGraceNotice;
+  const formatSubscriptionDate = (value) => new Date(value).toLocaleDateString('en-GB', {
+    day: 'numeric',
+    month: 'long',
+    year: 'numeric'
+  });
 
   useEffect(() => {
     const handleResize = () => {
@@ -43,6 +51,13 @@ const Layout = ({ children }) => {
           </button>
         )}
         <div style={styles.content}>
+          {subscriptionGraceNotice && (
+            <div style={styles.subscriptionNotice} role="status">
+              <strong>Subscription payment required.</strong>{' '}
+              Your subscription expired on {formatSubscriptionDate(subscriptionGraceNotice.paidThrough)}.
+              {' '}Your grace period ends on {formatSubscriptionDate(subscriptionGraceNotice.graceEndsAt)}.
+            </div>
+          )}
           {children}
           <footer style={styles.brandFooter}>
             <div style={styles.brandGroup}>
@@ -114,6 +129,15 @@ const styles = {
     display: 'flex',
     flexDirection: 'column',
     gap: '16px'
+  },
+  subscriptionNotice: {
+    padding: '14px 16px',
+    border: '1px solid #f59e0b',
+    borderRadius: '8px',
+    backgroundColor: '#fffbeb',
+    color: '#92400e',
+    fontSize: '14px',
+    lineHeight: 1.5
   },
   brandFooter: {
     marginTop: 'auto',

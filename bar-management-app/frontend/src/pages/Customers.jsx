@@ -1001,12 +1001,48 @@ const styles = {
     display: 'flex',
     flexDirection: 'column',
     gap: '8px',
-    paddingTop: '4px'
+    paddingTop: '6px',
+    borderTop: '1px solid #f1d7dd',
+    marginTop: '2px'
   },
   paymentLabel: {
     fontSize: '13px',
+    fontWeight: '700',
+    color: '#4b5563',
+    letterSpacing: '0.02em',
+    textTransform: 'uppercase'
+  },
+  paymentRadios: {
+    display: 'grid',
+    gridTemplateColumns: '1fr',
+    gap: '4px'
+  },
+  paymentRadioLabel: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: '8px',
+    padding: '5px 8px',
+    borderRadius: '6px',
+    border: '1px solid #e5e7eb',
+    backgroundColor: '#ffffff',
+    color: '#374151',
+    fontSize: '13px',
     fontWeight: '600',
-    color: '#4b5563'
+    cursor: 'pointer',
+    transition: 'all 0.2s ease'
+  },
+  paymentRadioLabelActive: {
+    backgroundColor: '#ecfdf5',
+    borderColor: '#a7f3d0',
+    color: '#166534',
+    boxShadow: 'inset 0 0 0 1px rgba(22, 101, 52, 0.08)'
+  },
+  radioInput: {
+    width: '16px',
+    height: '16px',
+    flex: '0 0 16px',
+    margin: 0,
+    accentColor: '#10b981'
   },
   paymentInput: {
     width: '100%',
