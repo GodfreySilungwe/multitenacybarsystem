@@ -1,0 +1,217 @@
+# User Manual
+
+This manual covers day-to-day operations for **Sales accounts** and **Hardware Manager accounts**. It does not cover Global Owner workflows.
+
+## 1. Sign in and navigate
+
+1. Open the Smart Inventory App using the address provided by your administrator.
+2. Sign in with the username and password issued for your account.
+3. Use the sidebar to open the pages available to your role. On a phone or narrow screen, tap the menu button to open the sidebar.
+4. Use **Logout** when you finish, especially on a shared device.
+
+Your menu depends on your account role. If you need a page that is not shown, ask the Hardware Manager to confirm your role and access.
+
+### Sales account menu
+
+- Dashboard
+- POS
+- Customers
+- Sales
+- Quotations
+- Quotation History
+- Cash Chest (available while a Hardware Manager has an open cash session)
+
+### Hardware Manager account menu
+
+- Dashboard
+- Products
+- Categories
+- Customers
+- Sales
+- Cash Chest
+- Inventory
+- Suppliers
+- Purchase Orders
+- Quotations
+- Quotation History
+- Reports
+- Settings
+- Sales Team
+
+## 2. Sales account workflows
+
+### 2.1 Make a sale in POS
+
+1. Open **POS** and search for a product or browse the product list. Use the category filter when useful.
+2. Select a product to add it to the cart. The product card shows its unit, selling price, and available stock.
+3. Check the cart. Use **+** and **−** for whole-unit changes, or type the desired quantity directly into the quantity field. Decimal quantities are supported to three decimal places, such as `0.5 kg`.
+4. For a weighed or measured product, confirm the product's unit and price basis with the manager. For example, if the price is per kg, enter the quantity in kg. The app does not convert between units automatically.
+5. Optionally select a saved customer. Leave **Walk-in Customer** selected for an unregistered customer.
+6. Choose the payment method: Cash, Bank, Airtel Money, Mpamba, or Credit. Credit is available only after selecting a saved customer.
+7. For a credit sale, enter any amount paid now; leave it at zero if no payment is received.
+8. Review the subtotal and total, then select **Checkout**.
+9. Review the receipt. Use **Print Receipt** to open the device/browser print flow. Select an installed printer or print service supported by your device.
+
+The app checks that the quantity is greater than zero and does not exceed available stock. A completed sale updates inventory. Record payment through the selected method accurately; do not choose Credit for a walk-in customer.
+
+### 2.2 Manage customers
+
+1. Open **Customers** and select **Add Customer**.
+2. Enter the customer's name, phone number, and gender, then save.
+3. Use the edit or delete controls on a customer card to maintain the record. A customer with outstanding credit may not be eligible for deletion.
+4. Select **Credit Purchases** to review credit-related purchases and the current balance.
+5. To record a repayment, enter the amount under **Settle credit** and select **Settle**. Confirm that the payment was received before recording it.
+
+Adding a saved customer before checkout allows the sale to be linked to that customer's history and allows Credit payment.
+
+### 2.3 Review sales and orders
+
+1. Open **Sales**.
+2. Choose **All**, **Today**, **Month**, **Year**, or **Custom**. For a custom range, select both dates and tap **Apply**.
+3. Review the order list and summary. Sales accounts can see sales totals but do not see profit figures.
+4. Select **View** on an order to inspect its items and payment details.
+
+Order reversal is a manager-only action. If an order needs correction, contact the Hardware Manager rather than creating a duplicate adjustment.
+
+### 2.4 Create and share a quotation
+
+1. Open **Quotations**.
+2. Enter quote number, status, issue date, validity date, and tax rate.
+3. Select a saved customer or enter customer details manually.
+4. Search for products to add them, or enter an item description, quantity, and unit price manually. Check the unit price and quantity before sharing.
+5. Select **Preview Quote** to review the quotation. Shop name and contact details come from the manager's saved business settings.
+6. Choose **Save Quote**, **Export to PDF**, or **Send on WhatsApp**. The app may download the PDF for you to attach if direct sharing is unavailable.
+7. To revisit saved quotes, open **Quotation History**. You can view the PDF, prepare an email or WhatsApp message, or delete a quote.
+
+Use the status field to track the quote (Draft, Sent, Approved, Accepted, or Rejected). A quotation is not a completed sale; use POS to record an actual transaction.
+
+### 2.5 Cash Chest (when available)
+
+Sales accounts can access Cash Chest while a manager has an open session.
+
+- View session balances and recent cash movements.
+- Use **Receive customer payment** to record a repayment against a saved customer with an outstanding balance.
+- Sales accounts cannot open or close sessions or record expenses.
+
+If Cash Chest is not in the sidebar, ask the manager whether the cash session is open.
+
+### 2.6 Dashboard
+
+Use **Dashboard** for the operational overview available to your role. The exact cards depend on the account permissions and data available.
+
+## 3. Hardware Manager workflows
+
+### 3.1 Set up business details and preferences
+
+1. Open **Settings** and choose the **Business** tab.
+2. Enter the business name, address, phone, email, tax ID, currency, VAT rate, and receipt footer as needed.
+3. Enable **Tax compliant (prices include VAT)** only if the business's pricing and tax process require inclusive VAT.
+4. Select **Save Settings**. These saved business details are used on receipts and quotations.
+5. Use the **Profile** tab to update your own profile. Use **Password** to change your password.
+
+Review the business phone and name carefully; they appear on customer-facing documents.
+
+### 3.2 Create Sales accounts
+
+1. Open **Sales Team**.
+2. Enter the team member's full name, username, phone, and password; email is optional.
+3. Confirm the password and choose **Create Sales Team Member**.
+4. Give the team member their sign-in details securely. The Sales Accounts list shows account status and provides a delete action.
+
+Sales accounts are intended for POS, customers, sales, quotations, and the active cash session. They do not have manager inventory, report, or settings access.
+
+### 3.3 Manage categories and products
+
+**Categories**
+
+1. Open **Categories** and select **Add Category**.
+2. Enter a category name and optional description, then save.
+3. Edit categories as needed. A category cannot be deleted while products remain attached; move those products to another category first.
+
+**Products**
+
+1. Open **Products** and select **Add Product**.
+2. Enter the product name, category, cost price, selling price, stock quantity, low-stock threshold, and unit.
+3. Treat each product price as the price **per selected unit**. For example, a product measured in kg should have a per-kg price and stock recorded in kg.
+4. Save the product. Use product search and sort controls to find items. Edit product details when needed.
+5. Products can only be deleted when their available stock is zero.
+
+Stock and thresholds support fractional values to three decimal places. For example, `2.5 kg` means two and a half units of the product's configured unit. Changing a product's unit does not automatically convert its existing stock or prices, so review those values before saving a unit change.
+
+Products can also be imported from a spreadsheet. Use **Download Import Template**, fill in the required product fields, then select **Import Products** and choose the completed `.xlsx` file. Check the import result and correct any listed row errors before trying again.
+
+### 3.4 Record stock adjustments
+
+1. Open **Inventory** and select **New Adjustment**.
+2. Select the product. The form shows its current stock and unit.
+3. Choose the adjustment type:
+   - **Wastage**, **Damage**, or **Return** decreases stock.
+   - **Restock** increases stock.
+   - **Count Correction** sets stock to the verified physical count.
+4. Enter a positive quantity for increases/decreases. For Count Correction, enter the new total count; zero is allowed.
+5. Enter a reason and save.
+6. Check the adjustment history and summary to confirm the change.
+
+Use Count Correction only for a physical count correction. Use Restock for new stock received; receiving a purchase order also adds its quantities to inventory.
+
+### 3.5 Manage suppliers and purchase orders
+
+**Suppliers**
+
+1. Open **Suppliers** and select **Add Supplier**.
+2. Enter the supplier name and phone; contact person, email, address, and notes are optional.
+3. Save, then use the edit or delete controls to maintain supplier records.
+
+**Purchase orders**
+
+1. Open **Purchase Orders** and select **Create Order**.
+2. Select a supplier. For each line, search for and select a product, then enter quantity and cost price. Decimal quantities are supported; use the product's configured unit.
+3. Add more lines as necessary. Enter an expected delivery date and notes if useful.
+4. Create the order. It appears in the purchase order list as Pending.
+5. When it has been placed with the supplier, select **Mark Ordered**.
+6. When the goods have physically arrived and quantities have been checked, select **Mark Received**. This adds the ordered quantities to product stock.
+7. If the order will not proceed, select **Cancel** while it is Pending or Ordered.
+
+Do not mark an order Received before checking the delivery. Cancelled or received orders cannot be reopened through the normal workflow.
+
+### 3.6 Operate the cash session
+
+1. Open **Cash Chest** at the start of the session and enter the opening float.
+2. During the session, review expected cash and movements. Record business expenses with an amount, category, and description.
+3. Use **Receive customer payment** to record credit repayments against a customer with an outstanding balance.
+4. At close, count the cash and enter the counted amount.
+5. If counted cash differs from expected cash, enter a variance explanation before closing.
+6. Select **Close Session** after the count and explanation are checked.
+
+Only a manager can open/close a session or record expenses. Sales staff can view the active session and record customer payments.
+
+### 3.7 Review sales and manage reversals
+
+Use **Sales** to filter orders by date range, review order detail, and compare sales and profit summaries. Open an order with **View** to inspect its items.
+
+To reverse an order, select **Reverse** and confirm by typing `delete` in the confirmation dialog. Reversal restores the sold stock and marks the order reversed. Use this only for a genuine transaction correction; the reversal is recorded rather than erasing the original order.
+
+### 3.8 Reports and exports
+
+1. Open **Reports**.
+2. Select Today, Week, Month, Year, or Custom. Custom reports need both a start and end date.
+3. Narrow the report by payment method, order status, customer, or product if needed.
+4. Review the report totals, charts, sales trends, customers, products, and other available metrics.
+5. Use the export buttons for Sales (Excel), Sales (PDF), Inventory, or Customers.
+
+Reversed orders are excluded from sales, tax, and profit totals as indicated on the Reports page. Check the selected dates and filters before exporting.
+
+### 3.9 Dashboard
+
+Use **Dashboard** for the manager's shop-level activity and inventory overview. Refresh the page data when you need a current snapshot. Use the product and low-stock information to plan restocking.
+
+## 4. Important operating practices
+
+- Confirm product name, price basis, and unit before checkout. The app does not convert units (for example, grams to kg).
+- Keep inventory quantities in the same unit used for sales and purchase orders.
+- Review the cart, customer, payment method, and amount before completing a sale.
+- Use Credit only for a saved customer. Record repayments in Cash Chest or the customer's credit controls as appropriate.
+- Keep account credentials private and log out of shared devices.
+- Verify that a receipt or PDF is correct before printing or sending it to a customer.
+- If an error appears, note the page and message and contact the Hardware Manager. Do not repeat a payment or sale until you have checked whether it already completed.
+

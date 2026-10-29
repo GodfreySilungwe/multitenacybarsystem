@@ -430,11 +430,12 @@ const Settings = () => {
       )}
 
       {/* Tab Navigation with Animations */}
-      <div style={styles.tabs}>
+      <div className="settings-tabs" style={styles.tabs}>
         {tabs.map(tab => (
           <button
             key={tab.id}
             className={`fade-in delay-${tab.delay}`}
+            data-settings-tab
             style={{
               ...styles.tab,
               ...(activeTab === tab.id ? styles.tabActive : {})
@@ -883,7 +884,7 @@ const Settings = () => {
                 <div style={{ ...styles.formGroup, gridColumn: '1 / -1' }}>
                   <label style={styles.label}>Payment Methods</label>
                   <div style={styles.helperText}>Cash, Airtel Money, Mpamba, and Bank Account are preloaded and can be removed. Added methods apply only to this bar and require a payment reference.</div>
-                  <div style={{ display: 'flex', gap: '8px', marginTop: '8px' }}>
+                  <div className="payment-method-add-row" style={{ display: 'flex', gap: '8px', marginTop: '8px' }}>
                     <input
                       type="text"
                       maxLength="40"
@@ -896,8 +897,8 @@ const Settings = () => {
                     <Button type="button" onClick={addPaymentMethod}>Add</Button>
                   </div>
                   {(Array.isArray(business.paymentMethods) ? business.paymentMethods : []).map((method) => (
-                    <div key={method.value} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '8px 0', borderBottom: '1px solid #eee' }}>
-                      <span>{method.label}</span>
+                    <div key={method.value} className="payment-method-row" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '8px 0', borderBottom: '1px solid #eee' }}>
+                      <span className="payment-method-label">{method.label}</span>
                       <Button
                         type="button"
                         onClick={() => setBusiness((previous) => ({

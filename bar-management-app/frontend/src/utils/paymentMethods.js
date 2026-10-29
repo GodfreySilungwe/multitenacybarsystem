@@ -23,9 +23,13 @@ export const getPaymentMethods = (settings = {}) => {
 };
 
 export const getPaymentMethodLabel = (value, settings = {}) => {
-  const normalizedValue = String(value || 'cash')
-    .toLowerCase()
-    .replace(/^credit_/, '')
+  const rawValue = String(value || 'cash').toLowerCase();
+  const methodValue = rawValue.replace(/^credit_/, '');
+  const historicalLabel = settings.paymentMethodLabels?.[rawValue]
+    || settings.paymentMethodLabels?.[methodValue];
+  if (historicalLabel) return historicalLabel;
+
+  const normalizedValue = methodValue
     .replace(/^custom_/, '')
     .replace(/[\s-]+/g, '_');
   const configuredMethod = getPaymentMethods(settings).find((method) => (
@@ -36,3 +40,7 @@ export const getPaymentMethodLabel = (value, settings = {}) => {
   return configuredMethod?.label
     || normalizedValue.replace(/_/g, ' ').replace(/\b\w/g, (character) => character.toUpperCase());
 };
+
+export const getDefaultPaymentMethod = (settings = {}) => (
+  getPaymentMethods(settings)[0]?.value || ''
+);

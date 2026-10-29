@@ -20,7 +20,7 @@ import UnifiedCard from '../components/common/UnifiedCard';
 import PageContainer from './PageContainer';
 import { formatPriceMK } from '../utils/formatPrice';
 import { getActiveBusinessSettings } from '../utils/businessSettings';
-import { getPaymentMethodLabel } from '../utils/paymentMethods';
+import { getPaymentMethodLabel, getPaymentMethods } from '../utils/paymentMethods';
 
 const Dashboard = () => {
   const { isGlobalOwner, isSales, isBarOwner, isOwner, user } = useAuth();
@@ -370,16 +370,11 @@ const Dashboard = () => {
     (creditSettlementSummary || []).forEach((method) => addAmount(method.method, method.amount));
 
     const settings = getActiveBusinessSettings();
-    const labels = {
-      cash: 'Cash',
-      airtel_money: 'Airtel Money',
-      mpamba: 'Mpamba',
-      bank_account: 'Bank Account'
-    };
-    const orderedMethods = ['cash', 'airtel_money', 'mpamba', 'bank_account'];
-    const extraMethods = [...amounts.keys()].filter((method) => !orderedMethods.includes(method)).sort();
-    return [...orderedMethods, ...extraMethods].map((method) => ({
-      method: labels[method] || getPaymentMethodLabel(method, settings),
+    const enabledMethods = getPaymentMethods(settings).map(({ value }) => value);
+    const usedMethods = [...amounts.keys()].filter((method) => amounts.get(method) > 0);
+    const extraMethods = usedMethods.filter((method) => !enabledMethods.includes(method)).sort();
+    return [...enabledMethods.filter((method) => usedMethods.includes(method)), ...extraMethods].map((method) => ({
+      method: getPaymentMethodLabel(method, settings),
       amount: amounts.get(method) || 0
     }));
   })();
@@ -812,7 +807,7 @@ const Dashboard = () => {
                       <span style={styles.collectionMethodName}>{method.method}</span>
                       <div style={styles.collectionMethodAmount}>
                         <strong>{formatPriceMK(method.amount)}</strong>
-                        <span style={styles.collectionMethodShare}>{share.toFixed(2)}%</span>
+                        <span className="dashboard-payment-share" style={styles.collectionMethodShare}>{share.toFixed(2)}%</span>
                       </div>
                     </div>
                   );

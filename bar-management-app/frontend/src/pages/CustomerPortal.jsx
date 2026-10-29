@@ -5,7 +5,7 @@ import { formatPriceMK } from '../utils/formatPrice';
 import { useAuth } from '../context/AuthContext';
 import Button from '../components/common/Button';
 import { getActiveBusinessSettings } from '../utils/businessSettings';
-import { getPaymentMethods } from '../utils/paymentMethods';
+import { getDefaultPaymentMethod, getPaymentMethods } from '../utils/paymentMethods';
 
 const CustomerPortal = () => {
   const { user } = useAuth();
@@ -17,11 +17,13 @@ const CustomerPortal = () => {
   const [requestMessage, setRequestMessage] = useState('');
   const [orderItems, setOrderItems] = useState([{ productId: '', productSearch: '', quantity: '1' }]);
   const [customerRequests, setCustomerRequests] = useState([]);
-  const [paymentMethod, setPaymentMethod] = useState('cash');
+  const [paymentMethod, setPaymentMethod] = useState('');
   const [paymentReference, setPaymentReference] = useState('');
   const [paymentAmount, setPaymentAmount] = useState('');
   const [isCompact, setIsCompact] = useState(false);
   const [refreshKey, setRefreshKey] = useState(0);
+  const paymentMethods = getPaymentMethods(getActiveBusinessSettings());
+  const enabledPaymentMethodValues = paymentMethods.map(({ value }) => value).join('|');
 
   useEffect(() => {
     const loadCustomer = async () => {
@@ -66,6 +68,15 @@ const CustomerPortal = () => {
     return () => window.removeEventListener('resize', handleResize);
   }, []);
 
+  useEffect(() => {
+    const enabledMethods = getPaymentMethods(getActiveBusinessSettings());
+    setPaymentMethod((currentMethod) => (
+      enabledMethods.some(({ value }) => value === currentMethod)
+        ? currentMethod
+        : getDefaultPaymentMethod(getActiveBusinessSettings())
+    ));
+  }, [enabledPaymentMethodValues]);
+
   if (loading) {
     return (
       <PageContainer title="👤 My Account">
@@ -96,8 +107,6 @@ const CustomerPortal = () => {
     return !isPaid && !isRejectedAndCleared && !isConfirmedCreditOrder && isRecentExpired;
   });
   const hasOutstandingBill = outstandingBill > 0;
-  const paymentMethods = getPaymentMethods(getActiveBusinessSettings());
-
   const paymentHint = paymentMethod === 'cash' ? 'No reference needed for cash payments.' : 'Add a receipt reference or payer name for this payment.';
   const responsiveStyles = isCompact
     ? {
@@ -213,6 +222,11 @@ const CustomerPortal = () => {
       return;
     }
 
+    if (!paymentMethod) {
+      setRequestMessage('No payment methods are enabled for this bar. Contact the bar manager.');
+      return;
+    }
+
     if (paymentMethod !== 'cash' && !paymentReference.trim()) {
       setRequestMessage('Please enter a transaction reference or payer name for this payment method.');
       return;
@@ -229,7 +243,7 @@ const CustomerPortal = () => {
         amount: paymentAmountNumber
       });
       setRequestMessage(response.data?.message || 'Accumulated bill request submitted successfully.');
-      setPaymentMethod('cash');
+      setPaymentMethod(getDefaultPaymentMethod(getActiveBusinessSettings()));
       setPaymentReference('');
       setPaymentAmount('');
       const paymentRequest = response.data?.paymentRequest || response.data;

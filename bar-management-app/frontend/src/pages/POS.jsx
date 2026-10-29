@@ -5,7 +5,7 @@ import UnifiedCard from '../components/common/UnifiedCard';
 import ReceiptModal from '../components/common/ReceiptModal';
 import { formatPriceMK } from '../utils/formatPrice';
 import { getActiveBusinessSettings } from '../utils/businessSettings';
-import { getPaymentMethodLabel, getPaymentMethods } from '../utils/paymentMethods';
+import { getDefaultPaymentMethod, getPaymentMethodLabel, getPaymentMethods } from '../utils/paymentMethods';
 
 const POS = () => {
   const PRODUCT_PAGE_SIZE = 20;
@@ -37,7 +37,7 @@ const POS = () => {
   const [productSearch, setProductSearch] = useState('');
   const [customers, setCustomers] = useState([]);
   const [selectedCustomer, setSelectedCustomer] = useState('');
-  const [paymentMethod, setPaymentMethod] = useState('cash');
+  const [paymentMethod, setPaymentMethod] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
@@ -59,6 +59,18 @@ const POS = () => {
   const [passwordInput, setPasswordInput] = useState('');
   const [passwordSubmitting, setPasswordSubmitting] = useState(false);
   const checkoutIdRef = useRef(null);
+  const enabledPaymentMethodValues = getPaymentMethods(getActiveBusinessSettings())
+    .map(({ value }) => value)
+    .join('|');
+
+  useEffect(() => {
+    const enabledMethods = getPaymentMethods(getActiveBusinessSettings());
+    setPaymentMethod((currentMethod) => (
+      currentMethod === 'credit' || enabledMethods.some(({ value }) => value === currentMethod)
+        ? currentMethod
+        : getDefaultPaymentMethod(getActiveBusinessSettings())
+    ));
+  }, [enabledPaymentMethodValues]);
 
   useEffect(() => {
     loadData();
@@ -606,7 +618,7 @@ const POS = () => {
     }
     setSuccess(`✅ Order ${newOrder.orderNumber} completed!`);
     setCart([]);
-    setPaymentMethod('cash');
+    setPaymentMethod(getDefaultPaymentMethod(getActiveBusinessSettings()));
     setSelectedCustomer('');
     checkoutIdRef.current = null;
 
@@ -623,6 +635,11 @@ const POS = () => {
     if (cart.length === 0) {
       setError('Cart is empty!');
       setTimeout(() => setError(''), 3000);
+      return;
+    }
+    if (!paymentMethod) {
+      setError('No payment methods are enabled for this bar. Ask your manager to configure one in Business Settings.');
+      setTimeout(() => setError(''), 5000);
       return;
     }
 
@@ -1122,7 +1139,7 @@ const POS = () => {
                   const nextRegistered = Boolean(nextCustomer?.accountUsername || nextCustomer?.accountUserId || nextCustomer?.username);
                   setSelectedCustomer(nextCustomerId);
                   if (paymentMethod === 'credit' && !nextRegistered) {
-                    setPaymentMethod('cash');
+                    setPaymentMethod(getDefaultPaymentMethod(getActiveBusinessSettings()));
                   }
                 }}
               >

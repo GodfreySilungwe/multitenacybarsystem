@@ -381,6 +381,51 @@ button:focus-visible {
   .page-title {
     font-size: 22px;
   }
+
+  .page-container .settings-tabs {
+    flex-wrap: wrap;
+    align-items: stretch;
+  }
+
+  .page-container .settings-tabs [data-settings-tab] {
+    flex: 1 1 calc(50% - 4px);
+    width: calc(50% - 4px) !important;
+    min-width: 0;
+    padding: 10px 8px !important;
+    white-space: normal;
+    line-height: 1.25;
+  }
+
+  .page-container .payment-method-add-row {
+    flex-wrap: wrap;
+  }
+
+  .page-container .payment-method-add-row input {
+    flex: 1 1 140px;
+    min-width: 0;
+    width: auto !important;
+  }
+
+  .page-container .payment-method-add-row button,
+  .page-container .payment-method-row button {
+    flex: 0 0 auto;
+    width: auto !important;
+    max-width: none !important;
+    white-space: nowrap;
+  }
+
+  .page-container .payment-method-label {
+    min-width: 0;
+    overflow-wrap: anywhere;
+  }
+
+  .page-container .payment-method-row {
+    gap: 12px;
+  }
+
+  .dashboard-payment-share {
+    display: none;
+  }
 }
 
 /* Table Styles */

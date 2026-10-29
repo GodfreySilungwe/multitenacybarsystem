@@ -12,7 +12,7 @@ import {
   createCustomerStatementPrintHtml
 } from '../utils/customerStatement';
 import { getActiveBusinessSettings, getActiveCurrency } from '../utils/businessSettings';
-import { getPaymentMethodLabel, getPaymentMethods } from '../utils/paymentMethods';
+import { getDefaultPaymentMethod, getPaymentMethodLabel, getPaymentMethods } from '../utils/paymentMethods';
 
 const Customers = () => {
   const { user: currentUser } = useAuth();
@@ -251,11 +251,16 @@ const Customers = () => {
   const handleSettleBill = async (customer) => {
     const rawAmount = settleAmounts[customer._id] ?? '';
     const amount = Number(rawAmount);
-    const paymentMethod = settleMethods[customer._id] || 'cash';
+    const paymentMethod = settleMethods[customer._id] || paymentMethodsOptions[0]?.value || '';
     const paymentReference = settleReferences[customer._id] || '';
 
     if (!Number.isFinite(amount) || amount <= 0) {
       alert('Please enter a valid payment amount');
+      return;
+    }
+
+    if (!paymentMethod) {
+      alert('No payment methods are enabled for this bar. Ask your manager to configure one in Business Settings.');
       return;
     }
 
@@ -288,7 +293,10 @@ const Customers = () => {
       setCustomers(prev => prev.map(item => (item._id === customer._id ? updatedCustomer : item)));
       setSettleAmounts(prev => ({ ...prev, [customer._id]: '' }));
       setSettleReferences(prev => ({ ...prev, [customer._id]: '' }));
-      setSettleMethods(prev => ({ ...prev, [customer._id]: 'cash' }));
+      setSettleMethods(prev => ({
+        ...prev,
+        [customer._id]: getDefaultPaymentMethod(getActiveBusinessSettings())
+      }));
       setSuccessMessage(`✓ Settlement successful for ${customer.name} • ${formatPriceMK(amount)}`);
       setTimeout(() => setSuccessMessage(null), 4000);
       window.dispatchEvent(new Event('payment-updated'));
@@ -308,6 +316,19 @@ const Customers = () => {
   };
 
   const paymentMethodsOptions = getPaymentMethods(getActiveBusinessSettings());
+  const enabledPaymentMethodValues = paymentMethodsOptions.map(({ value }) => value).join('|');
+
+  useEffect(() => {
+    const enabledMethods = getPaymentMethods(getActiveBusinessSettings());
+    setSettleMethods((previous) => Object.fromEntries(
+      Object.entries(previous).map(([customerId, method]) => [
+        customerId,
+        enabledMethods.some(({ value }) => value === method)
+          ? method
+          : getDefaultPaymentMethod(getActiveBusinessSettings())
+      ])
+    ));
+  }, [enabledPaymentMethodValues]);
 
   const totalOutstandingCredit = summary.totalCreditOutstanding || 0;
   const customersWithCredit = summary.customersWithCredit || 0;
@@ -587,7 +608,7 @@ const Customers = () => {
                           type="radio"
                           name={`payment-method-${customer._id}`}
                           value={method.value}
-                          checked={(settleMethods[customer._id] || 'cash') === method.value}
+                          checked={(settleMethods[customer._id] || paymentMethodsOptions[0]?.value || '') === method.value}
                           onChange={(e) => setSettleMethods(prev => ({ ...prev, [customer._id]: e.target.value }))}
                           style={styles.radioInput}
                         />
@@ -595,7 +616,8 @@ const Customers = () => {
                       </label>
                     ))}
                   </div>
-                  {settleMethods[customer._id] && settleMethods[customer._id] !== 'cash' && (
+                  {(settleMethods[customer._id] || paymentMethodsOptions[0]?.value || '') !== 'cash'
+                    && (settleMethods[customer._id] || paymentMethodsOptions[0]?.value) && (
                     <input
                       type="text"
                       style={styles.paymentReferenceInput}

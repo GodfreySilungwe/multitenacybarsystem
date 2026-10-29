@@ -138,17 +138,17 @@ export const createCustomerStatementPrintHtml = (customer, businessName) => {
           @page { size: auto; margin: 5mm; }
           * { box-sizing: border-box; }
           html, body { width: 100%; margin: 0; padding: 0; }
-          body { max-width: 70mm; margin: 0 auto; color: #111; font: 10px monospace; overflow-wrap: anywhere; }
+          body { max-width: 70mm; margin: 0 auto; color: #000; font: 11px/1.35 Arial, Helvetica, sans-serif; font-weight: 500; overflow-wrap: anywhere; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
           h1 { margin: 0 0 4px; font-size: 14px; text-align: center; }
           h2 { margin: 0 0 8px; font-size: 11px; text-align: center; }
           .details { margin: 3px 0; }
-          .bill { padding: 5px 0; border-top: 1px dashed #777; break-inside: avoid; page-break-inside: avoid; }
+          .bill { padding: 5px 0; border-top: 1px solid #000; break-inside: avoid; page-break-inside: avoid; }
           .billHeader, .amountRow { display: flex; justify-content: space-between; gap: 3mm; }
           .billHeader span, .amountRow span:last-child { text-align: right; }
           .items { margin: 4px 0; white-space: pre-line; }
           .amountRow { margin-top: 2px; }
           .bold { font-weight: bold; }
-          .total { margin-top: 8px; padding-top: 6px; border-top: 1px dashed #777; text-align: right; font-size: 12px; font-weight: bold; break-inside: avoid; }
+          .total { margin-top: 8px; padding-top: 6px; border-top: 1px solid #000; text-align: right; font-size: 12px; font-weight: bold; break-inside: avoid; }
         </style>
       </head>
       <body>
