@@ -12,6 +12,7 @@ import {
   createCustomerStatementPrintHtml
 } from '../utils/customerStatement';
 import { getActiveBusinessSettings, getActiveCurrency } from '../utils/businessSettings';
+import { getPaymentMethodLabel, getPaymentMethods } from '../utils/paymentMethods';
 
 const Customers = () => {
   const { user: currentUser } = useAuth();
@@ -306,12 +307,7 @@ const Customers = () => {
     }
   };
 
-  const paymentMethodsOptions = [
-    { value: 'cash', label: 'Cash' },
-    { value: 'airtel_money', label: 'Airtel Money' },
-    { value: 'mpamba', label: 'Mpamba' },
-    { value: 'bank_account', label: 'Bank Account' }
-  ];
+  const paymentMethodsOptions = getPaymentMethods(getActiveBusinessSettings());
 
   const totalOutstandingCredit = summary.totalCreditOutstanding || 0;
   const customersWithCredit = summary.customersWithCredit || 0;
@@ -502,7 +498,7 @@ const Customers = () => {
                     <div key={entry._id} style={styles.creditHistoryItem}>
                       <div style={styles.creditHistoryTopRow}>
                         <span style={styles.creditHistoryDate}>{entry.createdAt ? new Date(entry.createdAt).toLocaleString() : '—'}</span>
-                        <span style={styles.creditHistoryOrder}>{entry.paymentMethod || 'cash'}</span>
+                        <span style={styles.creditHistoryOrder}>{getPaymentMethodLabel(entry.paymentMethod, getActiveBusinessSettings())}</span>
                       </div>
                       <div style={styles.creditHistoryMeta}>
                         <span>Amount: {formatPriceMK(getSettlementAmount(entry))}</span>

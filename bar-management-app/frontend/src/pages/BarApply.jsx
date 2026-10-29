@@ -12,6 +12,8 @@ const BarApply = () => {
     ownerFullName: '',
     ownerEmail: '',
     ownerPhone: '',
+    country: '',
+    district: '',
     ownerUsername: '',
     ownerPassword: ''
   });
@@ -37,6 +39,8 @@ const BarApply = () => {
         ownerFullName: form.ownerFullName.trim(),
         ownerEmail: form.ownerEmail.trim(),
         ownerPhone: form.ownerPhone.trim(),
+        country: form.country.trim(),
+        district: form.district.trim(),
         ownerUsername: form.ownerUsername.trim(),
         ownerPassword: form.ownerPassword
       };
@@ -109,6 +113,28 @@ const BarApply = () => {
               onChange={handleChange}
               style={styles.input}
               placeholder="Enter your phone number"
+              required
+            />
+
+            <label style={styles.label}>Country *</label>
+            <input
+              type="text"
+              name="country"
+              value={form.country}
+              onChange={handleChange}
+              style={styles.input}
+              placeholder="Enter country"
+              required
+            />
+
+            <label style={styles.label}>District *</label>
+            <input
+              type="text"
+              name="district"
+              value={form.district}
+              onChange={handleChange}
+              style={styles.input}
+              placeholder="Enter district or region"
               required
             />
 

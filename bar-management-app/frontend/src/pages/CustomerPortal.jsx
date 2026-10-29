@@ -4,6 +4,8 @@ import PageContainer from './PageContainer';
 import { formatPriceMK } from '../utils/formatPrice';
 import { useAuth } from '../context/AuthContext';
 import Button from '../components/common/Button';
+import { getActiveBusinessSettings } from '../utils/businessSettings';
+import { getPaymentMethods } from '../utils/paymentMethods';
 
 const CustomerPortal = () => {
   const { user } = useAuth();
@@ -94,12 +96,7 @@ const CustomerPortal = () => {
     return !isPaid && !isRejectedAndCleared && !isConfirmedCreditOrder && isRecentExpired;
   });
   const hasOutstandingBill = outstandingBill > 0;
-  const paymentMethods = [
-    { value: 'cash', label: 'Cash' },
-    { value: 'airtel_money', label: 'Airtel Money' },
-    { value: 'mpamba', label: 'Mpamba' },
-    { value: 'bank_account', label: 'Bank Account' }
-  ];
+  const paymentMethods = getPaymentMethods(getActiveBusinessSettings());
 
   const paymentHint = paymentMethod === 'cash' ? 'No reference needed for cash payments.' : 'Add a receipt reference or payer name for this payment.';
   const responsiveStyles = isCompact

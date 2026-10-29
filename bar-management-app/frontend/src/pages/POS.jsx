@@ -4,6 +4,8 @@ import PageContainer from './PageContainer';
 import UnifiedCard from '../components/common/UnifiedCard';
 import ReceiptModal from '../components/common/ReceiptModal';
 import { formatPriceMK } from '../utils/formatPrice';
+import { getActiveBusinessSettings } from '../utils/businessSettings';
+import { getPaymentMethodLabel, getPaymentMethods } from '../utils/paymentMethods';
 
 const POS = () => {
   const PRODUCT_PAGE_SIZE = 20;
@@ -703,10 +705,15 @@ const POS = () => {
   const showEmptyState = filteredProducts.length === 0 && !isInitialProductLoad && !isSearchInProgress;
 
   const paymentMethodOptions = [
-    { value: 'cash', label: '💵 Cash' },
-    { value: 'airtel_money', label: '📲 Airtel Money' },
-    { value: 'mpamba', label: '📱 Mpamba' },
-    { value: 'bank_account', label: '🏦 Bank Account' },
+    ...getPaymentMethods(getActiveBusinessSettings()).map((method) => ({
+      ...method,
+      label: ({
+        cash: '💵 ',
+        airtel_money: '📲 ',
+        mpamba: '📱 ',
+        bank_account: '🏦 '
+      }[method.value] || '') + method.label
+    })),
     { value: 'credit', label: '🧾 Credit' }
   ];
 
@@ -839,7 +846,7 @@ const POS = () => {
                   <div className="pos-request-info" style={{ flex: 1 }}>
                     <div style={styles.requestCustomer}>{p.customerName || 'Customer'}</div>
                     <div style={styles.requestDetail}>Amount: {formatPriceMK(p.amount || p.amountRequested || 0)}</div>
-                    <div style={styles.requestDetail}>Method: {p.paymentMethod || 'cash'}</div>
+                    <div style={styles.requestDetail}>Method: {getPaymentMethodLabel(p.paymentMethod, getActiveBusinessSettings())}</div>
                     {p.paymentReference && (
                       <div style={styles.requestDetail}>Ref: {p.paymentReference}</div>
                     )}

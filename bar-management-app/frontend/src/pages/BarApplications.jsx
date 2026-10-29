@@ -63,6 +63,8 @@ const BarApplications = () => {
                   <th>Owner</th>
                   <th>Email</th>
                   <th>Phone</th>
+                  <th>Country</th>
+                  <th>District</th>
                   <th>Status</th>
                   <th>Submitted</th>
                   <th>Actions</th>
@@ -75,6 +77,8 @@ const BarApplications = () => {
                     <td>{application.ownerFullName}</td>
                     <td>{application.ownerEmail}</td>
                     <td>{application.ownerPhone}</td>
+                    <td>{application.country || '-'}</td>
+                    <td>{application.district || '-'}</td>
                     <td style={styles.status}>{application.status === 'bar_deleted' ? 'Bar deleted' : application.status}</td>
                     <td>{new Date(application.createdAt).toLocaleString()}</td>
                     <td style={styles.actionsCell}>

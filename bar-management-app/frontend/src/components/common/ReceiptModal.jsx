@@ -3,7 +3,7 @@ import QRCode from 'qrcode';
 import api from '../../api/api';
 import { useAuth } from '../../context/AuthContext';
 import { formatPriceMK } from '../../utils/formatPrice';
-import { getActiveBusinessSettings } from '../../utils/businessSettings';
+import { cacheBusinessSettings, getActiveBusinessSettings } from '../../utils/businessSettings';
 
 const APPLY_URL = 'https://www.smartbarmw.tech/apply';
 
@@ -12,6 +12,7 @@ const ReceiptModal = ({ order, onClose }) => {
   const [qrCodeDataUrl, setQrCodeDataUrl] = useState('');
   const [qrCaption, setQrCaption] = useState('Interested in this App? Scan here');
   const [shopDetails, setShopDetails] = useState(null);
+  const [businessSettings, setBusinessSettings] = useState(() => getActiveBusinessSettings());
   const [shopDetailsLoaded, setShopDetailsLoaded] = useState(false);
   const hasCustomerAccount = Boolean(
     order?.customerAccount?.username
@@ -69,6 +70,7 @@ const ReceiptModal = ({ order, onClose }) => {
     const cacheKey = user?.barId ? `receiptShopDetails:${user.barId}` : null;
     setShopDetails(null);
     setShopDetailsLoaded(false);
+    setBusinessSettings(getActiveBusinessSettings());
 
     if (cacheKey) {
       try {
@@ -78,10 +80,6 @@ const ReceiptModal = ({ order, onClose }) => {
         ));
         if (hasCachedDetails) {
           setShopDetails(cachedDetails);
-          setShopDetailsLoaded(true);
-          return () => {
-            isMounted = false;
-          };
         }
       } catch (error) {
         try {
@@ -94,8 +92,16 @@ const ReceiptModal = ({ order, onClose }) => {
 
     const loadShopDetails = async () => {
       try {
-        const response = await api.get('/auth/me');
-        const details = response.data?.barDetails || null;
+        const [userResult, settingsResult] = await Promise.allSettled([
+          api.get('/auth/me'),
+          api.get('/business-settings')
+        ]);
+        const details = userResult.status === 'fulfilled'
+          ? userResult.value.data?.barDetails || null
+          : null;
+        const settings = settingsResult.status === 'fulfilled'
+          ? settingsResult.value.data || {}
+          : null;
         if (details && cacheKey) {
           try {
             localStorage.setItem(cacheKey, JSON.stringify(details));
@@ -103,9 +109,19 @@ const ReceiptModal = ({ order, onClose }) => {
             console.warn('Could not cache shop details for receipt:', error);
           }
         }
-        if (isMounted) setShopDetails(details);
+        if (isMounted && details) setShopDetails(details);
+        if (settings) {
+          cacheBusinessSettings(user?.barId, settings);
+          if (isMounted) setBusinessSettings(settings);
+        }
+        if (userResult.status === 'rejected') {
+          console.error('Could not load registered bar details for receipt:', userResult.reason);
+        }
+        if (settingsResult.status === 'rejected') {
+          console.error('Could not load saved business settings for receipt:', settingsResult.reason);
+        }
       } catch (error) {
-        console.error('Could not load shop details for receipt:', error);
+        console.error('Could not load receipt business details:', error);
       } finally {
         if (isMounted) setShopDetailsLoaded(true);
       }
@@ -119,12 +135,27 @@ const ReceiptModal = ({ order, onClose }) => {
 
   if (!order) return null;
 
-  const savedBusiness = getActiveBusinessSettings();
-
+  const savedBusiness = businessSettings;
+  const registeredLocation = [
+    shopDetails?.address,
+    shopDetails?.district,
+    shopDetails?.country
+  ].map((value) => String(value || '').trim()).filter(Boolean).join(', ');
+  const getPreferredDetail = (savedValue, registeredValue, placeholders = []) => {
+    const saved = String(savedValue || '').trim();
+    const registered = String(registeredValue || '').trim();
+    if (saved && !placeholders.includes(saved.toLowerCase())) return saved;
+    return registered || saved;
+  };
   const customerName = order.customerName || order.customer?.name || order.customer?.fullName || 'Walk-in Customer';
-  const shopName = shopDetails?.name || savedBusiness.name || order.shopName || order.barName || 'SMART BAR';
-  const shopEmail = shopDetails?.email || savedBusiness.email || '';
-  const shopPhone = shopDetails?.phone || savedBusiness.phone || '';
+  const shopName = getPreferredDetail(savedBusiness.name, shopDetails?.name || order.shopName || order.barName, ['bar manager'])
+    || 'SMART BAR';
+  const shopPhone = getPreferredDetail(savedBusiness.phone, shopDetails?.phone, ['+265 999 123 456']);
+  const shopLocation = getPreferredDetail(
+    savedBusiness.location || savedBusiness.address,
+    registeredLocation,
+    ['123 main street, lilongwe']
+  );
   const qrAlt = qrCaption === 'Scan to check your bill'
     ? 'QR code to view customer bills'
     : 'QR code to apply at Smart Bar';
@@ -191,7 +222,7 @@ const ReceiptModal = ({ order, onClose }) => {
           <div class="receipt">
             <div class="center">
               <div class="bold">${escapeHtml(shopName)}</div>
-              ${shopEmail ? `<div>${escapeHtml(shopEmail)}</div>` : ''}
+              ${shopLocation ? `<div>${escapeHtml(shopLocation)}</div>` : ''}
               ${shopPhone ? `<div>${escapeHtml(shopPhone)}</div>` : ''}
             </div>
             <div class="divider"></div>
@@ -257,7 +288,7 @@ const ReceiptModal = ({ order, onClose }) => {
         <div id="receipt" style={styles.receipt}>
           <div style={styles.header}>
             <h1 style={styles.barName}>{shopName}</h1>
-            {shopEmail && <p style={styles.address}>{shopEmail}</p>}
+            {shopLocation && <p style={styles.address}>{shopLocation}</p>}
             {shopPhone && <p style={styles.phone}>{shopPhone}</p>}
             <div style={styles.divider} />
           </div>

@@ -4,6 +4,8 @@ import api from '../api/api';
 import PageContainer from './PageContainer';
 import UnifiedCard from '../components/common/UnifiedCard';
 import { formatPriceMK } from '../utils/formatPrice';
+import { getActiveBusinessSettings } from '../utils/businessSettings';
+import { getPaymentMethodLabel } from '../utils/paymentMethods';
 
 const Orders = () => {
   const [orders, setOrders] = useState([]);
@@ -363,7 +365,7 @@ const Orders = () => {
                                 order.paymentMethod === 'card' ? styles.card : 
                                 styles.mobile)
                           }}>
-                            {order.paymentMethod.replace('_', ' ')}
+                            {getPaymentMethodLabel(order.paymentMethod, getActiveBusinessSettings())}
                           </span>
                         </td>
                         <td>

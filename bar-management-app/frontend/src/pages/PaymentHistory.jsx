@@ -4,6 +4,8 @@ import api from '../api/api';
 import { useAuth } from '../context/AuthContext';
 import PageContainer from './PageContainer';
 import { formatPriceMK } from '../utils/formatPrice';
+import { getActiveBusinessSettings } from '../utils/businessSettings';
+import { getPaymentMethodLabel } from '../utils/paymentMethods';
 
 const paymentTypeOptions = [
   { value: 'all', label: 'All requests' },
@@ -143,7 +145,7 @@ const PaymentHistory = () => {
 
   const formatMethodLabel = useCallback((method) => {
     const key = String(method || 'cash').toLowerCase();
-    return paymentMethodLabels[key] || key.replace(/_/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase());
+    return paymentMethodLabels[key] || getPaymentMethodLabel(key, getActiveBusinessSettings());
   }, []);
 
   const groupPaymentsByMethod = useCallback((paymentItems = []) => {
@@ -373,7 +375,7 @@ const PaymentHistory = () => {
                   <div style={styles.row}>
                     <div>
                       <div style={styles.customerName}>{entry.customerName || 'Walk-in customer'}</div>
-                      <div style={styles.meta}>Method: {entry.paymentMethod || 'cash'}</div>
+                      <div style={styles.meta}>Method: {formatMethodLabel(entry.paymentMethod || 'cash')}</div>
                     </div>
                     <div style={styles.amount}>{formatPriceMK(getEntryAmount(entry))}</div>
                   </div>

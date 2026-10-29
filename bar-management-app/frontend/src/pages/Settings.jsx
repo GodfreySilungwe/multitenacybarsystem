@@ -7,6 +7,7 @@ import AvatarUpload from '../components/common/AvatarUpload';
 import { useAuth } from '../context/AuthContext';
 import { confirmTypedDelete } from '../utils/confirmation';
 import { cacheBusinessSettings } from '../utils/businessSettings';
+import { DEFAULT_PAYMENT_METHODS } from '../utils/paymentMethods';
 
 const CURRENCY_OPTIONS = [
   { value: 'MK', label: 'MK - Malawi Kwacha' },
@@ -74,8 +75,10 @@ const Settings = () => {
     email: 'info@barmanager.com',
     taxId: '',
     currency: 'MK',
-    receiptFooter: 'Thank you for your business!'
+    receiptFooter: 'Thank you for your business!',
+    paymentMethods: []
   });
+  const [paymentMethodDraft, setPaymentMethodDraft] = useState('');
 
   // Load user profile from localStorage on mount
   useEffect(() => {
@@ -351,7 +354,10 @@ const Settings = () => {
 
     try {
       const response = await api.put('/business-settings', business);
-      setBusiness(response.data);
+      setBusiness({
+        ...response.data,
+        paymentMethods: Array.isArray(response.data.paymentMethods) ? response.data.paymentMethods : []
+      });
       cacheBusinessSettings(user.barId, response.data);
       setMessage('✅ Business settings saved successfully!');
       setTimeout(() => setMessage(''), 3000);
@@ -363,6 +369,30 @@ const Settings = () => {
     }
   };
 
+  const addPaymentMethod = () => {
+    const label = paymentMethodDraft.trim();
+    if (!label) return;
+    const defaultMethod = DEFAULT_PAYMENT_METHODS.find((method) => (
+      method.label.toLowerCase() === label.toLowerCase()
+    ));
+    const value = defaultMethod?.value
+      || `custom_${label.toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_+|_+$/g, '')}`;
+    const currentPaymentMethods = Array.isArray(business.paymentMethods) ? business.paymentMethods : [];
+    if (
+      (!defaultMethod && value === 'custom_')
+      || currentPaymentMethods.some((method) => method.value === value || method.label.toLowerCase() === label.toLowerCase())
+    ) {
+      setError('That payment method already exists or needs a different name.');
+      return;
+    }
+    setBusiness((previous) => ({
+      ...previous,
+      paymentMethods: [...(Array.isArray(previous.paymentMethods) ? previous.paymentMethods : []), { value, label }]
+    }));
+    setPaymentMethodDraft('');
+    setError('');
+  };
+
   useEffect(() => {
     if (!user?.barId) {
       return;
@@ -370,7 +400,11 @@ const Settings = () => {
 
     api.get('/business-settings')
       .then((response) => {
-        setBusiness((previous) => ({ ...previous, ...response.data }));
+        setBusiness((previous) => ({
+          ...previous,
+          ...response.data,
+          paymentMethods: Array.isArray(response.data.paymentMethods) ? response.data.paymentMethods : []
+        }));
         cacheBusinessSettings(user.barId, response.data);
       })
       .catch((err) => {
@@ -845,6 +879,37 @@ const Settings = () => {
                       e.currentTarget.style.boxShadow = 'none';
                     }}
                   />
+                </div>
+                <div style={{ ...styles.formGroup, gridColumn: '1 / -1' }}>
+                  <label style={styles.label}>Payment Methods</label>
+                  <div style={styles.helperText}>Cash, Airtel Money, Mpamba, and Bank Account are preloaded and can be removed. Added methods apply only to this bar and require a payment reference.</div>
+                  <div style={{ display: 'flex', gap: '8px', marginTop: '8px' }}>
+                    <input
+                      type="text"
+                      maxLength="40"
+                      style={styles.input}
+                      value={paymentMethodDraft}
+                      onChange={(e) => setPaymentMethodDraft(e.target.value)}
+                      placeholder="e.g. Mobile Wallet"
+                      aria-label="Custom payment method name"
+                    />
+                    <Button type="button" onClick={addPaymentMethod}>Add</Button>
+                  </div>
+                  {(Array.isArray(business.paymentMethods) ? business.paymentMethods : []).map((method) => (
+                    <div key={method.value} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '8px 0', borderBottom: '1px solid #eee' }}>
+                      <span>{method.label}</span>
+                      <Button
+                        type="button"
+                        onClick={() => setBusiness((previous) => ({
+                          ...previous,
+                          paymentMethods: (Array.isArray(previous.paymentMethods) ? previous.paymentMethods : [])
+                            .filter((entry) => entry.value !== method.value)
+                        }))}
+                      >
+                        Remove
+                      </Button>
+                    </div>
+                  ))}
                 </div>
               </div>
               <div style={styles.formActions}>

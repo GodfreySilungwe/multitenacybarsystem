@@ -567,6 +567,14 @@ const Bars = () => {
                         <span style={styles.detailValue}>{bar.description || 'No description provided'}</span>
                       </div>
                       <div style={styles.detailItem}>
+                        <span style={styles.detailLabel}>Country</span>
+                        <span style={styles.detailValue}>{bar.country || '-'}</span>
+                      </div>
+                      <div style={styles.detailItem}>
+                        <span style={styles.detailLabel}>District</span>
+                        <span style={styles.detailValue}>{bar.district || '-'}</span>
+                      </div>
+                      <div style={styles.detailItem}>
                         <span style={styles.detailLabel}>Sales Accounts</span>
                         <span style={styles.detailValue}>{bar.activeSalesAccounts ?? 0}</span>
                       </div>

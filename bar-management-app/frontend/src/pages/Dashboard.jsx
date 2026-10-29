@@ -19,6 +19,8 @@ import StatsCard from '../components/common/StatsCard';
 import UnifiedCard from '../components/common/UnifiedCard';
 import PageContainer from './PageContainer';
 import { formatPriceMK } from '../utils/formatPrice';
+import { getActiveBusinessSettings } from '../utils/businessSettings';
+import { getPaymentMethodLabel } from '../utils/paymentMethods';
 
 const Dashboard = () => {
   const { isGlobalOwner, isSales, isBarOwner, isOwner, user } = useAuth();
@@ -367,6 +369,7 @@ const Dashboard = () => {
     paymentMethodProceeds.forEach((method) => addAmount(method.method, method.totalAmount));
     (creditSettlementSummary || []).forEach((method) => addAmount(method.method, method.amount));
 
+    const settings = getActiveBusinessSettings();
     const labels = {
       cash: 'Cash',
       airtel_money: 'Airtel Money',
@@ -376,7 +379,7 @@ const Dashboard = () => {
     const orderedMethods = ['cash', 'airtel_money', 'mpamba', 'bank_account'];
     const extraMethods = [...amounts.keys()].filter((method) => !orderedMethods.includes(method)).sort();
     return [...orderedMethods, ...extraMethods].map((method) => ({
-      method: labels[method] || method.replace(/_/g, ' ').replace(/\b\w/g, (character) => character.toUpperCase()),
+      method: labels[method] || getPaymentMethodLabel(method, settings),
       amount: amounts.get(method) || 0
     }));
   })();
