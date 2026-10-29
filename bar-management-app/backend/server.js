@@ -135,6 +135,7 @@ const userRoutes = require('./routes/users');
 const auditRoutes = require('./routes/audit');
 const cashChestRoutes = require('./routes/cash-chest');
 const subscriptionRoutes = require('./routes/subscriptions');
+const businessSettingsRoutes = require('./routes/business-settings');
 
 // Use routes
 app.use(['/api/auth', '/auth'], authRoutes);
@@ -150,6 +151,7 @@ app.use(['/api/users', '/users'], userRoutes);
 app.use(['/api/audit', '/audit'], auditRoutes);
 app.use(['/api/cash-chest', '/cash-chest'], cashChestRoutes);
 app.use(['/api/subscriptions', '/subscriptions'], subscriptionRoutes);
+app.use(['/api/business-settings', '/business-settings'], businessSettingsRoutes);
 
 // Root info route
 app.get('/', (req, res) => {

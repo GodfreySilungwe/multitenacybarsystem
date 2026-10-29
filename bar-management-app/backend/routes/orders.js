@@ -7,13 +7,20 @@ const Customer = require('../models/Customer');
 const InventoryAdjustment = require('../models/InventoryAdjustment');
 const PurchaseOrder = require('../models/PurchaseOrder');
 const CustomerOrderRequest = require('../models/CustomerOrderRequest');
+const Bar = require('../models/Bar');
 const dynamodb = require('../lib/dynamodb');
 const { queryEntities, queryActiveCreditOrders, queryActiveCreditOrdersByBar, queryPaymentRequestsByBarStatus, decodeLastEvaluatedKey } = require('../lib/dynamodb');
 const { buildOrderSummary, calculateOutstandingCreditInPeriod } = require('../lib/orderSummary');
 const { createAuditEntry } = require('../lib/audit');
-const { getInitialCreditPayment, normalizeCreditPaymentMethod, classifyRepaymentAllocations } = require('../lib/creditPayments');
+const {
+  getInitialCreditPayment,
+  normalizeCreditPaymentMethod,
+  summarizeInitialCreditPayments,
+  classifyRepaymentAllocations
+} = require('../lib/creditPayments');
 const { getOrderExpiryEpochSeconds } = require('../lib/orderExpiry');
 const { getPaymentCreatedAtQueryWindow } = require('../lib/paymentExpiry');
+const { getPaymentMethods, isValidPaymentMethod, formatPaymentMethodLabel } = require('../lib/paymentMethods');
 
 router.use(protect, isBarOwnerOrSales);
 
@@ -205,6 +212,8 @@ const resolveOrderProductNames = async (orders = [], barId, providedProducts = n
 
 router.get('/summary', async (req, res) => {
   try {
+    const bar = await Bar.findById(req.user.barId);
+    const availablePaymentMethods = getPaymentMethods(bar?.businessSettings || {});
     const range = String(req.query.range || 'week').toLowerCase();
     let startDate = null;
     let endDate = new Date().toISOString();
@@ -251,7 +260,7 @@ router.get('/summary', async (req, res) => {
     const isLightSummary = String(req.query.light || '').toLowerCase() === 'true';
     const summaryProducts = isLightSummary ? [] : await Product.find({ barId: req.user.barId });
     const enrichedOrders = await resolveOrderProductNames(orders, req.user.barId, summaryProducts);
-    const summary = buildOrderSummary(enrichedOrders);
+    const summary = buildOrderSummary(enrichedOrders, bar?.businessSettings || {});
 
     if (isLightSummary) {
       return res.json({
@@ -423,10 +432,15 @@ router.get('/summary', async (req, res) => {
             if (nextOrder.balanceDue <= 0) creditOrderIndex += 1;
           }
         });
-      const settlementMethods = ['credit_cash', 'credit_airtel_money', 'credit_mpamba', 'credit_bank_account'];
-      const creditSettlementSummary = settlementMethods.map((method) => ({
-        method: method.replace('credit_', 'Credit ').replace(/_/g, ' ').replace(/\b\w/g, (character) => character.toUpperCase()),
-        amount: periodPayments
+      const initialCreditPayments = summarizeInitialCreditPayments(enrichedOrders);
+      const settlementMethods = new Set([
+        ...availablePaymentMethods.map(({ value }) => `credit_${value}`),
+        ...Object.keys(initialCreditPayments).filter((method) => initialCreditPayments[method] > 0),
+        ...periodPayments.map((payment) => normalizeCreditPaymentMethod(payment))
+      ]);
+      const creditSettlementSummary = [...settlementMethods].map((method) => ({
+        method: `Credit ${formatPaymentMethodLabel(method.replace(/^credit_/, ''), bar?.businessSettings || {})}`,
+        amount: (initialCreditPayments[method] || 0) + periodPayments
           .filter((payment) => normalizeCreditPaymentMethod(payment) === method)
           .reduce((sum, payment) => sum + Number(payment.amountApplied || payment.amountRequested || payment.amount || 0), 0)
       }));
@@ -585,15 +599,23 @@ router.get('/summary', async (req, res) => {
     let creditOrderIndex = 0;
     const rangeStartTime = startDate ? new Date(startDate).getTime() : 0;
 
-    const settlementMethods = ['credit_cash', 'credit_airtel_money', 'credit_mpamba', 'credit_bank_account'];
-    const currentPeriodSettlementMap = settlementMethods.reduce((acc, method) => {
+    const initialCreditPayments = summarizeInitialCreditPayments(enrichedOrders);
+    const inRangePayments = (payments || []).filter((payment) => {
+      const paymentDate = payment.confirmedAt || payment.createdAt;
+      return isWithinSelectedPeriod(paymentDate);
+    });
+    const settlementMethods = new Set([
+      ...availablePaymentMethods.map(({ value }) => `credit_${value}`),
+      ...Object.keys(initialCreditPayments).filter((method) => initialCreditPayments[method] > 0),
+      ...inRangePayments.map((payment) => normalizeCreditPaymentMethod(payment))
+    ]);
+    const currentPeriodSettlementMap = [...settlementMethods].reduce((acc, method) => {
       acc[method] = 0;
       return acc;
     }, {});
 
-    const inRangePayments = (payments || []).filter((payment) => {
-      const paymentDate = payment.confirmedAt || payment.createdAt;
-      return isWithinSelectedPeriod(paymentDate);
+    settlementMethods.forEach((method) => {
+      currentPeriodSettlementMap[method] += initialCreditPayments[method];
     });
 
     inRangePayments.forEach((payment) => {
@@ -707,15 +729,8 @@ router.get('/summary', async (req, res) => {
       }
     });
 
-    const settlementLabels = {
-      credit_cash: 'Credit Cash',
-      credit_airtel_money: 'Credit Airtel Money',
-      credit_mpamba: 'Credit Mpamba',
-      credit_bank_account: 'Credit Bank Account'
-    };
-
-    const creditSettlementSummary = settlementMethods.map((method) => ({
-      method: settlementLabels[method],
+    const creditSettlementSummary = [...settlementMethods].map((method) => ({
+      method: `Credit ${formatPaymentMethodLabel(method.replace(/^credit_/, ''), bar?.businessSettings || {})}`,
       amount: currentPeriodSettlementMap[method] || 0
     }));
 
@@ -1067,6 +1082,10 @@ router.get('/today', async (req, res) => {
 router.post('/', async (req, res) => {
   try {
     const { customer, items, paymentMethod, amountPaid } = req.body;
+    const bar = await Bar.findById(req.user.barId);
+    if (!isValidPaymentMethod(paymentMethod, bar?.businessSettings || {}) && paymentMethod !== 'credit') {
+      return res.status(400).json({ message: 'Select a payment method configured for this bar.' });
+    }
     const checkoutId = String(req.get('x-idempotency-key') || req.body.checkoutId || '').trim();
 
     if (!items || items.length === 0) {

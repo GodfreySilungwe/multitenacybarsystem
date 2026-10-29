@@ -1,3 +1,5 @@
+const { formatPaymentMethodLabel } = require('./paymentMethods');
+
 function normalizeNumber(value) {
   const numericValue = Number(value);
   return Number.isFinite(numericValue) ? numericValue : 0;
@@ -73,7 +75,7 @@ function calculateOutstandingCreditInPeriod(orders = [], payments = []) {
     }, 0);
 }
 
-function buildOrderSummary(orders = []) {
+function buildOrderSummary(orders = [], businessSettings = {}) {
   const activeOrders = (orders || []).filter((order) => !order.reversed);
 
   const totalSales = activeOrders.reduce((sum, order) => sum + normalizeNumber(order.totalAmount), 0);
@@ -132,7 +134,7 @@ function buildOrderSummary(orders = []) {
   });
 
   const paymentMethods = Object.keys(paymentMethodsMap).map((method) => ({
-    method: method.replace(/_/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase()),
+    method: formatPaymentMethodLabel(method, businessSettings),
     count: paymentMethodsMap[method].count,
     amount: paymentMethodsMap[method].amount
   }));

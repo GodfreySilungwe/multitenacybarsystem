@@ -26,7 +26,9 @@ function summarizeCreditSettlements(settlements = []) {
     totalAmount += amount;
     const method = ['cash', 'airtel_money', 'mpamba', 'bank_account'].includes(settlement.paymentMethod)
       ? settlement.paymentMethod
-      : 'cash';
+      : String(settlement.paymentMethod || '').startsWith('custom_')
+        ? settlement.paymentMethod
+        : 'cash';
     byMethod[method] = (byMethod[method] || 0) + amount;
   }
 

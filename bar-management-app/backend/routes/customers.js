@@ -19,6 +19,7 @@ const Bar = require('../models/Bar');
 const CustomerOrderRequest = require('../models/CustomerOrderRequest');
 const CustomerPaymentRequest = require('../models/CustomerPaymentRequest');
 const { selectCreditOrdersForSettlement, getSalesAccountMismatchMessage } = require('../lib/credit');
+const { isValidPaymentMethod } = require('../lib/paymentMethods');
 
 router.use(protect);
 
@@ -467,9 +468,11 @@ router.post('/:id/pay', isBarOwnerOrSales, async (req, res) => {
     }
 
     const requestedAmount = toNumber(req.body.amount, 0);
-    const paymentMethod = ['cash', 'airtel_money', 'mpamba', 'bank_account'].includes(req.body.paymentMethod)
-      ? req.body.paymentMethod
-      : 'cash';
+    const bar = await Bar.findById(req.user.barId);
+    const paymentMethod = String(req.body.paymentMethod || 'cash');
+    if (!isValidPaymentMethod(paymentMethod, bar?.businessSettings || {})) {
+      return res.status(400).json({ message: 'Select a payment method configured for this bar.' });
+    }
     const paymentReference = String(req.body.paymentReference || '').trim();
 
     if (!Number.isFinite(requestedAmount) || requestedAmount <= 0) {

@@ -6,14 +6,22 @@ const User = require('../models/User');
 const { selectLoginUser } = require('../lib/loginIdentity');
 const Customer = require('../models/Customer');
 const Bar = require('../models/Bar');
+const BarSubscription = require('../models/BarSubscription');
 const { protect, hasSubscriptionAccess } = require('../middleware/auth');
 const { getCustomerReceiptAccessToken, consumeCustomerReceiptAccessToken } = require('../lib/dynamodb');
 const { hashCustomerReceiptAccessToken } = require('../lib/customerReceiptAccess');
 const { setTenantContext } = require('../lib/tenantContext');
+const { getSubscriptionGraceNotice } = require('../lib/subscriptionStatus');
 
 const DEFAULT_JWT_SECRET = 'secret_key';
 const JWT_SECRET = process.env.JWT_SECRET || process.env.JWT_SECRET_KEY || DEFAULT_JWT_SECRET;
 const JWT_SECRETS = Array.from(new Set([JWT_SECRET, DEFAULT_JWT_SECRET, process.env.JWT_SECRET_KEY, 'jwt_secret'])).filter(Boolean);
+
+const getBarSubscriptionNotice = async (barId) => {
+  if (!barId) return null;
+  const subscription = await BarSubscription.findOne({ barId });
+  return getSubscriptionGraceNotice(subscription);
+};
 
 const verifyToken = (token) => {
   let lastError;
@@ -226,6 +234,7 @@ router.post('/login', async (req, res) => {
     const linkedCustomer = user.role === 'customer'
       ? await Customer.findOne({ accountUserId: user._id, barId: user.barId })
       : null;
+    const subscriptionGraceNotice = await getBarSubscriptionNotice(user.barId);
 
     res.json({
       token,
@@ -237,7 +246,8 @@ router.post('/login', async (req, res) => {
         role: user.role,
         barId: user.barId || null,
         customerId: linkedCustomer ? linkedCustomer._id : null,
-        phone: user.phone || null
+        phone: user.phone || null,
+        subscriptionGraceNotice
       }
     });
   } catch (error) {
@@ -387,6 +397,9 @@ router.get('/me', async (req, res) => {
       }
       barDetails = {
         name: bar?.name || '',
+        address: bar?.address || '',
+        district: bar?.district || '',
+        country: bar?.country || '',
         email: barOwner?.email || '',
         phone: barOwner?.phone || ''
       };
@@ -398,6 +411,7 @@ router.get('/me', async (req, res) => {
     if (linkedCustomer) {
       safeUser.customerId = linkedCustomer._id;
     }
+    safeUser.subscriptionGraceNotice = await getBarSubscriptionNotice(user.barId);
 
     res.json(safeUser);
   } catch (error) {

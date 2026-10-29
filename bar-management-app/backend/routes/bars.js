@@ -119,6 +119,44 @@ router.get('/:id/products', async (req, res) => {
   }
 });
 
+router.delete('/:id/catalog', async (req, res) => {
+  let deletedProducts = 0;
+  let deletedCategories = 0;
+
+  try {
+    const bar = await Bar.findById(req.params.id);
+    if (!bar) {
+      return res.status(404).json({ message: 'Bar not found' });
+    }
+
+    const products = await Product.find({ barId: req.params.id });
+    const categories = await Category.find({ barId: req.params.id });
+
+    for (const product of products) {
+      await product.delete();
+      deletedProducts += 1;
+    }
+
+    for (const category of categories) {
+      await category.delete();
+      deletedCategories += 1;
+    }
+
+    res.json({
+      message: `Catalog cleared for ${bar.name || 'bar'}.`,
+      deletedProducts,
+      deletedCategories
+    });
+  } catch (error) {
+    console.error('Error clearing bar catalog:', error);
+    res.status(500).json({
+      message: error.message,
+      deletedProducts,
+      deletedCategories
+    });
+  }
+});
+
 router.post('/:id/import-products', async (req, res) => {
   try {
     const targetBarId = req.params.id;

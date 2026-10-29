@@ -15,3 +15,10 @@ test('summarizeCreditSettlements totals only active settlements', () => {
   assert.equal(summary.byMethod.cash, 130);
   assert.equal(summary.byMethod.bank_account, 80);
 });
+
+test('summarizeCreditSettlements preserves configured custom methods', () => {
+  const summary = summarizeCreditSettlements([
+    { amount: 75, paymentMethod: 'custom_mobile_wallet', status: 'recorded' }
+  ]);
+  assert.equal(summary.byMethod.custom_mobile_wallet, 75);
+});

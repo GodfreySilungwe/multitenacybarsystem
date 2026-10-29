@@ -13,6 +13,7 @@ const {
 const { buildOrderSummary } = require('./lib/orderSummary');
 const { classifyRepaymentAllocations, normalizeCreditPaymentMethod } = require('./lib/creditPayments');
 const { getPaymentCreatedAtQueryWindow } = require('./lib/paymentExpiry');
+const { formatPaymentMethodLabel, getPaymentMethods } = require('./lib/paymentMethods');
 
 const REPORT_TIME_ZONE = 'Africa/Blantyre';
 const MALAWI_OFFSET_MINUTES = 120;
@@ -32,7 +33,6 @@ const PAYMENT_TENDER_LABELS = {
   mpamba: 'Mpamba',
   bank_account: 'Bank Account'
 };
-const PAYMENT_TENDER_ORDER = ['cash', 'airtel_money', 'mpamba', 'bank_account'];
 const sesClient = new SESClient({ region: process.env.AWS_REGION || 'us-east-1' });
 
 const getCalendarDate = (date) => {
@@ -90,8 +90,8 @@ const formatMoney = (value) => Number(value || 0).toLocaleString('en-US', {
   maximumFractionDigits: 2
 });
 
-const buildSalesInsights = (orders) => {
-  const summary = buildOrderSummary(orders);
+const buildSalesInsights = (orders, businessSettings = {}) => {
+  const summary = buildOrderSummary(orders, businessSettings);
   const salesByHour = new Map();
   let firstSaleTime = Infinity;
   let lastSaleTime = -Infinity;
@@ -151,8 +151,9 @@ const isOpenCreditOrder = (order) => (
   )
 );
 
-const buildCollectedPaymentMix = (orders, payments, rangeStartTime, rangeEndTime) => {
-  const methods = new Map(PAYMENT_TENDER_ORDER.map((method) => [method, { amount: 0, count: 0 }]));
+const buildCollectedPaymentMix = (orders, payments, rangeStartTime, rangeEndTime, businessSettings = {}) => {
+  const enabledMethods = getPaymentMethods(businessSettings).map(({ value }) => value);
+  const methods = new Map(enabledMethods.map((method) => [method, { amount: 0, count: 0 }]));
   const addAmount = (method, amount) => {
     const normalizedMethod = String(method || 'cash').trim().toLowerCase().replace(/[\s-]+/g, '_');
     const tenderMethod = normalizedMethod.startsWith('credit_')
@@ -167,7 +168,11 @@ const buildCollectedPaymentMix = (orders, payments, rangeStartTime, rangeEndTime
   };
 
   (orders || []).forEach((order) => {
-    if (order.reversed || String(order.paymentMethod || 'cash').toLowerCase() === 'credit') return;
+    if (order.reversed) return;
+    if (String(order.paymentMethod || 'cash').toLowerCase() === 'credit') {
+      addAmount(order.initialPaymentMethod || 'cash', order.initialAmountPaid);
+      return;
+    }
     addAmount(order.paymentMethod || 'cash', order.totalAmount);
   });
 
@@ -183,17 +188,19 @@ const buildCollectedPaymentMix = (orders, payments, rangeStartTime, rangeEndTime
     addAmount(normalizeCreditPaymentMethod(payment), amount);
   });
 
-  const extraMethods = [...methods.keys()]
-    .filter((method) => !PAYMENT_TENDER_ORDER.includes(method))
+  const collectedMethods = [...methods.keys()].filter((method) => methods.get(method).amount > 0);
+  const extraMethods = collectedMethods
+    .filter((method) => !enabledMethods.includes(method))
     .sort();
-  return [...PAYMENT_TENDER_ORDER, ...extraMethods].map((method) => ({
-    method: PAYMENT_TENDER_LABELS[method] || method.replace(/_/g, ' ').replace(/\b\w/g, (character) => character.toUpperCase()),
+  const orderedMethods = enabledMethods.filter((method) => collectedMethods.includes(method));
+  return [...orderedMethods, ...extraMethods].map((method) => ({
+    method: PAYMENT_TENDER_LABELS[method] || formatPaymentMethodLabel(method, businessSettings),
     amount: methods.get(method).amount,
     count: methods.get(method).count
   }));
 };
 
-const calculateCollectionSummary = ({ orders, payments, creditOrdersForSettlement = [], window }) => {
+const calculateCollectionSummary = ({ orders, payments, creditOrdersForSettlement = [], window, businessSettings = {} }) => {
   const rangeStartTime = Date.parse(window.startDate);
   const rangeEndTime = Date.parse(window.endDate);
   const outstandingCreditInPeriod = (orders || [])
@@ -243,7 +250,7 @@ const calculateCollectionSummary = ({ orders, payments, creditOrdersForSettlemen
   });
 
   const totalSales = (orders || []).reduce((sum, order) => sum + Number(order.totalAmount || 0), 0);
-  const paymentMix = buildCollectedPaymentMix(orders, payments, rangeStartTime, rangeEndTime);
+  const paymentMix = buildCollectedPaymentMix(orders, payments, rangeStartTime, rangeEndTime, businessSettings);
   return {
     outstandingCreditInPeriod,
     previousBillsCollected,
@@ -282,15 +289,15 @@ const drawInsightBar = (document, { x, y, width, label, detail, share, color }) 
   }
 };
 
-const createSalesPdf = async ({ barName, orders, window, collectionSummary }) => new Promise((resolve, reject) => {
+const createSalesPdf = async ({ barName, orders, window, collectionSummary, businessSettings = {} }) => new Promise((resolve, reject) => {
   const document = new PDFDocument({ size: 'A4', margin: 42 });
   const chunks = [];
   document.on('data', (chunk) => chunks.push(chunk));
   document.on('end', () => resolve(Buffer.concat(chunks)));
   document.on('error', reject);
 
-  const insights = buildSalesInsights(orders);
-  const collection = collectionSummary || calculateCollectionSummary({ orders, payments: [], window });
+  const insights = buildSalesInsights(orders, businessSettings);
+  const collection = collectionSummary || calculateCollectionSummary({ orders, payments: [], window, businessSettings });
   const pageWidth = document.page.width;
   const contentX = 42;
   const contentWidth = pageWidth - contentX * 2;
@@ -375,12 +382,12 @@ const createSalesPdf = async ({ barName, orders, window, collectionSummary }) =>
   document.moveTo(contentX, sectionY + 19).lineTo(contentX + columnWidth, sectionY + 19).strokeColor(REPORT_COLORS.line).stroke();
   document.moveTo(rightX, sectionY + 19).lineTo(rightX + columnWidth, sectionY + 19).strokeColor(REPORT_COLORS.line).stroke();
 
-  const paymentRows = collection.paymentMix.slice(0, 5);
+  const paymentRows = collection.paymentMix;
   const totalCollectedByMethod = paymentRows.reduce((sum, payment) => sum + Number(payment.amount || 0), 0);
   if (paymentRows.length === 0) {
     document.fillColor(REPORT_COLORS.muted).font('Helvetica').fontSize(9).text('No payment data', contentX, sectionY + 31);
   } else {
-    paymentRows.forEach((payment, index) => {
+    paymentRows.slice(0, 5).forEach((payment, index) => {
       const share = totalCollectedByMethod > 0 ? payment.amount / totalCollectedByMethod : 0;
       drawInsightBar(document, {
         x: contentX,
@@ -439,6 +446,40 @@ const createSalesPdf = async ({ barName, orders, window, collectionSummary }) =>
   document.moveTo(contentX, footerY - 8).lineTo(contentX + contentWidth, footerY - 8).strokeColor(REPORT_COLORS.line).stroke();
   document.fillColor(REPORT_COLORS.muted).font('Helvetica').fontSize(7)
     .text('SMARTBAR  |  Daily management summary  |  Amounts in MK', contentX, footerY, { width: contentWidth });
+
+  const remainingPaymentRows = paymentRows.slice(5);
+  const rowsPerContinuationPage = 26;
+  for (let offset = 0; offset < remainingPaymentRows.length; offset += rowsPerContinuationPage) {
+    document.addPage();
+    document.fillColor(REPORT_COLORS.ink).font('Helvetica-Bold').fontSize(16)
+      .text('Collected by method', contentX, 42);
+    document.fillColor(REPORT_COLORS.muted).font('Helvetica').fontSize(9)
+      .text(`${barName || 'Bar'}  |  ${window.reportDate}  |  Continued`, contentX, 65, { width: contentWidth });
+    document.moveTo(contentX, 82).lineTo(contentX + contentWidth, 82).strokeColor(REPORT_COLORS.line).stroke();
+
+    const pageRows = remainingPaymentRows.slice(offset, offset + rowsPerContinuationPage);
+    pageRows.forEach((payment, index) => {
+      const share = totalCollectedByMethod > 0 ? payment.amount / totalCollectedByMethod : 0;
+      drawInsightBar(document, {
+        x: contentX,
+        y: 94 + index * 25,
+        width: contentWidth,
+        label: payment.method,
+        detail: `MK ${formatMoney(payment.amount)}  ${formatMoney(share * 100)}%`,
+        share,
+        color: '#76AAA4'
+      });
+    });
+
+    const continuationFooterY = document.page.height - 28;
+    document.moveTo(contentX, continuationFooterY - 8)
+      .lineTo(contentX + contentWidth, continuationFooterY - 8)
+      .strokeColor(REPORT_COLORS.line)
+      .stroke();
+    document.fillColor(REPORT_COLORS.muted).font('Helvetica').fontSize(7)
+      .text('SMARTBAR  |  Daily management summary  |  Amounts in MK', contentX, continuationFooterY, { width: contentWidth });
+  }
+
   document.end();
 });
 
@@ -528,7 +569,7 @@ const collectBarOrders = async (barId, window) => {
   return orders.filter((order) => Number(order.totalAmount || 0) > 0);
 };
 
-const getBarCollectionSummary = async (barId, orders, window) => {
+const getBarCollectionSummary = async (barId, orders, window, businessSettings = {}) => {
   const paymentQueryWindow = getPaymentCreatedAtQueryWindow(window.startDate, window.endDate);
   const payments = [];
   let lastEvaluatedKey;
@@ -566,7 +607,7 @@ const getBarCollectionSummary = async (barId, orders, window) => {
     creditOrdersForSettlement = (historicalOrders.items || []).filter(isOpenCreditOrder);
   }
 
-  return calculateCollectionSummary({ orders, payments: periodPayments, creditOrdersForSettlement, window });
+  return calculateCollectionSummary({ orders, payments: periodPayments, creditOrdersForSettlement, window, businessSettings });
 };
 
 const getReferenceId = (reference) => {
@@ -766,8 +807,14 @@ const handler = async (event = {}) => {
         continue;
       }
       const reportOrders = await hydrateOrderCategoryNames(orders, barId);
-      const collectionSummary = await getBarCollectionSummary(barId, orders, window);
-      const pdf = await createSalesPdf({ barName: bar.name, orders: reportOrders, window, collectionSummary });
+      const collectionSummary = await getBarCollectionSummary(barId, orders, window, bar.businessSettings || {});
+      const pdf = await createSalesPdf({
+        barName: bar.name,
+        orders: reportOrders,
+        window,
+        collectionSummary,
+        businessSettings: bar.businessSettings || {}
+      });
       await sendReport({ ...recipients, from, barName: bar.name || 'Bar', pdf, window });
       results.sent += 1;
       console.info('Sales report sent', { barId: bar._id || bar.id, reportDate: window.reportDate });

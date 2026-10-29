@@ -49,12 +49,16 @@ router.post('/', async (req, res) => {
       ownerFullName,
       ownerEmail,
       ownerPhone,
+      country,
+      district,
       ownerUsername,
       ownerPassword
     } = req.body;
 
-    if (!barName || !ownerFullName || !ownerEmail || !ownerPhone) {
-      return res.status(400).json({ message: 'Bar name, owner name, email and phone are required.' });
+    const normalizedCountry = String(country || '').trim();
+    const normalizedDistrict = String(district || '').trim();
+    if (!barName || !ownerFullName || !ownerEmail || !ownerPhone || !normalizedCountry || !normalizedDistrict) {
+      return res.status(400).json({ message: 'Bar name, owner name, email, phone, country and district are required.' });
     }
 
     const normalizedPhone = String(ownerPhone).trim();
@@ -114,6 +118,8 @@ router.post('/', async (req, res) => {
       ownerFullName,
       ownerEmail: normalizedEmail,
       ownerPhone,
+      country: normalizedCountry,
+      district: normalizedDistrict,
       ownerUsername: normalizedUsername,
       ownerPassword: password,
       status: 'pending',
@@ -172,6 +178,8 @@ router.patch('/:id/approve', async (req, res) => {
       name: application.barName,
       code: hasDistinctBarCode ? applicationBarCode : null,
       description: application.description,
+      country: application.country,
+      district: application.district,
       createdAt: new Date().toISOString()
     });
     await bar.save();

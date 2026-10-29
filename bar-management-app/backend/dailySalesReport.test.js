@@ -137,6 +137,19 @@ test('sales insights aggregate totals, payment mix, best seller, and peak hour',
   assert.equal(insights.busiestHour.orders, 2);
 });
 
+test('sales insights use configured names for custom bar payment methods', () => {
+  const insights = buildSalesInsights([{
+    paymentMethod: 'custom_mobile_wallet',
+    totalAmount: 250,
+    createdAt: '2026-10-10T12:00:00.000Z',
+    items: []
+  }], {
+    paymentMethods: [{ value: 'custom_mobile_wallet', label: 'Mobile Wallet' }]
+  });
+
+  assert.equal(insights.paymentMethods[0].method, 'Mobile Wallet');
+});
+
 test('collection total adds previous-bill repayments and subtracts unpaid period credit', () => {
   const window = getReportWindow('2026-10-10T04:05:00.000Z');
   const summary = calculateCollectionSummary({
@@ -180,6 +193,72 @@ test('payment mix merges direct POS sales and credit repayments by tender method
   assert.equal(mixByMethod['Airtel Money'], 101000);
   assert.equal(mixByMethod.Mpamba, 30000);
   assert.equal(mixByMethod['Bank Account'], 40000);
+});
+
+test('payment mix includes initial credit payments under configured custom methods', () => {
+  const window = getReportWindow('2026-10-10T04:05:00.000Z');
+  const summary = calculateCollectionSummary({
+    window,
+    orders: [{
+      totalAmount: 500,
+      paymentMethod: 'credit',
+      initialAmountPaid: 300,
+      initialPaymentMethod: 'custom_mobile_wallet'
+    }],
+    payments: [],
+    businessSettings: {
+      paymentMethods: [{ value: 'custom_mobile_wallet', label: 'Mobile Wallet' }]
+    }
+  });
+
+  assert.equal(summary.paymentMix.find((method) => method.method === 'Mobile Wallet').amount, 300);
+});
+
+test('payment mix omits disabled methods with no collections and retains disabled historical methods', () => {
+  const window = getReportWindow('2026-10-10T04:05:00.000Z');
+  const summary = calculateCollectionSummary({
+    window,
+    orders: [
+      { totalAmount: 100, paymentMethod: 'cash' },
+      { totalAmount: 200, paymentMethod: 'custom_old_wallet' }
+    ],
+    payments: [],
+    businessSettings: {
+      paymentMethods: [{ value: 'custom_new_wallet', label: 'New Wallet' }],
+      paymentMethodsConfigured: true,
+      paymentMethodLabels: { custom_old_wallet: 'Old Wallet' }
+    }
+  });
+
+  assert.deepEqual(summary.paymentMix.map((method) => method.method), ['Cash', 'Old Wallet']);
+  assert.deepEqual(summary.paymentMix.map((method) => method.amount), [100, 200]);
+});
+
+test('daily sales PDF adds continuation pages for all collected payment methods', async () => {
+  const window = getReportWindow('2026-10-10T04:05:00.000Z');
+  const createPdfWithMethodCount = async (methodCount) => {
+    const paymentMethods = Array.from({ length: methodCount }, (_, index) => ({
+      value: `custom_method_${index + 1}`,
+      label: `Method ${index + 1}`
+    }));
+    const orders = paymentMethods.map((method) => ({
+      paymentMethod: method.value,
+      totalAmount: 100,
+      createdAt: '2026-10-10T12:00:00.000Z',
+      items: []
+    }));
+    return createSalesPdf({
+      barName: 'Test Bar',
+      orders,
+      window,
+      businessSettings: { paymentMethods, paymentMethodsConfigured: true }
+    });
+  };
+  const countPages = (pdf) => (pdf.toString('latin1').match(/\/Type \/Page\b/g) || []).length;
+  const fiveMethodPdf = await createPdfWithMethodCount(5);
+  const sevenMethodPdf = await createPdfWithMethodCount(7);
+
+  assert.ok(countPages(sevenMethodPdf) > countPages(fiveMethodPdf));
 });
 
 test('legacy unallocated repayments are classified against older credit balances', () => {

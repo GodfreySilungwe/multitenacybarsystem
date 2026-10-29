@@ -17,6 +17,7 @@ const parsePaymentDateBoundary = (value, endOfDay = false) => {
 const { protect, isBarOwnerOrSales } = require('../middleware/auth');
 const CustomerOrderRequest = require('../models/CustomerOrderRequest');
 const CustomerPaymentRequest = require('../models/CustomerPaymentRequest');
+const Bar = require('../models/Bar');
 const Product = require('../models/Product');
 const Customer = require('../models/Customer');
 const Order = require('../models/Order');
@@ -27,6 +28,7 @@ const { getOrderExpiryEpochSeconds } = require('../lib/orderExpiry');
 const { queryActiveCreditOrders, queryPaymentRequestsByBarStatus } = require('../lib/dynamodb');
 const { getPaymentRequestExpiry, getPaymentStatusQueryWindow, isPaymentRequestExpired } = require('../lib/paymentExpiry');
 const { getPaymentCustomerId } = require('../lib/paymentAccess');
+const { isValidPaymentMethod } = require('../lib/paymentMethods');
 
 router.use(protect);
 
@@ -547,7 +549,11 @@ router.post('/pay-bill', async (req, res) => {
       return res.status(400).json({ message: 'Payment amount must be greater than zero.' });
     }
 
-    const normalizedPaymentMethod = ['cash', 'airtel_money', 'mpamba', 'bank_account'].includes(paymentMethod) ? paymentMethod : 'cash';
+    const bar = await Bar.findById(req.user.barId);
+    const normalizedPaymentMethod = String(paymentMethod || 'cash');
+    if (!isValidPaymentMethod(normalizedPaymentMethod, bar?.businessSettings || {})) {
+      return res.status(400).json({ message: 'Select a payment method configured for this bar.' });
+    }
     const trimmedReference = String(paymentReference || '').trim();
 
     if (normalizedPaymentMethod !== 'cash' && !trimmedReference) {

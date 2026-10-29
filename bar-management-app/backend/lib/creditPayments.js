@@ -18,6 +18,27 @@ function normalizeCreditPaymentMethod(payment = {}) {
   return rawMethod.startsWith('credit_') ? rawMethod : `credit_${rawMethod}`;
 }
 
+function summarizeInitialCreditPayments(orders = []) {
+  const summary = {
+    credit_cash: 0,
+    credit_airtel_money: 0,
+    credit_mpamba: 0,
+    credit_bank_account: 0
+  };
+
+  for (const order of orders || []) {
+    if (!order || order.reversed || order.paymentMethod !== 'credit') continue;
+
+    const initialPayment = getInitialCreditPayment(order);
+    if (initialPayment.amount > 0) {
+      summary[initialPayment.paymentMethod] = summary[initialPayment.paymentMethod] || 0;
+      summary[initialPayment.paymentMethod] += initialPayment.amount;
+    }
+  }
+
+  return summary;
+}
+
 function summarizeCreditPaymentEvents(order, settlements = []) {
   const summary = {
     credit_cash: 0,
@@ -27,7 +48,8 @@ function summarizeCreditPaymentEvents(order, settlements = []) {
   };
 
   const initialPayment = getInitialCreditPayment(order);
-  if (initialPayment.amount > 0 && summary[initialPayment.paymentMethod] !== undefined) {
+  if (initialPayment.amount > 0) {
+    summary[initialPayment.paymentMethod] = summary[initialPayment.paymentMethod] || 0;
     summary[initialPayment.paymentMethod] += initialPayment.amount;
   }
 
@@ -38,7 +60,8 @@ function summarizeCreditPaymentEvents(order, settlements = []) {
 
     const amount = normalizeAmount(settlement.amountApplied ?? settlement.amountRequested ?? settlement.amount);
     const paymentMethod = normalizeCreditPaymentMethod(settlement);
-    if (amount > 0 && summary[paymentMethod] !== undefined) {
+    if (amount > 0) {
+      summary[paymentMethod] = summary[paymentMethod] || 0;
       summary[paymentMethod] += amount;
     }
   }
@@ -71,6 +94,7 @@ function classifyRepaymentAllocations(payment, rangeStartTime = 0, rangeEndTime 
 module.exports = {
   getInitialCreditPayment,
   normalizeCreditPaymentMethod,
+  summarizeInitialCreditPayments,
   summarizeCreditPaymentEvents,
   classifyRepaymentAllocations
 };
