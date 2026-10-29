@@ -3,6 +3,7 @@ import api from '../api/api';
 import { useAuth } from '../context/AuthContext';
 import PageContainer from './PageContainer';
 import { formatPriceMK } from '../utils/formatPrice';
+import { getActiveCurrency } from '../utils/businessSettings';
 
 const emptyEntry = { type: 'cash_out', amount: '', description: '' };
 
@@ -108,7 +109,7 @@ const CashChest = () => {
             <h3 style={styles.sectionTitle}>Open a cash session</h3>
             <form onSubmit={openSession} style={styles.form}>
               <label style={styles.label}>
-                Opening float (MK)
+                Opening float ({getActiveCurrency()})
                 <input required min="0" type="number" step="0.01" value={openingFloat} onChange={(event) => setOpeningFloat(event.target.value)} style={styles.input} />
               </label>
               <label style={styles.label}>
@@ -152,7 +153,7 @@ const CashChest = () => {
                     </select>
                   </label>
                   <label style={styles.label}>
-                    Amount (MK)
+                    Amount ({getActiveCurrency()})
                     <input required min="0.01" type="number" step="0.01" value={entry.amount} onChange={(event) => setEntry({ ...entry, amount: event.target.value })} style={styles.input} />
                   </label>
                   <label style={styles.label}>
@@ -167,7 +168,7 @@ const CashChest = () => {
                 <h3 style={styles.sectionTitle}>Close cash session</h3>
                 <form onSubmit={closeSession} style={styles.form}>
                   <label style={styles.label}>
-                    Physically counted cash (MK)
+                    Physically counted cash ({getActiveCurrency()})
                     <input required min="0" type="number" step="0.01" value={countedCash} onChange={(event) => setCountedCash(event.target.value)} style={styles.input} />
                   </label>
                   <label style={styles.label}>

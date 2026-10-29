@@ -6,6 +6,31 @@ import Button from '../components/common/Button';
 import AvatarUpload from '../components/common/AvatarUpload';
 import { useAuth } from '../context/AuthContext';
 import { confirmTypedDelete } from '../utils/confirmation';
+import { cacheBusinessSettings } from '../utils/businessSettings';
+
+const CURRENCY_OPTIONS = [
+  { value: 'MK', label: 'MK - Malawi Kwacha' },
+  { value: 'USD', label: 'USD - US Dollar' },
+  { value: 'EUR', label: 'EUR - Euro' },
+  { value: 'GBP', label: 'GBP - British Pound' },
+  { value: 'ZAR', label: 'ZAR - South African Rand' },
+  { value: 'KES', label: 'KES - Kenyan Shilling' },
+  { value: 'TZS', label: 'TZS - Tanzanian Shilling' },
+  { value: 'ZMW', label: 'ZMW - Zambian Kwacha' },
+  { value: 'BWP', label: 'BWP - Botswana Pula' },
+  { value: 'NGN', label: 'NGN - Nigerian Naira' },
+  { value: 'GHS', label: 'GHS - Ghanaian Cedi' },
+  { value: 'UGX', label: 'UGX - Ugandan Shilling' },
+  { value: 'RWF', label: 'RWF - Rwandan Franc' },
+  { value: 'CAD', label: 'CAD - Canadian Dollar' },
+  { value: 'AUD', label: 'AUD - Australian Dollar' },
+  { value: 'INR', label: 'INR - Indian Rupee' },
+  { value: 'JPY', label: 'JPY - Japanese Yen' },
+  { value: '$', label: '$ - US Dollar (symbol)' },
+  { value: '€', label: '€ - Euro (symbol)' },
+  { value: '£', label: '£ - British Pound (symbol)' },
+  { value: 'R', label: 'R - South African Rand (symbol)' }
+];
 
 const Settings = () => {
   const { user } = useAuth();
@@ -310,35 +335,55 @@ const Settings = () => {
 
   const handleBusinessUpdate = async (e) => {
     e.preventDefault();
+    if (!user?.barId) {
+      setError('Business settings are available only for a bar account.');
+      return;
+    }
+
+    if (!String(business.currency || '').trim()) {
+      setError('Enter or select a currency.');
+      return;
+    }
+
     setLoading(true);
     setMessage('');
     setError('');
 
     try {
-      localStorage.setItem('businessSettings', JSON.stringify(business));
+      const response = await api.put('/business-settings', business);
+      setBusiness(response.data);
+      cacheBusinessSettings(user.barId, response.data);
       setMessage('✅ Business settings saved successfully!');
       setTimeout(() => setMessage(''), 3000);
     } catch (err) {
-      setError('❌ Failed to save settings');
+      setError(err.response?.data?.message || '❌ Failed to save settings');
       setTimeout(() => setError(''), 3000);
     } finally {
       setLoading(false);
     }
   };
 
-  // Load business settings from localStorage
   useEffect(() => {
-    const saved = localStorage.getItem('businessSettings');
-    if (saved) {
-      setBusiness(JSON.parse(saved));
+    if (!user?.barId) {
+      return;
     }
-  }, []);
+
+    api.get('/business-settings')
+      .then((response) => {
+        setBusiness((previous) => ({ ...previous, ...response.data }));
+        cacheBusinessSettings(user.barId, response.data);
+      })
+      .catch((err) => {
+        console.error('Error loading business settings:', err);
+        setError(err.response?.data?.message || 'Could not load business settings.');
+      });
+  }, [user?.barId]);
 
   const tabs = [
     { id: 'profile', label: '👤 Profile', delay: 1 },
     ...(canManageTeam ? [{ id: 'team', label: '👥 Team', delay: 2 }] : []),
     { id: 'password', label: '🔒 Password', delay: canManageTeam ? 3 : 2 },
-    { id: 'business', label: '🏢 Business', delay: canManageTeam ? 4 : 3 }
+    ...(user?.barId ? [{ id: 'business', label: '🏢 Business', delay: canManageTeam ? 4 : 3 }] : [])
   ];
 
   return (
@@ -750,8 +795,11 @@ const Settings = () => {
                   <label style={styles.label}>Currency</label>
                   <select
                     style={styles.input}
-                    value={business.currency}
-                    onChange={(e) => setBusiness({...business, currency: e.target.value})}
+                    value={CURRENCY_OPTIONS.some((option) => option.value === business.currency) ? business.currency : 'custom'}
+                    onChange={(e) => setBusiness({
+                      ...business,
+                      currency: e.target.value === 'custom' ? '' : e.target.value
+                    })}
                     onFocus={(e) => {
                       e.currentTarget.style.borderColor = '#e94560';
                       e.currentTarget.style.boxShadow = '0 0 0 3px rgba(233, 69, 96, 0.1)';
@@ -761,12 +809,24 @@ const Settings = () => {
                       e.currentTarget.style.boxShadow = 'none';
                     }}
                   >
-                    <option value="MK">MK - Malawi Kwacha</option>
-                    <option value="$">$ - US Dollar</option>
-                    <option value="€">€ - Euro</option>
-                    <option value="£">£ - British Pound</option>
-                    <option value="R">R - South African Rand</option>
+                    {CURRENCY_OPTIONS.map((option) => (
+                      <option key={option.value} value={option.value}>{option.label}</option>
+                    ))}
+                    <option value="custom">Other (custom currency)</option>
                   </select>
+                  {!CURRENCY_OPTIONS.some((option) => option.value === business.currency) && (
+                    <input
+                      type="text"
+                      maxLength="12"
+                      required
+                      style={{ ...styles.input, marginTop: '8px' }}
+                      value={business.currency}
+                      onChange={(e) => setBusiness({ ...business, currency: e.target.value })}
+                      placeholder="Enter currency code or symbol (e.g. CHF or Fr)"
+                      aria-label="Custom currency code or symbol"
+                    />
+                  )}
+                  <div style={styles.helperText}>This changes the currency label shown for this bar; it does not convert saved amounts.</div>
                 </div>
                 <div style={{...styles.formGroup, gridColumn: '1 / -1'}}>
                   <label style={styles.label}>Receipt Footer Message</label>

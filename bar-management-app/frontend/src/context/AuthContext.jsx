@@ -1,5 +1,6 @@
 import { createContext, useState, useContext, useEffect } from 'react';
 import api from '../api/api';
+import { cacheBusinessSettings } from '../utils/businessSettings';
 
 const AuthContext = createContext();
 
@@ -20,12 +21,29 @@ export const AuthProvider = ({ children }) => {
     }
   }, [token]);
 
+  useEffect(() => {
+    if (user?.barId) {
+      localStorage.setItem('activeBarId', String(user.barId));
+    } else {
+      localStorage.removeItem('activeBarId');
+    }
+  }, [user?.barId]);
+
   // Load user on mount
   useEffect(() => {
     const loadUser = async () => {
       if (token) {
         try {
           const res = await api.get('/auth/me');
+          if (res.data?.barId) {
+            localStorage.setItem('activeBarId', String(res.data.barId));
+            try {
+              const settingsResponse = await api.get('/business-settings');
+              cacheBusinessSettings(res.data.barId, settingsResponse.data);
+            } catch (settingsError) {
+              console.error('Unable to load current bar currency settings:', settingsError);
+            }
+          }
           setUser(res.data);
         } catch (err) {
           console.error('Error loading user:', err);
@@ -45,6 +63,17 @@ export const AuthProvider = ({ children }) => {
       setError(null);
       const res = await api.post('/auth/login', { username, password });
       const { token: authToken, user: authUser } = res.data;
+      if (authUser?.barId) {
+        localStorage.setItem('activeBarId', String(authUser.barId));
+        try {
+          const settingsResponse = await api.get('/business-settings', {
+            headers: { Authorization: `Bearer ${authToken}` }
+          });
+          cacheBusinessSettings(authUser.barId, settingsResponse.data);
+        } catch (settingsError) {
+          console.error('Unable to load current bar currency settings:', settingsError);
+        }
+      }
       setToken(authToken);
       setUser(authUser);
       return { success: true, token: authToken, user: authUser };
@@ -69,6 +98,17 @@ export const AuthProvider = ({ children }) => {
       setError(null);
       const res = await api.post('/auth/register', userData);
       const { token: authToken, user: authUser } = res.data;
+      if (authUser?.barId) {
+        localStorage.setItem('activeBarId', String(authUser.barId));
+        try {
+          const settingsResponse = await api.get('/business-settings', {
+            headers: { Authorization: `Bearer ${authToken}` }
+          });
+          cacheBusinessSettings(authUser.barId, settingsResponse.data);
+        } catch (settingsError) {
+          console.error('Unable to load current bar currency settings:', settingsError);
+        }
+      }
       setToken(authToken);
       setUser(authUser);
       return { success: true, token: authToken, user: authUser };

@@ -1,6 +1,8 @@
 import { useEffect, useState } from 'react';
 import Sidebar from './Sidebar';
 import { useAuth } from '../../context/AuthContext';
+import api from '../../api/api';
+import { cacheBusinessSettings } from '../../utils/businessSettings';
 
 const Layout = ({ children }) => {
   const { user } = useAuth();
@@ -26,6 +28,18 @@ const Layout = ({ children }) => {
     window.addEventListener('resize', handleResize);
     return () => window.removeEventListener('resize', handleResize);
   }, []);
+
+  useEffect(() => {
+    if (!user?.barId) {
+      return;
+    }
+
+    api.get('/business-settings')
+      .then((response) => cacheBusinessSettings(user.barId, response.data))
+      .catch((error) => {
+        console.error('Unable to load bar currency settings:', error);
+      });
+  }, [user?.barId]);
 
   const toggleSidebar = () => {
     setIsSidebarOpen((prev) => !prev);

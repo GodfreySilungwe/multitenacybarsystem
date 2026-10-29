@@ -3,6 +3,7 @@ import QRCode from 'qrcode';
 import api from '../../api/api';
 import { useAuth } from '../../context/AuthContext';
 import { formatPriceMK } from '../../utils/formatPrice';
+import { getActiveBusinessSettings } from '../../utils/businessSettings';
 
 const APPLY_URL = 'https://www.smartbarmw.tech/apply';
 
@@ -118,14 +119,7 @@ const ReceiptModal = ({ order, onClose }) => {
 
   if (!order) return null;
 
-  const savedBusiness = (() => {
-    try {
-      const parsed = JSON.parse(localStorage.getItem('businessSettings') || '{}');
-      return parsed || {};
-    } catch (error) {
-      return {};
-    }
-  })();
+  const savedBusiness = getActiveBusinessSettings();
 
   const customerName = order.customerName || order.customer?.name || order.customer?.fullName || 'Walk-in Customer';
   const shopName = shopDetails?.name || savedBusiness.name || order.shopName || order.barName || 'SMART BAR';
@@ -157,27 +151,37 @@ const ReceiptModal = ({ order, onClose }) => {
           <meta charset="UTF-8" />
           <title>Receipt ${order.orderNumber}</title>
           <style>
-            @page { size: 80mm auto; margin: 0; }
-            html, body { margin: 0; padding: 0; background: #fff; }
-            body {
-              font-family: monospace;
-              font-size: 11px;
-              color: #111;
-              width: 80mm;
-              box-sizing: border-box;
-              padding: 8px;
+            @page { size: 80mm auto; margin: 2mm; }
+            html, body {
+              margin: 0;
+              padding: 0;
+              background: #fff !important;
+              color: #000 !important;
+              -webkit-print-color-adjust: exact;
+              print-color-adjust: exact;
             }
-            .receipt { width: 100%; }
+            body {
+              font-family: Arial, Helvetica, sans-serif;
+              font-size: 12px;
+              font-weight: 600;
+              line-height: 1.35;
+              color: #000;
+              width: 76mm;
+              box-sizing: border-box;
+              padding: 2mm;
+            }
+            .receipt { width: 100%; color: #000; }
             .center { text-align: center; }
-            .divider { border-top: 1px dashed #444; margin: 6px 0; }
-            .bold { font-weight: 700; }
+            .divider { border-top: 1px solid #000; margin: 7px 0; }
+            .bold { font-weight: 800; }
             table { width: 100%; border-collapse: collapse; table-layout: fixed; }
-            th, td { padding: 2px 0; vertical-align: top; }
-            th { text-align: left; font-size: 10px; text-transform: uppercase; }
+            th, td { padding: 3px 0; vertical-align: top; color: #000; }
+            th { text-align: left; font-size: 11px; font-weight: 800; text-transform: uppercase; border-bottom: 1px solid #000; }
             .qty, .price, .subtotal { text-align: right; }
             .totals { margin-top: 6px; }
             .row { display: flex; justify-content: space-between; gap: 8px; }
-            .footer { text-align: center; margin-top: 6px; }
+            .row.bold { font-size: 14px; }
+            .footer { text-align: center; margin-top: 8px; }
             .notice { margin-top: 8px; white-space: pre-line; }
             .apply-qr { display: block; width: 120px; height: 120px; margin: 8px auto 4px; image-rendering: pixelated; }
             .apply-link { color: #111; }

@@ -11,6 +11,7 @@ import {
   createCustomerStatementPdf,
   createCustomerStatementPrintHtml
 } from '../utils/customerStatement';
+import { getActiveBusinessSettings, getActiveCurrency } from '../utils/businessSettings';
 
 const Customers = () => {
   const { user: currentUser } = useAuth();
@@ -133,11 +134,7 @@ const Customers = () => {
   const isConfirmedSettlement = (entry) => (entry?.status || 'confirmed') === 'confirmed';
 
   const getBusinessName = () => {
-    try {
-      return JSON.parse(localStorage.getItem('businessSettings') || '{}').name || 'SMART BAR';
-    } catch {
-      return 'SMART BAR';
-    }
+    return getActiveBusinessSettings().name || 'SMART BAR';
   };
 
   const createStatementFilename = () => 'Outstanding-Bills.pdf';
@@ -282,7 +279,7 @@ const Customers = () => {
 
       // Check if amount exceeded max settleable amount for this user's sales account
       if (res.data?.maxAmount !== undefined && res.data?.maxAmount < amount) {
-        alert(`You can only settle up to ${formatPriceMK(res.data.maxAmount)} MK from your sales account.\n\nOther amounts must be settled by the sales accounts that created them.`);
+        alert(`You can only settle up to ${formatPriceMK(res.data.maxAmount)} from your sales account.\n\nOther amounts must be settled by the sales accounts that created them.`);
         return;
       }
 
@@ -300,7 +297,7 @@ const Customers = () => {
       const maxAmount = err.response?.data?.maxAmount;
       
       if (maxAmount !== undefined) {
-        alert(`${errorMsg}\n\nMax amount you can settle: ${formatPriceMK(maxAmount)} MK`);
+        alert(`${errorMsg}\n\nMax amount you can settle: ${formatPriceMK(maxAmount)}`);
       } else {
         alert(errorMsg);
       }
@@ -398,7 +395,7 @@ const Customers = () => {
                   </select>
                 </div>
                 <div style={styles.formGroup} className="customer-form-group">
-                  <label style={styles.label}>Starting Credit Balance (MK)</label>
+                  <label style={styles.label}>Starting Credit Balance ({getActiveCurrency()})</label>
                   <input
                     type="number"
                     min="0"

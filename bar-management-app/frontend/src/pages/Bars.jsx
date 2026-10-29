@@ -29,6 +29,7 @@ const Bars = () => {
   const [importDrafts, setImportDrafts] = useState({});
   const [sourceProducts, setSourceProducts] = useState({});
   const [importingProductsBarId, setImportingProductsBarId] = useState(null);
+  const [clearingCatalogBarId, setClearingCatalogBarId] = useState(null);
 
   const filteredBars = useMemo(() => {
     const query = search.trim().toLowerCase();
@@ -228,6 +229,36 @@ const Bars = () => {
     } finally {
       setImportingProductsBarId(null);
       window.setTimeout(() => setMessage(''), 7000);
+    }
+  };
+
+  const handleClearCatalog = async (bar) => {
+    const barId = bar._id || bar.id;
+    const confirmation = window.prompt(
+      `This permanently deletes all products and categories for "${bar.name}". Orders, customers, payments, and other bar records will remain. Type the bar name to continue.`
+    );
+    if (confirmation !== bar.name) {
+      return;
+    }
+
+    setClearingCatalogBarId(barId);
+    setError('');
+    setMessage('');
+
+    try {
+      const response = await api.delete(`/bars/${barId}/catalog`);
+      setMessage(
+        `Catalog cleared for ${bar.name}: ${response.data.deletedProducts} product(s) and ${response.data.deletedCategories} categor${response.data.deletedCategories === 1 ? 'y' : 'ies'} deleted. Other bar records were preserved.`
+      );
+    } catch (err) {
+      const deletedProducts = Number(err.response?.data?.deletedProducts || 0);
+      const deletedCategories = Number(err.response?.data?.deletedCategories || 0);
+      const partialProgress = deletedProducts || deletedCategories
+        ? ` Partial progress: ${deletedProducts} product(s) and ${deletedCategories} categor${deletedCategories === 1 ? 'y' : 'ies'} deleted.`
+        : '';
+      setError(`${err.response?.data?.message || 'Failed to clear this bar catalog.'}${partialProgress}`);
+    } finally {
+      setClearingCatalogBarId(null);
     }
   };
 
@@ -496,6 +527,14 @@ const Bars = () => {
                         onClick={() => handleResetOwnerPassword(bar._id)}
                       >
                         Reset Owner Password
+                      </button>
+                      <button
+                        type="button"
+                        style={styles.clearCatalogButton}
+                        disabled={clearingCatalogBarId === (bar._id || bar.id)}
+                        onClick={() => handleClearCatalog(bar)}
+                      >
+                        {clearingCatalogBarId === (bar._id || bar.id) ? 'Clearing Catalog...' : 'Clear Products & Categories'}
                       </button>
                     </div>
                   </div>
@@ -1057,6 +1096,16 @@ const styles = {
     fontWeight: '700',
     cursor: 'pointer',
     transition: 'all 0.2s ease'
+  },
+  clearCatalogButton: {
+    border: '1px solid #b91c1c',
+    backgroundColor: '#fff',
+    color: '#b91c1c',
+    borderRadius: '8px',
+    padding: '9px 12px',
+    fontSize: '13px',
+    fontWeight: '700',
+    cursor: 'pointer'
   },
   suspendButton: {
     backgroundColor: '#fef3c7',

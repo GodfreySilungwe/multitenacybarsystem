@@ -171,7 +171,7 @@ function App() {
               </ProtectedRoute>
             } />
             <Route path="/settings" element={
-              <ProtectedRoute ownerOnly>
+              <ProtectedRoute ownerOrBarManagerOnly>
                 <Layout>
                   <Settings />
                 </Layout>

@@ -4,6 +4,7 @@ import PageContainer from './PageContainer';
 import UnifiedCard from '../components/common/UnifiedCard';
 import ExportButton from '../components/common/ExportButton';
 import { formatPriceMK } from '../utils/formatPrice';
+import { getActiveCurrency } from '../utils/businessSettings';
 import {
   Chart as ChartJS,
   CategoryScale,
@@ -144,12 +145,13 @@ const Reports = () => {
   const salesTotalForPercent = reportData.totalSales || 1;
   const totalCustomerCreditBalance = (reportData.creditAccounts || []).reduce((sum, customer) => sum + Number(customer.balance || 0), 0);
   const totalOutstandingBySalesAccount = (reportData.outstandingCreditBySalesAccount || []).reduce((sum, item) => sum + Number(item.outstandingBalance || 0), 0);
+  const currency = getActiveCurrency();
 
   const dailySalesChartData = {
     labels: reportData.dailySales.map(d => d.date),
     datasets: [
       {
-        label: 'Sales (MK)',
+        label: `Sales (${currency})`,
         data: reportData.dailySales.map(d => d.sales),
         backgroundColor: 'rgba(233, 69, 96, 0.6)',
         borderColor: '#e94560',
@@ -158,7 +160,7 @@ const Reports = () => {
         fill: true
       },
       {
-        label: 'Profit (MK)',
+        label: `Profit (${currency})`,
         data: reportData.dailySales.map(d => d.profit),
         backgroundColor: 'rgba(46, 204, 113, 0.6)',
         borderColor: '#2ecc71',
@@ -173,7 +175,7 @@ const Reports = () => {
     labels: reportData.topProducts.map(p => p.name),
     datasets: [
       {
-        label: 'Revenue (MK)',
+        label: `Revenue (${currency})`,
         data: reportData.topProducts.map(p => p.revenue),
         backgroundColor: 'rgba(233, 69, 96, 0.6)',
         borderColor: '#e94560',
@@ -187,7 +189,7 @@ const Reports = () => {
     labels: reportData.topProducts.map(p => p.name),
     datasets: [
       {
-        label: 'Profit (MK)',
+        label: `Profit (${currency})`,
         data: reportData.topProducts.map(p => p.profit || 0),
         backgroundColor: 'rgba(46, 204, 113, 0.6)',
         borderColor: '#2ecc71',
@@ -215,7 +217,7 @@ const Reports = () => {
         beginAtZero: true,
         ticks: {
           callback: function(value) {
-            return 'MK ' + value.toLocaleString();
+            return formatPriceMK(value);
           }
         }
       }
@@ -229,7 +231,7 @@ const Reports = () => {
       legend: { display: false },
       tooltip: {
         callbacks: {
-          label: (context) => `${context.label}: MK ${Number(context.raw || 0).toLocaleString()}`
+          label: (context) => `${context.label}: ${formatPriceMK(context.raw || 0)}`
         }
       }
     },

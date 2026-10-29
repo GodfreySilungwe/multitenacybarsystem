@@ -5,6 +5,7 @@ import Button from '../components/common/Button';
 import UnifiedCard from '../components/common/UnifiedCard';
 import BatchProductForm from '../components/common/BatchProductForm';
 import { formatPriceMK } from '../utils/formatPrice';
+import { getActiveCurrency } from '../utils/businessSettings';
 import { confirmTypedDelete } from '../utils/confirmation';
 
 const Products = () => {
@@ -204,7 +205,7 @@ const Products = () => {
                 </select>
               </div>
               <div style={styles.formGroup}>
-                <label style={styles.label}>Cost Price (MK) *</label>
+                <label style={styles.label}>Cost Price ({getActiveCurrency()}) *</label>
                 <input
                   type="number"
                   required
@@ -216,7 +217,7 @@ const Products = () => {
                 />
               </div>
               <div style={styles.formGroup}>
-                <label style={styles.label}>Selling Price (MK) *</label>
+                <label style={styles.label}>Selling Price ({getActiveCurrency()}) *</label>
                 <input
                   type="number"
                   required

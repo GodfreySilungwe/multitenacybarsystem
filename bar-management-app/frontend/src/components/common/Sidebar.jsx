@@ -88,7 +88,7 @@ const Sidebar = ({ isMobileOpen = false, onClose = () => {} }) => {
     }
 
     if (role === 'manager') {
-      return item.path === '/dashboard' || item.path === '/customers' || item.path === '/orders' || item.salesAndOwnerOnly === true || item.barOwnerOrSales === true;
+      return item.path === '/dashboard' || item.path === '/customers' || item.path === '/orders' || item.path === '/settings' || item.salesAndOwnerOnly === true || item.barOwnerOrSales === true;
     }
 
     if (showGlobalOwner) {
