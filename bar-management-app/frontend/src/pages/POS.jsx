@@ -41,6 +41,7 @@ const POS = () => {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [quantityValidationError, setQuantityValidationError] = useState(false);
+  const [quantityIssues, setQuantityIssues] = useState({});
   const [success, setSuccess] = useState('');
   const [receiptOrder, setReceiptOrder] = useState(null);
   const [customerRequests, setCustomerRequests] = useState([]);
@@ -496,6 +497,11 @@ const POS = () => {
 
   const removeFromCart = (productId) => {
     setQuantityValidationError(false);
+    setQuantityIssues((prev) => {
+      const next = { ...prev };
+      delete next[productId];
+      return next;
+    });
     setCart(prev => {
       const existing = prev.find(item => item._id === productId);
       if (existing && existing.quantity === 1) {
@@ -526,14 +532,20 @@ const POS = () => {
     if (value === '') {
       resetQuantityDraft();
       setQuantityValidationError(false);
+      setQuantityIssues((prev) => {
+        const next = { ...prev };
+        delete next[productId];
+        return next;
+      });
       return;
     }
 
     const quantity = Number(value);
     if (!Number.isInteger(quantity) || quantity < 0) {
-      resetQuantityDraft();
       setQuantityValidationError(true);
-      setError('Quantity must be a whole number zero or greater. The sale was not changed.');
+      const message = `Correct ${item.name}: enter a whole number zero or greater.`;
+      setQuantityIssues((prev) => ({ ...prev, [productId]: message }));
+      setError(`Sale declined: ${message}`);
       setTimeout(() => setError(''), 4000);
       return;
     }
@@ -541,6 +553,11 @@ const POS = () => {
     if (quantity === 0) {
       resetQuantityDraft();
       setQuantityValidationError(false);
+      setQuantityIssues((prev) => {
+        const next = { ...prev };
+        delete next[productId];
+        return next;
+      });
       setCart((prev) => prev.filter((cartItem) => cartItem._id !== productId));
       return;
     }
@@ -549,15 +566,21 @@ const POS = () => {
       ? Math.max(0, Number(item.currentStock || 0) - Number(item.reservedStock || 0))
       : 0;
     if (quantity > availableStock) {
-      resetQuantityDraft();
       setQuantityValidationError(true);
-      setError(`⚠️ Sale declined: ${item.name} has only ${availableStock} available. The quantity remains ${item.quantity}; no extra items were sold.`);
+      const message = `${item.name}: requested ${quantity}, but only ${availableStock} available. Correct the quantity.`;
+      setQuantityIssues((prev) => ({ ...prev, [productId]: message }));
+      setError(`⚠️ Sale declined: ${message}`);
       setTimeout(() => setError(''), 5000);
       return;
     }
 
     resetQuantityDraft();
     setQuantityValidationError(false);
+    setQuantityIssues((prev) => {
+      const next = { ...prev };
+      delete next[productId];
+      return next;
+    });
     setCart((prev) => prev.map((cartItem) => (
       cartItem._id === productId ? { ...cartItem, quantity } : cartItem
     )));
@@ -569,6 +592,7 @@ const POS = () => {
       setCart([]);
       setQuantityDrafts({});
       setQuantityValidationError(false);
+      setQuantityIssues({});
     }
   };
 
@@ -658,7 +682,7 @@ const POS = () => {
       setTimeout(() => setError(''), 5000);
       return;
     }
-    if (quantityValidationError) {
+    if (quantityValidationError || Object.keys(quantityIssues).length > 0) {
       setError('Sale declined: correct the invalid quantity before checkout.');
       setTimeout(() => setError(''), 5000);
       return;
@@ -675,13 +699,21 @@ const POS = () => {
         return;
       }
 
-      const stockViolation = cart.find((item) => {
+      const stockViolations = cart.filter((item) => {
         const availableStock = Math.max(0, Number(item.currentStock || 0) - Number(item.reservedStock || 0));
         return item.quantity > availableStock;
       });
-      if (stockViolation) {
-        const availableStock = Math.max(0, Number(stockViolation.currentStock || 0) - Number(stockViolation.reservedStock || 0));
-        setError(`⚠️ Sale declined: ${stockViolation.name} has only ${availableStock} available. No items were sold.`);
+      if (stockViolations.length > 0) {
+        const stockDetails = stockViolations.map((item) => {
+          const availableStock = Math.max(0, Number(item.currentStock || 0) - Number(item.reservedStock || 0));
+          return `${item.name} (requested ${item.quantity}, available ${availableStock})`;
+        }).join('; ');
+        setQuantityValidationError(true);
+        setQuantityIssues(Object.fromEntries(stockViolations.map((item) => {
+          const availableStock = Math.max(0, Number(item.currentStock || 0) - Number(item.reservedStock || 0));
+          return [item._id, `${item.name}: requested ${item.quantity}, but only ${availableStock} available. Correct the quantity.`];
+        })));
+        setError(`⚠️ Sale declined. Correct low-stock item(s): ${stockDetails}. No items were sold.`);
         setTimeout(() => setError(''), 5000);
         return;
       }
@@ -1200,6 +1232,9 @@ const POS = () => {
                       <div style={styles.cartItemPrice}>
                         {formatPriceMK(item.sellingPrice)} x {getDisplayedQuantity(item)} = {formatPriceMK(item.sellingPrice * getDisplayedQuantity(item))}
                       </div>
+                      {quantityIssues[item._id] && (
+                        <div style={styles.quantityIssue}>{quantityIssues[item._id]}</div>
+                      )}
                     </div>
                     <div style={styles.cartItemActions} className="pos-mobile-cart-item-actions">
                       <button
@@ -1574,6 +1609,17 @@ productUnit: {
   cartItemPrice: {
     fontSize: '12px',
     color: '#888'
+  },
+  quantityIssue: {
+    marginTop: '5px',
+    padding: '6px 8px',
+    borderRadius: '6px',
+    backgroundColor: '#fff1f2',
+    border: '1px solid #fda4af',
+    color: '#9f1239',
+    fontSize: '12px',
+    fontWeight: '700',
+    lineHeight: '1.35'
   },
   cartItemActions: {
     display: 'flex',
