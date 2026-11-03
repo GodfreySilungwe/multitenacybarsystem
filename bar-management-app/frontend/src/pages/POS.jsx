@@ -40,6 +40,7 @@ const POS = () => {
   const [paymentMethod, setPaymentMethod] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
+  const [quantityValidationError, setQuantityValidationError] = useState(false);
   const [success, setSuccess] = useState('');
   const [receiptOrder, setReceiptOrder] = useState(null);
   const [customerRequests, setCustomerRequests] = useState([]);
@@ -494,6 +495,7 @@ const POS = () => {
   };
 
   const removeFromCart = (productId) => {
+    setQuantityValidationError(false);
     setCart(prev => {
       const existing = prev.find(item => item._id === productId);
       if (existing && existing.quantity === 1) {
@@ -508,28 +510,37 @@ const POS = () => {
   };
 
   const commitCartQuantity = (productId, value) => {
-    setQuantityDrafts((prev) => {
-      const next = { ...prev };
-      delete next[productId];
-      return next;
-    });
+    const item = cart.find((cartItem) => cartItem._id === productId);
+    if (!item) {
+      return;
+    }
+
+    const resetQuantityDraft = () => {
+      setQuantityDrafts((prev) => {
+        const next = { ...prev };
+        delete next[productId];
+        return next;
+      });
+    };
 
     if (value === '') {
+      resetQuantityDraft();
+      setQuantityValidationError(false);
       return;
     }
 
     const quantity = Number(value);
     if (!Number.isInteger(quantity) || quantity < 0) {
-      setError('Quantity must be a whole number zero or greater.');
-      setTimeout(() => setError(''), 3000);
+      resetQuantityDraft();
+      setQuantityValidationError(true);
+      setError('Quantity must be a whole number zero or greater. The sale was not changed.');
+      setTimeout(() => setError(''), 4000);
       return;
     }
 
-    const item = cart.find((cartItem) => cartItem._id === productId);
-    if (!item) {
-      return;
-    }
     if (quantity === 0) {
+      resetQuantityDraft();
+      setQuantityValidationError(false);
       setCart((prev) => prev.filter((cartItem) => cartItem._id !== productId));
       return;
     }
@@ -538,11 +549,15 @@ const POS = () => {
       ? Math.max(0, Number(item.currentStock || 0) - Number(item.reservedStock || 0))
       : 0;
     if (quantity > availableStock) {
-      setError(`⚠️ Only ${availableStock} available for ${item?.name || 'this product'}.`);
-      setTimeout(() => setError(''), 3000);
+      resetQuantityDraft();
+      setQuantityValidationError(true);
+      setError(`⚠️ Sale declined: ${item.name} has only ${availableStock} available. The quantity remains ${item.quantity}; no extra items were sold.`);
+      setTimeout(() => setError(''), 5000);
       return;
     }
 
+    resetQuantityDraft();
+    setQuantityValidationError(false);
     setCart((prev) => prev.map((cartItem) => (
       cartItem._id === productId ? { ...cartItem, quantity } : cartItem
     )));
@@ -553,6 +568,7 @@ const POS = () => {
     if (window.confirm('Are you sure you want to clear the cart?')) {
       setCart([]);
       setQuantityDrafts({});
+      setQuantityValidationError(false);
     }
   };
 
@@ -642,6 +658,11 @@ const POS = () => {
       setTimeout(() => setError(''), 5000);
       return;
     }
+    if (quantityValidationError) {
+      setError('Sale declined: correct the invalid quantity before checkout.');
+      setTimeout(() => setError(''), 5000);
+      return;
+    }
 
     setLoading(true);
     setError('');
@@ -650,6 +671,17 @@ const POS = () => {
     try {
       if (paymentMethod === 'credit' && !canUseCreditPayment) {
         setError('Credit payments are only available for registered customer accounts.');
+        setTimeout(() => setError(''), 5000);
+        return;
+      }
+
+      const stockViolation = cart.find((item) => {
+        const availableStock = Math.max(0, Number(item.currentStock || 0) - Number(item.reservedStock || 0));
+        return item.quantity > availableStock;
+      });
+      if (stockViolation) {
+        const availableStock = Math.max(0, Number(stockViolation.currentStock || 0) - Number(stockViolation.reservedStock || 0));
+        setError(`⚠️ Sale declined: ${stockViolation.name} has only ${availableStock} available. No items were sold.`);
         setTimeout(() => setError(''), 5000);
         return;
       }

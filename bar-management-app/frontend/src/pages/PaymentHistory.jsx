@@ -148,20 +148,6 @@ const PaymentHistory = () => {
     return paymentMethodLabels[key] || getPaymentMethodLabel(key, getActiveBusinessSettings());
   }, []);
 
-  const groupPaymentsByMethod = useCallback((paymentItems = []) => {
-    const aggregates = paymentItems.reduce((acc, payment) => {
-      const amount = getEntryAmount(payment);
-      if (amount <= 0) return acc;
-      const method = formatMethodLabel(payment.paymentMethod || 'cash');
-      acc[method] = (acc[method] || 0) + amount;
-      return acc;
-    }, {});
-
-    return Object.keys(aggregates)
-      .map((method) => ({ method, amount: aggregates[method] }))
-      .sort((a, b) => b.amount - a.amount);
-  }, [formatMethodLabel, getEntryAmount]);
-
   const summaryCards = useMemo(() => {
     const totals = {
       pending: 0,
@@ -184,20 +170,6 @@ const PaymentHistory = () => {
       { label: 'Reversed payments', value: totals.reversed, color: '#f39c12' }
     ];
   }, [filteredPayments, getEntryAmount]);
-
-  const directSalesByMethod = useMemo(() => {
-    return groupPaymentsByMethod(visiblePayments.filter((entry) => entry.source === 'pos_sale'));
-  }, [visiblePayments, groupPaymentsByMethod]);
-
-  const billManagementPaidByMethod = useMemo(() => {
-    return groupPaymentsByMethod(visiblePayments.filter((entry) => entry.source === 'bill_settlement' && entry.status === 'confirmed'));
-  }, [visiblePayments, groupPaymentsByMethod]);
-
-  const outstandingCreditAmount = useMemo(() => {
-    return visiblePayments
-      .filter((entry) => entry.source === 'bill_settlement' && entry.status === 'pending')
-      .reduce((sum, entry) => sum + getEntryAmount(entry), 0);
-  }, [getEntryAmount, visiblePayments]);
 
   const isPaymentFromDifferentSalesPerson = (entry) => {
     // Check if payment belongs to a different sales account
@@ -327,41 +299,6 @@ const PaymentHistory = () => {
               </div>
             </div>
           ))}
-        </div>
-        <div style={styles.methodSummaryCard}>
-          <div style={styles.methodSummaryHeader}>
-            <div style={styles.methodSummaryTitle}>💳 Sales Proceeds Summary</div>
-            <div style={styles.methodSummarySub}>Direct sales, confirmed bill settlements, and outstanding credit balances.</div>
-          </div>
-          <div style={styles.methodSummaryBody}>
-            <div style={styles.methodSummarySection}>
-              <div style={styles.methodSummarySectionTitle}>Direct sales by method</div>
-              {(directSalesByMethod.length > 0 ? directSalesByMethod : [{ method: 'No direct sales yet', amount: 0 }]).map((item) => (
-                <div key={item.method} style={styles.methodSummaryRow}>
-                  <span>{item.method}</span>
-                  <strong>{formatPriceMK(item.amount)}</strong>
-                </div>
-              ))}
-            </div>
-
-            <div style={styles.methodSummarySection}>
-              <div style={styles.methodSummarySectionTitle}>Bill management paid by method</div>
-              {(billManagementPaidByMethod.length > 0 ? billManagementPaidByMethod : [{ method: 'No paid settlements yet', amount: 0 }]).map((item) => (
-                <div key={item.method} style={styles.methodSummaryRow}>
-                  <span>{item.method}</span>
-                  <strong>{formatPriceMK(item.amount)}</strong>
-                </div>
-              ))}
-            </div>
-
-            <div style={styles.methodSummarySection}>
-              <div style={styles.methodSummarySectionTitle}>Outstanding credit</div>
-              <div style={styles.methodSummaryRow}>
-                <span>Total pending bill amount</span>
-                <strong>{formatPriceMK(outstandingCreditAmount)}</strong>
-              </div>
-            </div>
-          </div>
         </div>
         {loading ? (
           <p>Loading payments...</p>
