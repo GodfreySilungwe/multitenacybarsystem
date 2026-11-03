@@ -3,6 +3,7 @@ import { useAuth } from '../context/AuthContext';
 import api from '../api/api';
 import PageContainer from './PageContainer';
 import UnifiedCard from '../components/common/UnifiedCard';
+import ReceiptModal from '../components/common/ReceiptModal';
 import { formatPriceMK } from '../utils/formatPrice';
 import { getActiveBusinessSettings } from '../utils/businessSettings';
 import { getPaymentMethodLabel } from '../utils/paymentMethods';
@@ -19,6 +20,7 @@ const Orders = () => {
   const [customStartTime, setCustomStartTime] = useState('');
   const [customEndTime, setCustomEndTime] = useState('');
   const [expandedOrder, setExpandedOrder] = useState(null);
+  const [receiptOrder, setReceiptOrder] = useState(null);
   const [reversingOrderId, setReversingOrderId] = useState(null);
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
@@ -424,6 +426,15 @@ const Orders = () => {
                               <div style={styles.orderTotal}>
                                 <span>Total: {formatPriceMK(order.totalAmount)}</span>
                               </div>
+                              <div style={styles.orderActions}>
+                                <button
+                                  type="button"
+                                  style={styles.reprintBtn}
+                                  onClick={() => setReceiptOrder(order)}
+                                >
+                                  🖨️ Reprint Receipt Copy
+                                </button>
+                              </div>
                               {canReverseOrders && (
                                 <div style={{ marginTop: '10px' }}>
                                   <button
@@ -454,6 +465,13 @@ const Orders = () => {
           )}
         </UnifiedCard>
       </div>
+      {receiptOrder && (
+        <ReceiptModal
+          order={receiptOrder}
+          isCopy
+          onClose={() => setReceiptOrder(null)}
+        />
+      )}
     </PageContainer>
   );
 };
@@ -750,6 +768,22 @@ const styles = {
     justifyContent: 'space-between',
     fontSize: '16px',
     fontWeight: 'bold'
+  },
+  orderActions: {
+    display: 'flex',
+    gap: '8px',
+    marginTop: '12px',
+    flexWrap: 'wrap'
+  },
+  reprintBtn: {
+    padding: '8px 14px',
+    borderRadius: '8px',
+    border: '1px solid #1a1a2e',
+    backgroundColor: '#1a1a2e',
+    color: 'white',
+    cursor: 'pointer',
+    fontSize: '13px',
+    fontWeight: '600'
   },
   reverseBtn: {
     padding: '8px 14px',

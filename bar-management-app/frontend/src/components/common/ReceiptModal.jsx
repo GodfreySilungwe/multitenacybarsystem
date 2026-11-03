@@ -7,7 +7,7 @@ import { cacheBusinessSettings, getActiveBusinessSettings } from '../../utils/bu
 
 const APPLY_URL = 'https://www.smartbarmw.tech/apply';
 
-const ReceiptModal = ({ order, onClose }) => {
+const ReceiptModal = ({ order, onClose, isCopy = false }) => {
   const { user } = useAuth();
   const [qrCodeDataUrl, setQrCodeDataUrl] = useState('');
   const [qrCaption, setQrCaption] = useState('Interested in this App? Scan here');
@@ -214,6 +214,7 @@ const ReceiptModal = ({ order, onClose }) => {
             .row.bold { font-size: 14px; }
             .footer { text-align: center; margin-top: 8px; }
             .notice { margin-top: 8px; white-space: pre-line; }
+            .copy-notice { margin: 8px 0; padding: 4px 0; border-top: 2px solid #000; border-bottom: 2px solid #000; text-align: center; font-size: 15px; font-weight: 800; letter-spacing: 1px; }
             .apply-qr { display: block; width: 120px; height: 120px; margin: 8px auto 4px; image-rendering: pixelated; }
             .apply-link { color: #111; }
           </style>
@@ -226,6 +227,7 @@ const ReceiptModal = ({ order, onClose }) => {
               ${shopPhone ? `<div>${escapeHtml(shopPhone)}</div>` : ''}
             </div>
             <div class="divider"></div>
+            ${isCopy ? '<div class="copy-notice">COPY</div>' : ''}
             <div>Order #: ${order.orderNumber}</div>
             <div>Date: ${new Date(order.createdAt).toLocaleString()}</div>
             <div>Customer: ${customerName}</div>
@@ -294,7 +296,8 @@ const ReceiptModal = ({ order, onClose }) => {
           </div>
 
           <div style={styles.receiptInfo}>
-            <p><strong>Order #:</strong> {order.orderNumber}</p>
+          {isCopy && <p style={styles.copyNotice}>COPY</p>}
+          <p><strong>Order #:</strong> {order.orderNumber}</p>
             <p><strong>Date:</strong> {new Date(order.createdAt).toLocaleString()}</p>
             <p><strong>Customer:</strong> {customerName}</p>
           </div>
@@ -557,6 +560,17 @@ const styles = {
     marginTop: '10px',
     paddingTop: '8px',
     borderTop: '1px dashed #ccc'
+  },
+  copyNotice: {
+    margin: '8px 0',
+    padding: '4px 0',
+    borderTop: '2px solid #000',
+    borderBottom: '2px solid #000',
+    textAlign: 'center',
+    fontSize: '15px',
+    fontWeight: '800',
+    letterSpacing: '1px',
+    color: '#000'
   },
   applicationLink: {
     color: '#1a1a2e',
