@@ -5,7 +5,8 @@ const {
   normalizeCreditPaymentMethod,
   summarizeInitialCreditPayments,
   summarizeCreditPaymentEvents,
-  classifyRepaymentAllocations
+  classifyRepaymentAllocations,
+  reversePaymentAllocation
 } = require('./creditPayments');
 
 test('customer repayment methods are normalized to credit settlement methods', () => {
@@ -111,4 +112,35 @@ test('repayment allocation stays current when an older bill is also outstanding'
   assert.equal(summary.hasAllocations, true);
   assert.equal(summary.previousAmount, 0);
   assert.equal(summary.currentAmount, 800);
+});
+
+test('reversing one allocation preserves payment amounts for other orders', () => {
+  const result = reversePaymentAllocation({
+    allocations: [
+      { orderId: 'order-1', amount: 300 },
+      { orderId: 'order-2', amount: 200 }
+    ]
+  }, 'order-1');
+
+  assert.deepEqual(result, {
+    changed: true,
+    reversedAmount: 300,
+    remainingAllocations: [{ orderId: 'order-2', amount: 200 }],
+    remainingAmount: 200,
+    status: 'confirmed'
+  });
+});
+
+test('reversing the only allocation marks the payment reversed', () => {
+  const result = reversePaymentAllocation({
+    allocations: [{ orderId: 'order-1', amount: 300 }]
+  }, 'order-1');
+
+  assert.deepEqual(result, {
+    changed: true,
+    reversedAmount: 300,
+    remainingAllocations: [],
+    remainingAmount: 0,
+    status: 'reversed'
+  });
 });

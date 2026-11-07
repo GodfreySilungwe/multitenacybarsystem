@@ -228,7 +228,11 @@ router.post('/:barId/confirm-payment', async (req, res) => {
         }
       ]);
     } catch (error) {
-      if (error.name === 'ConditionalCheckFailedException') {
+      const cancellationReasons = error.CancellationReasons || error.cancellationReasons || [];
+      const isDuplicatePayment = error.name === 'ConditionalCheckFailedException'
+        || (error.name === 'TransactionCanceledException'
+          && cancellationReasons.some((reason) => reason?.Code === 'ConditionalCheckFailed'));
+      if (isDuplicatePayment) {
         const existingPayment = await SubscriptionPayment.findById(payment._id);
         const existingSubscription = await BarSubscription.findOne({ barId: bar._id });
         if (existingPayment) {

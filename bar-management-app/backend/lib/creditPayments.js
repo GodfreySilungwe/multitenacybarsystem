@@ -91,10 +91,39 @@ function classifyRepaymentAllocations(payment, rangeStartTime = 0, rangeEndTime 
   }, { hasAllocations: true, previousAmount: 0, currentAmount: 0 });
 }
 
+function reversePaymentAllocation(payment, orderId) {
+  const allocations = Array.isArray(payment?.allocations) ? payment.allocations : [];
+  const normalizedOrderId = String(orderId || '');
+  const reversedAmount = allocations
+    .filter((allocation) => String(allocation?.orderId || '') === normalizedOrderId)
+    .reduce((sum, allocation) => sum + normalizeAmount(allocation.amount), 0);
+
+  if (reversedAmount <= 0) {
+    return { changed: false, reversedAmount, remainingAllocations: allocations };
+  }
+
+  const remainingAllocations = allocations.filter(
+    (allocation) => String(allocation?.orderId || '') !== normalizedOrderId
+  );
+  const remainingAmount = remainingAllocations.reduce(
+    (sum, allocation) => sum + normalizeAmount(allocation.amount),
+    0
+  );
+
+  return {
+    changed: true,
+    reversedAmount,
+    remainingAllocations,
+    remainingAmount,
+    status: remainingAmount > 0 ? 'confirmed' : 'reversed'
+  };
+}
+
 module.exports = {
   getInitialCreditPayment,
   normalizeCreditPaymentMethod,
   summarizeInitialCreditPayments,
   summarizeCreditPaymentEvents,
-  classifyRepaymentAllocations
+  classifyRepaymentAllocations,
+  reversePaymentAllocation
 };

@@ -69,10 +69,12 @@ Express already handles CORS via `corsOptions`, but API Gateway must allow OPTIO
 For HTTP API:
 
 - Enable CORS
-- Allow origin: `*` or your frontend domain list
+- Allow origins: frontend domains plus Capacitor Android origins `https://localhost`, `http://localhost`, and `capacitor://localhost`
 - Allow methods: `GET, POST, PUT, PATCH, DELETE, OPTIONS`
-- Allow headers: `Content-Type, Authorization, X-Requested-With`
+- Allow headers: `Content-Type, Authorization, X-Requested-With, X-Idempotency-Key`
 - Allow credentials: true if needed
+
+After changing HTTP API CORS settings, deploy the API configuration. The Express backend also allows these native origins directly, including when `CORS_ALLOWED_ORIGINS` is configured.
 
 For REST API:
 
@@ -89,7 +91,8 @@ If hosting the frontend on S3/CloudFront:
 - Use behaviors such as:
   - `/*` → frontend origin
   - `/api/*` → API Gateway origin
-- Enable headers: `Authorization`, `Content-Type`, `Origin`
+- Forward `Authorization`, `Content-Type`, and `Origin` to the API origin.
+- Avoid caching API responses across different `Origin` values unless `Origin` is part of the cache key.
 
 ## Lambda configuration
 

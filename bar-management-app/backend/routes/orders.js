@@ -7,6 +7,7 @@ const Customer = require('../models/Customer');
 const InventoryAdjustment = require('../models/InventoryAdjustment');
 const PurchaseOrder = require('../models/PurchaseOrder');
 const CustomerOrderRequest = require('../models/CustomerOrderRequest');
+const CustomerPaymentRequest = require('../models/CustomerPaymentRequest');
 const Bar = require('../models/Bar');
 const dynamodb = require('../lib/dynamodb');
 const { queryEntities, queryActiveCreditOrders, queryActiveCreditOrdersByBar, queryPaymentRequestsByBarStatus, decodeLastEvaluatedKey } = require('../lib/dynamodb');
@@ -16,7 +17,8 @@ const {
   getInitialCreditPayment,
   normalizeCreditPaymentMethod,
   summarizeInitialCreditPayments,
-  classifyRepaymentAllocations
+  classifyRepaymentAllocations,
+  reversePaymentAllocation
 } = require('../lib/creditPayments');
 const { getOrderExpiryEpochSeconds } = require('../lib/orderExpiry');
 const { getPaymentCreatedAtQueryWindow } = require('../lib/paymentExpiry');
@@ -1422,6 +1424,51 @@ router.post('/:id/reverse', async (req, res) => {
       return res.status(400).json({ message: 'This sale has already been reversed.' });
     }
 
+    const { items: confirmedPayments = [] } = await queryPaymentRequestsByBarStatus(
+      req.user.barId,
+      'confirmed'
+    );
+    const affectedPayments = [];
+    for (const payment of confirmedPayments) {
+      const reversal = reversePaymentAllocation(payment, order._id);
+      if (!reversal.changed) {
+        continue;
+      }
+
+      const paymentRecord = new CustomerPaymentRequest(payment);
+      paymentRecord.allocations = reversal.remainingAllocations;
+      paymentRecord.amountApplied = reversal.remainingAmount;
+      paymentRecord.status = reversal.status;
+      paymentRecord.reversedAmount = toNumber(paymentRecord.reversedAmount, 0) + reversal.reversedAmount;
+      paymentRecord.lastReversedOrderId = order._id;
+      paymentRecord.lastReversedAt = new Date().toISOString();
+      paymentRecord.lastReversalReason = req.body?.reason || 'Sale reversed';
+      if (reversal.status === 'reversed') {
+        paymentRecord.reversedAt = paymentRecord.lastReversedAt;
+      }
+      await paymentRecord.save();
+      affectedPayments.push({
+        paymentId: paymentRecord._id,
+        amount: reversal.reversedAmount,
+        status: reversal.status
+      });
+
+      const linkedRequests = await CustomerOrderRequest.find({
+        barId: req.user.barId,
+        $or: [
+          { linkedOrderId: order._id },
+          { _id: order.sourceRequestId }
+        ]
+      });
+      for (const request of linkedRequests || []) {
+        request.amountPaid = Math.max(0, toNumber(request.amountPaid, 0) - reversal.reversedAmount);
+        request.paymentStatus = request.amountPaid > 0 ? 'partial' : 'pending';
+        request.paymentMethod = request.amountPaid > 0 ? request.paymentMethod : 'credit';
+        request.paidAt = request.amountPaid > 0 ? request.paidAt : null;
+        await request.save();
+      }
+    }
+
     for (const item of order.items || []) {
       const product = await Product.findOne({ _id: item.product, barId: req.user.barId });
       if (product) {
@@ -1445,6 +1492,8 @@ router.post('/:id/reverse', async (req, res) => {
     order.reversedAt = new Date().toISOString();
     order.reversalReason = req.body?.reason || 'Sale reversed';
     order.status = 'reversed';
+    order.balanceDue = 0;
+    order.paymentStatus = 'reversed';
     order.reversedBy = req.user._id;
     order.reversedByName = req.user.fullName || req.user.username || req.user.email || 'Sales account';
     await order.save();
@@ -1456,6 +1505,7 @@ router.post('/:id/reverse', async (req, res) => {
       details: {
         orderNumber: order.orderNumber,
         totalAmount: order.totalAmount,
+        reversedPayments: affectedPayments,
         reversalReason: order.reversalReason
       }
     });
