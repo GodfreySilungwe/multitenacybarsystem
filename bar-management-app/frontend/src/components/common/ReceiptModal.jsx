@@ -4,6 +4,7 @@ import api from '../../api/api';
 import { useAuth } from '../../context/AuthContext';
 import { formatPriceMK } from '../../utils/formatPrice';
 import { cacheBusinessSettings, getActiveBusinessSettings } from '../../utils/businessSettings';
+import { isNativeAndroidApp, printReceiptWithNativePrinter } from '../../utils/nativePrinter';
 
 const APPLY_URL = 'https://www.smartbarmw.tech/apply';
 
@@ -14,6 +15,7 @@ const ReceiptModal = ({ order, onClose, isCopy = false }) => {
   const [shopDetails, setShopDetails] = useState(null);
   const [businessSettings, setBusinessSettings] = useState(() => getActiveBusinessSettings());
   const [shopDetailsLoaded, setShopDetailsLoaded] = useState(false);
+  const [printing, setPrinting] = useState(false);
   const hasCustomerAccount = Boolean(
     order?.customerAccount?.username
     || order?.customer?.accountUsername
@@ -167,7 +169,21 @@ const ReceiptModal = ({ order, onClose, isCopy = false }) => {
     "'": '&#39;'
   })[character]);
 
-  const handlePrint = () => {
+  const handlePrint = async () => {
+    if (isNativeAndroidApp()) {
+      setPrinting(true);
+      try {
+        const receiptText = document.getElementById('receipt')?.innerText || '';
+        const result = await printReceiptWithNativePrinter(receiptText);
+        window.alert(result?.message || 'Receipt data sent to printer.');
+      } catch (error) {
+        window.alert(error?.message || 'Could not print the receipt. Check the printer and try again.');
+      } finally {
+        setPrinting(false);
+      }
+      return;
+    }
+
     const printWindow = window.open('', '_blank', 'width=420,height=720');
 
     if (!printWindow) {
@@ -360,9 +376,11 @@ const ReceiptModal = ({ order, onClose, isCopy = false }) => {
           <button
             style={{...styles.printBtn, ...(!qrCodeDataUrl ? styles.disabledPrintBtn : {})}}
             onClick={handlePrint}
-            disabled={!qrCodeDataUrl || !shopDetailsLoaded}
+            disabled={!qrCodeDataUrl || !shopDetailsLoaded || printing}
           >
-            {qrCodeDataUrl && shopDetailsLoaded ? '🖨️ Print Receipt' : 'Preparing receipt...'}
+            {printing
+              ? isNativeAndroidApp() ? 'Scanning and printing...' : 'Printing...'
+              : isNativeAndroidApp() ? 'Scan printers and print' : qrCodeDataUrl && shopDetailsLoaded ? '🖨️ Print Receipt' : 'Preparing receipt...'}
           </button>
           <button style={styles.closeBtnModal} onClick={onClose}>
             Close
@@ -591,6 +609,7 @@ const styles = {
   },
   actions: {
     display: 'flex',
+    flexWrap: 'wrap',
     gap: '10px',
     marginTop: '16px',
     paddingTop: '16px',

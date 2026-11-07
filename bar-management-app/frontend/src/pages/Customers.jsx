@@ -9,10 +9,21 @@ import { confirmTypedDelete } from '../utils/confirmation';
 import { saveAs } from 'file-saver';
 import {
   createCustomerStatementPdf,
-  createCustomerStatementPrintHtml
+  createCustomerStatementPrintHtml,
+  createCustomerStatementPrintText
 } from '../utils/customerStatement';
 import { getActiveBusinessSettings, getActiveCurrency } from '../utils/businessSettings';
 import { getDefaultPaymentMethod, getPaymentMethodLabel, getPaymentMethods } from '../utils/paymentMethods';
+import { isNativeAndroidApp, printReceiptWithNativePrinter } from '../utils/nativePrinter';
+import { Directory, Filesystem } from '@capacitor/filesystem';
+import { Share } from '@capacitor/share';
+
+const blobToBase64 = (blob) => new Promise((resolve, reject) => {
+  const reader = new FileReader();
+  reader.onload = () => resolve(String(reader.result || '').split(',')[1] || '');
+  reader.onerror = () => reject(new Error('Could not prepare the statement PDF for Android.'));
+  reader.readAsDataURL(blob);
+});
 
 const Customers = () => {
   const { user: currentUser } = useAuth();
@@ -35,6 +46,7 @@ const Customers = () => {
   const [settleReferences, setSettleReferences] = useState({});
   const [settleLoading, setSettleLoading] = useState({});
   const [statementAction, setStatementAction] = useState(null);
+  const [printingStatementId, setPrintingStatementId] = useState(null);
   const [settlements, setSettlements] = useState([]);
   const [settlementConfirmation, setSettlementConfirmation] = useState(null);
   const [successMessage, setSuccessMessage] = useState(null);
@@ -138,9 +150,30 @@ const Customers = () => {
     return getActiveBusinessSettings().name || 'SMART BAR';
   };
 
-  const createStatementFilename = () => 'Outstanding-Bills.pdf';
+  const createStatementFilename = (customer) => {
+    const customerName = String(customer?.name || 'Customer')
+      .trim()
+      .replace(/[^a-z0-9_-]+/gi, '-')
+      .replace(/^-|-$/g, '') || 'Customer';
+    const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
+    return `Outstanding-Bills-${customerName}-${timestamp}.pdf`;
+  };
 
-  const handlePrintStatement = (customer) => {
+  const handlePrintStatement = async (customer) => {
+    if (isNativeAndroidApp()) {
+      setPrintingStatementId(customer._id);
+      try {
+        const statementText = createCustomerStatementPrintText(customer, getBusinessName());
+        const result = await printReceiptWithNativePrinter(statementText);
+        window.alert(result?.message || 'Statement data sent to printer.');
+      } catch (error) {
+        window.alert(error?.message || 'Could not print the statement. Check the printer and try again.');
+      } finally {
+        setPrintingStatementId(null);
+      }
+      return;
+    }
+
     const printWindow = window.open('', '_blank', 'width=900,height=700');
     if (!printWindow) {
       window.alert('Please allow pop-ups to print the statement.');
@@ -159,7 +192,7 @@ const Customers = () => {
     setStatementAction(customer._id);
 
     try {
-      const filename = createStatementFilename();
+      const filename = createStatementFilename(customer);
       let customerAccessUrl = '';
       if (customer.accountUserId && (customer.accountUsername || customer.username)) {
         const accessResponse = await api.post(
@@ -172,6 +205,50 @@ const Customers = () => {
       }
 
       const pdfBlob = await createCustomerStatementPdf(customer, getBusinessName(), customerAccessUrl);
+      if (isNativeAndroidApp()) {
+        const permission = await Filesystem.checkPermissions();
+        const storagePermission = permission.publicStorage === 'granted'
+          ? permission
+          : await Filesystem.requestPermissions();
+        if (storagePermission.publicStorage !== 'granted') {
+          throw new Error('Storage permission is required to download the customer statement.');
+        }
+
+        const pdfData = await blobToBase64(pdfBlob);
+        await Filesystem.writeFile({
+          path: filename,
+          data: pdfData,
+          directory: Directory.Documents
+        });
+        const savedStatement = await Filesystem.stat({
+          path: filename,
+          directory: Directory.Documents
+        });
+        if (savedStatement.size <= 0) {
+          throw new Error('The statement file was created but is empty. Please try again.');
+        }
+        const cachedPdf = await Filesystem.writeFile({
+          path: filename,
+          data: pdfData,
+          directory: Directory.Cache
+        });
+
+        try {
+          await Share.share({
+            files: [cachedPdf.uri],
+            title: `Outstanding statement for ${customer.name}`,
+            text: `Outstanding balance statement for ${customer.name}`,
+            dialogTitle: 'Share customer statement'
+          });
+          setSuccessMessage(`Verified ${filename} in Documents. Choose WhatsApp in the share sheet to send it.`);
+        } catch (shareError) {
+          console.error('Could not open the Android share sheet:', shareError);
+          setSuccessMessage(`Verified ${filename} in Documents, but sharing could not be opened.`);
+        }
+        setTimeout(() => setSuccessMessage(null), 8000);
+        return;
+      }
+
       const pdfFile = typeof File === 'function'
         ? new File([pdfBlob], filename, { type: 'application/pdf' })
         : null;
@@ -490,8 +567,11 @@ const Customers = () => {
                     type="button"
                     style={{...styles.statementBtn, ...styles.printStatementBtn}}
                     onClick={() => handlePrintStatement(customer)}
+                    disabled={Boolean(printingStatementId) || Boolean(statementAction)}
                   >
-                    Print Statement
+                    {printingStatementId === customer._id
+                      ? 'Scanning and printing...'
+                      : isNativeAndroidApp() ? 'Scan printers & print' : 'Print Statement'}
                   </button>
                   <button
                     type="button"
@@ -501,7 +581,7 @@ const Customers = () => {
                       ...(statementAction ? styles.statementBtnDisabled : {})
                     }}
                     onClick={() => handleShareStatement(customer)}
-                    disabled={Boolean(statementAction)}
+                    disabled={Boolean(statementAction) || Boolean(printingStatementId)}
                   >
                     {statementAction === customer._id ? 'Preparing PDF...' : 'Share PDF on WhatsApp'}
                   </button>

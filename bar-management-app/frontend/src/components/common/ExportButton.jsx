@@ -1,6 +1,8 @@
 import { useState } from 'react';
 import api from '../../api/api';
 import { saveAs } from 'file-saver';
+import { isNativeAndroidApp } from '../../utils/nativePrinter';
+import { saveBlobToAndroidDocuments } from '../../utils/nativeFileDownloads';
 
 const ExportButton = ({ type, label, icon = '📤', variant = 'primary', dateRange, customStartDate, customEndDate, customStartTime, customEndTime }) => {
   const [loading, setLoading] = useState(false);
@@ -55,7 +57,13 @@ const ExportButton = ({ type, label, icon = '📤', variant = 'primary', dateRan
         type: response.headers['content-type'] || 'application/octet-stream'
       });
 
-      saveAs(blob, filename);
+      let successMessage = `✅ ${label} exported successfully!`;
+      if (isNativeAndroidApp()) {
+        const savedFile = await saveBlobToAndroidDocuments(blob, filename);
+        successMessage = `✅ ${label} saved to Documents and verified (${savedFile.size} bytes).`;
+      } else {
+        saveAs(blob, filename);
+      }
       
       // Show success message
       const successMsg = document.createElement('div');
@@ -72,7 +80,7 @@ const ExportButton = ({ type, label, icon = '📤', variant = 'primary', dateRan
         box-shadow: 0 4px 15px rgba(0,0,0,0.2);
         animation: slideIn 0.3s ease;
       `;
-      successMsg.textContent = `✅ ${label} exported successfully!`;
+      successMsg.textContent = successMessage;
       document.body.appendChild(successMsg);
       setTimeout(() => successMsg.remove(), 3000);
 
