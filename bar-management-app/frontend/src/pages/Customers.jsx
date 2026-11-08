@@ -9,12 +9,11 @@ import { confirmTypedDelete } from '../utils/confirmation';
 import { saveAs } from 'file-saver';
 import {
   createCustomerStatementPdf,
-  createCustomerStatementPrintHtml,
-  createCustomerStatementPrintText
+  createCustomerStatementPrintHtml
 } from '../utils/customerStatement';
 import { getActiveBusinessSettings, getActiveCurrency } from '../utils/businessSettings';
 import { getDefaultPaymentMethod, getPaymentMethodLabel, getPaymentMethods } from '../utils/paymentMethods';
-import { isNativeAndroidApp, printReceiptWithNativePrinter } from '../utils/nativePrinter';
+import { isNativeAndroidApp, printHtmlWithNativeRaster } from '../utils/nativePrinter';
 import { Directory, Filesystem } from '@capacitor/filesystem';
 import { Share } from '@capacitor/share';
 
@@ -163,8 +162,8 @@ const Customers = () => {
     if (isNativeAndroidApp()) {
       setPrintingStatementId(customer._id);
       try {
-        const statementText = createCustomerStatementPrintText(customer, getBusinessName());
-        const result = await printReceiptWithNativePrinter(statementText);
+        const statementHtml = createCustomerStatementPrintHtml(customer, getBusinessName());
+        const result = await printHtmlWithNativeRaster(statementHtml);
         window.alert(result?.message || 'Statement data sent to printer.');
       } catch (error) {
         window.alert(error?.message || 'Could not print the statement. Check the printer and try again.');
@@ -570,7 +569,7 @@ const Customers = () => {
                     disabled={Boolean(printingStatementId) || Boolean(statementAction)}
                   >
                     {printingStatementId === customer._id
-                      ? 'Scanning and printing...'
+                      ? 'Preparing and printing...'
                       : isNativeAndroidApp() ? 'Scan printers & print' : 'Print Statement'}
                   </button>
                   <button

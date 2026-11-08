@@ -4,9 +4,10 @@ import api from '../../api/api';
 import { useAuth } from '../../context/AuthContext';
 import { formatPriceMK } from '../../utils/formatPrice';
 import { cacheBusinessSettings, getActiveBusinessSettings } from '../../utils/businessSettings';
-import { isNativeAndroidApp, printReceiptWithNativePrinter } from '../../utils/nativePrinter';
+import { isNativeAndroidApp, printReceiptImageWithNativePrinter } from '../../utils/nativePrinter';
 
 const APPLY_URL = 'https://www.smartbarmw.tech/apply';
+const PUBLIC_SITE_ORIGIN = new URL(APPLY_URL).origin;
 
 const ReceiptModal = ({ order, onClose, isCopy = false }) => {
   const { user } = useAuth();
@@ -37,7 +38,8 @@ const ReceiptModal = ({ order, onClose, isCopy = false }) => {
             orderId: order.receiptOrderId || order._id || order.id
           });
           if (response.data?.token) {
-            qrUrl = `${window.location.origin}/customer-receipt-access#token=${encodeURIComponent(response.data.token)}`;
+            const receiptOrigin = isNativeAndroidApp() ? PUBLIC_SITE_ORIGIN : window.location.origin;
+            qrUrl = `${receiptOrigin}/customer-receipt-access#token=${encodeURIComponent(response.data.token)}`;
             caption = 'Scan to check your bill';
           }
         } catch (error) {
@@ -173,8 +175,18 @@ const ReceiptModal = ({ order, onClose, isCopy = false }) => {
     if (isNativeAndroidApp()) {
       setPrinting(true);
       try {
-        const receiptText = document.getElementById('receipt')?.innerText || '';
-        const result = await printReceiptWithNativePrinter(receiptText);
+        const receiptElement = document.getElementById('receipt');
+        if (!receiptElement) throw new Error('Could not find the receipt to print.');
+        const { default: html2canvas } = await import('html2canvas');
+        const canvas = await html2canvas(receiptElement, {
+          backgroundColor: '#ffffff',
+          scale: 2,
+          useCORS: true,
+          logging: false
+        });
+        const imageBase64 = canvas.toDataURL('image/png').split(',')[1];
+        if (!imageBase64) throw new Error('Could not prepare the receipt image.');
+        const result = await printReceiptImageWithNativePrinter(imageBase64);
         window.alert(result?.message || 'Receipt data sent to printer.');
       } catch (error) {
         window.alert(error?.message || 'Could not print the receipt. Check the printer and try again.');

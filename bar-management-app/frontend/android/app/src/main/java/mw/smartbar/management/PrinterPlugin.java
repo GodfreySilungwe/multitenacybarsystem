@@ -15,9 +15,12 @@ import android.bluetooth.le.ScanCallback;
 import android.bluetooth.le.ScanResult;
 import android.bluetooth.le.ScanSettings;
 import android.content.Context;
+import android.graphics.Bitmap;
+import android.graphics.BitmapFactory;
 import android.os.Build;
 import android.os.Handler;
 import android.os.Looper;
+import android.util.Base64;
 
 import com.getcapacitor.JSObject;
 import com.getcapacitor.PermissionState;
@@ -52,9 +55,15 @@ import java.util.UUID;
 public class PrinterPlugin extends Plugin {
     private static final long SCAN_TIMEOUT_MS = 15000;
     private static final long CONNECTION_TIMEOUT_MS = 12000;
+    private static final long MTU_TIMEOUT_MS = 4000;
     private static final long SERVICE_DISCOVERY_TIMEOUT_MS = 12000;
     private static final long WRITE_TIMEOUT_MS = 8000;
-    private static final int CHUNK_SIZE = 20;
+    private static final long NO_RESPONSE_WRITE_INTERVAL_MS = 20;
+    private static final long PRINTER_DRAIN_DELAY_MS = 750;
+    private static final int DEFAULT_BLE_PAYLOAD_SIZE = 20;
+    private static final int MAX_BLE_PAYLOAD_SIZE = 182;
+    private static final int REQUESTED_MTU = MAX_BLE_PAYLOAD_SIZE + 3;
+    private static final int MAX_IMAGE_BASE64_LENGTH = 12 * 1024 * 1024;
 
     private final Handler mainHandler = new Handler(Looper.getMainLooper());
     private final Map<String, BleCandidate> discoveredDevices = new LinkedHashMap<>();
@@ -62,16 +71,35 @@ public class PrinterPlugin extends Plugin {
     private BluetoothLeScanner scanner;
     private BluetoothGatt gatt;
     private BluetoothGattCharacteristic writeCharacteristic;
+    private int blePayloadSize = DEFAULT_BLE_PAYLOAD_SIZE;
+    private boolean writeWithResponse;
+    private boolean serviceDiscoveryStarted;
     private byte[] printData;
     private int printOffset;
     private int pendingChunkLength;
     private Runnable scanTimeout;
     private Runnable connectionTimeout;
+    private Runnable mtuTimeout;
     private Runnable serviceDiscoveryTimeout;
     private Runnable writeTimeout;
+    private boolean drainScheduled;
 
     @PluginMethod
     public void printText(PluginCall call) {
+        requestPrintPermissionOrStart(call);
+    }
+
+    @PluginMethod
+    public void printImage(PluginCall call) {
+        String imageBase64 = call.getString("imageBase64", "");
+        if (imageBase64.isEmpty() || imageBase64.length() > MAX_IMAGE_BASE64_LENGTH) {
+            call.reject("Receipt image is empty or too large.");
+            return;
+        }
+        requestPrintPermissionOrStart(call);
+    }
+
+    private void requestPrintPermissionOrStart(PluginCall call) {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S
             && getPermissionState("bluetooth") != PermissionState.GRANTED) {
             requestPermissionForAlias("bluetooth", call, "permissionResult");
@@ -108,8 +136,14 @@ public class PrinterPlugin extends Plugin {
 
     private void startPrint(PluginCall call) {
         String text = call.getString("text", "");
-        if (text.trim().isEmpty()) {
+        String imageBase64 = call.getString("imageBase64", "");
+        boolean imagePrint = !imageBase64.isEmpty();
+        if (!imagePrint && text.trim().isEmpty()) {
             call.reject("Receipt text is empty.");
+            return;
+        }
+        if (imagePrint && (imageBase64.isEmpty() || imageBase64.length() > MAX_IMAGE_BASE64_LENGTH)) {
+            call.reject("Receipt image is empty or too large.");
             return;
         }
         if (activeCall != null) {
@@ -128,8 +162,61 @@ public class PrinterPlugin extends Plugin {
             return;
         }
 
+        try {
+            printData = imagePrint ? encodeImage(imageBase64) : encodeText(text);
+        } catch (IllegalArgumentException | IllegalStateException error) {
+            call.reject(error.getMessage());
+            return;
+        }
+
+        printOffset = 0;
+        pendingChunkLength = 0;
+        blePayloadSize = DEFAULT_BLE_PAYLOAD_SIZE;
+        writeWithResponse = false;
+        serviceDiscoveryStarted = false;
+        drainScheduled = false;
         activeCall = call;
         startBleScan(adapter);
+    }
+
+    private byte[] encodeText(String text) {
+        byte[] receipt = text.getBytes(StandardCharsets.UTF_8);
+        byte[] payload = new byte[receipt.length + 5];
+        payload[0] = 0x1B;
+        payload[1] = 0x40;
+        System.arraycopy(receipt, 0, payload, 2, receipt.length);
+        payload[receipt.length + 2] = 0x0A;
+        payload[receipt.length + 3] = 0x0A;
+        payload[receipt.length + 4] = 0x0A;
+        return payload;
+    }
+
+    private byte[] encodeImage(String imageBase64) {
+        byte[] pngBytes;
+        try {
+            pngBytes = Base64.decode(imageBase64, Base64.DEFAULT);
+        } catch (IllegalArgumentException error) {
+            throw new IllegalArgumentException("Could not decode the receipt image.");
+        }
+
+        BitmapFactory.Options bounds = new BitmapFactory.Options();
+        bounds.inJustDecodeBounds = true;
+        BitmapFactory.decodeByteArray(pngBytes, 0, pngBytes.length, bounds);
+        long sourcePixels = (long) bounds.outWidth * bounds.outHeight;
+        if (bounds.outWidth <= 0 || bounds.outHeight <= 0 || bounds.outWidth > 4096
+            || bounds.outHeight > 24000 || sourcePixels > 24000000) {
+            throw new IllegalArgumentException("Receipt image dimensions are invalid or too large.");
+        }
+
+        Bitmap bitmap = BitmapFactory.decodeByteArray(pngBytes, 0, pngBytes.length);
+        if (bitmap == null) {
+            throw new IllegalArgumentException("Could not decode the receipt image.");
+        }
+        try {
+            return EscPosRaster.encode(bitmap);
+        } finally {
+            bitmap.recycle();
+        }
     }
 
     private void startBleScan(BluetoothAdapter adapter) {
@@ -228,16 +315,35 @@ public class PrinterPlugin extends Plugin {
                     finishPrint("Could not connect to the printer (BLE error " + status + ").", false);
                 } else if (newState == BluetoothGatt.STATE_CONNECTED) {
                     cancelTimeout(connectionTimeout);
-                    if (!currentGatt.discoverServices()) {
-                        finishPrint("Could not inspect the printer's BLE services.", false);
+                    boolean requestStarted;
+                    try {
+                        requestStarted = currentGatt.requestMtu(REQUESTED_MTU);
+                    } catch (SecurityException error) {
+                        finishPrint("Bluetooth connect permission is missing.", false);
+                        return;
+                    }
+                    if (requestStarted) {
+                        mtuTimeout = () -> startServiceDiscovery(currentGatt);
+                        mainHandler.postDelayed(mtuTimeout, MTU_TIMEOUT_MS);
                     } else {
-                        serviceDiscoveryTimeout = () -> finishPrint(
-                            "Timed out reading the printer profile. Use Choose printer and print to scan again.", false);
-                        mainHandler.postDelayed(serviceDiscoveryTimeout, SERVICE_DISCOVERY_TIMEOUT_MS);
+                        startServiceDiscovery(currentGatt);
                     }
                 } else if (newState == BluetoothGatt.STATE_DISCONNECTED) {
                     finishPrint("The printer disconnected before printing completed.", false);
                 }
+            });
+        }
+
+        @Override
+        public void onMtuChanged(BluetoothGatt currentGatt, int mtu, int status) {
+            mainHandler.post(() -> {
+                if (activeCall == null) return;
+                cancelTimeout(mtuTimeout);
+                if (status == BluetoothGatt.GATT_SUCCESS) {
+                    blePayloadSize = Math.max(DEFAULT_BLE_PAYLOAD_SIZE,
+                        Math.min(mtu - 3, MAX_BLE_PAYLOAD_SIZE));
+                }
+                startServiceDiscovery(currentGatt);
             });
         }
 
@@ -258,7 +364,7 @@ public class PrinterPlugin extends Plugin {
         public void onCharacteristicWrite(BluetoothGatt currentGatt,
                 BluetoothGattCharacteristic characteristic, int status) {
             mainHandler.post(() -> {
-                if (activeCall == null || characteristic != writeCharacteristic) return;
+                if (activeCall == null || !writeWithResponse || characteristic != writeCharacteristic) return;
                 cancelTimeout(writeTimeout);
                 if (status != BluetoothGatt.GATT_SUCCESS) {
                     finishPrint("The printer rejected receipt data (BLE error " + status + ").", false);
@@ -269,6 +375,17 @@ public class PrinterPlugin extends Plugin {
             });
         }
     };
+
+    private void startServiceDiscovery(BluetoothGatt currentGatt) {
+        if (activeCall == null || serviceDiscoveryStarted) return;
+        serviceDiscoveryStarted = true;
+        if (!currentGatt.discoverServices()) {
+            finishPrint("Could not inspect the printer's BLE services.", false);
+            return;
+        }
+        serviceDiscoveryTimeout = () -> finishPrint("Timed out reading the printer's BLE services.", false);
+        mainHandler.postDelayed(serviceDiscoveryTimeout, SERVICE_DISCOVERY_TIMEOUT_MS);
+    }
 
     private void selectBestWritableCharacteristic(BluetoothGatt currentGatt) {
         List<CharacteristicTarget> targets = new ArrayList<>();
@@ -288,7 +405,8 @@ public class PrinterPlugin extends Plugin {
             .comparingInt((CharacteristicTarget target) -> target.score).reversed()
             .thenComparing(target -> target.characteristic.getUuid().toString()));
         writeCharacteristic = targets.get(0).characteristic;
-        prepareReceiptData();
+        writeWithResponse = (writeCharacteristic.getProperties()
+            & BluetoothGattCharacteristic.PROPERTY_WRITE) != 0;
         writeNextChunk();
     }
 
@@ -316,19 +434,6 @@ public class PrinterPlugin extends Plugin {
         return score;
     }
 
-    private void prepareReceiptData() {
-        String text = activeCall.getString("text", "");
-        byte[] receipt = text.getBytes(StandardCharsets.UTF_8);
-        printData = new byte[receipt.length + 5];
-        printData[0] = 0x1B;
-        printData[1] = 0x40;
-        System.arraycopy(receipt, 0, printData, 2, receipt.length);
-        printData[receipt.length + 2] = 0x0A;
-        printData[receipt.length + 3] = 0x0A;
-        printData[receipt.length + 4] = 0x0A;
-        printOffset = 0;
-    }
-
     private void writeNextChunk() {
         if (activeCall == null) return;
         if (gatt == null || writeCharacteristic == null || printData == null) {
@@ -336,15 +441,17 @@ public class PrinterPlugin extends Plugin {
             return;
         }
         if (printOffset >= printData.length) {
-            finishPrint("Receipt data sent to printer.", true);
+            if (!drainScheduled) {
+                drainScheduled = true;
+                mainHandler.postDelayed(() -> finishPrint("Receipt data sent to printer.", true), PRINTER_DRAIN_DELAY_MS);
+            }
             return;
         }
 
-        pendingChunkLength = Math.min(CHUNK_SIZE, printData.length - printOffset);
+        pendingChunkLength = Math.min(blePayloadSize, printData.length - printOffset);
         byte[] chunk = new byte[pendingChunkLength];
         System.arraycopy(printData, printOffset, chunk, 0, pendingChunkLength);
-        int properties = writeCharacteristic.getProperties();
-        int writeType = (properties & BluetoothGattCharacteristic.PROPERTY_WRITE) != 0
+        int writeType = writeWithResponse
             ? BluetoothGattCharacteristic.WRITE_TYPE_DEFAULT
             : BluetoothGattCharacteristic.WRITE_TYPE_NO_RESPONSE;
 
@@ -360,8 +467,18 @@ public class PrinterPlugin extends Plugin {
             finishPrint("Could not send receipt data to the printer.", false);
             return;
         }
-        writeTimeout = () -> finishPrint("Timed out sending data to the printer.", false);
-        mainHandler.postDelayed(writeTimeout, WRITE_TIMEOUT_MS);
+        if (writeWithResponse) {
+            writeTimeout = () -> finishPrint("Timed out sending data to the printer.", false);
+            mainHandler.postDelayed(writeTimeout, WRITE_TIMEOUT_MS);
+        } else {
+            printOffset += pendingChunkLength;
+            pendingChunkLength = 0;
+            if (printOffset >= printData.length) {
+                writeNextChunk();
+            } else {
+                mainHandler.postDelayed(this::writeNextChunk, NO_RESPONSE_WRITE_INTERVAL_MS);
+            }
+        }
     }
 
     private void stopScan() {
@@ -383,6 +500,7 @@ public class PrinterPlugin extends Plugin {
             activeCall = null;
             stopScan();
             cancelTimeout(connectionTimeout);
+            cancelTimeout(mtuTimeout);
             cancelTimeout(serviceDiscoveryTimeout);
             cancelTimeout(writeTimeout);
             if (gatt != null) {
@@ -396,6 +514,11 @@ public class PrinterPlugin extends Plugin {
             }
             writeCharacteristic = null;
             printData = null;
+            blePayloadSize = DEFAULT_BLE_PAYLOAD_SIZE;
+            writeWithResponse = false;
+            serviceDiscoveryStarted = false;
+            drainScheduled = false;
+            pendingChunkLength = 0;
             if (success) {
                 JSObject result = new JSObject();
                 result.put("message", message);

@@ -162,31 +162,3 @@ export const createCustomerStatementPrintHtml = (customer, businessName) => {
       </body>
     </html>`;
 };
-
-export const createCustomerStatementPrintText = (customer, businessName) => {
-  const { outstanding, rows } = getStatementData(customer);
-  const statementRows = rows.length
-    ? rows
-    : [['-', '-', 'No outstanding bills', '-', formatPriceMK(0)]];
-  const billText = statementRows.flatMap(([bill, date, items, paid, balanceDue]) => [
-    '--------------------------------',
-    `Bill: ${bill}`,
-    `Date: ${date}`,
-    ...String(items || '').split('\n').filter(Boolean).map((item) => `  ${item}`),
-    `Paid: ${paid}`,
-    `Balance due: ${balanceDue}`
-  ]);
-
-  return [
-    businessName || 'SMART BAR',
-    'OUTSTANDING BALANCE STATEMENT',
-    `Customer: ${customer.name || 'Customer'}`,
-    `Phone: ${customer.phone || '-'}`,
-    `Statement date: ${new Date().toLocaleDateString()}`,
-    ...billText,
-    '--------------------------------',
-    `TOTAL OUTSTANDING: ${formatPriceMK(outstanding)}`,
-    '',
-    ''
-  ].join('\n');
-};
