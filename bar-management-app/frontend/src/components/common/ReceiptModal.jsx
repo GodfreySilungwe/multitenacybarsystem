@@ -5,9 +5,9 @@ import { useAuth } from '../../context/AuthContext';
 import { formatPriceMK } from '../../utils/formatPrice';
 import { cacheBusinessSettings, getActiveBusinessSettings } from '../../utils/businessSettings';
 import { isNativeAndroidApp, printReceiptImageWithNativePrinter } from '../../utils/nativePrinter';
+import { createCustomerReceiptAccessUrl } from '../../utils/customerReceiptAccessUrl';
 
 const APPLY_URL = 'https://www.smartbarmw.tech/apply';
-const PUBLIC_SITE_ORIGIN = new URL(APPLY_URL).origin;
 
 const ReceiptModal = ({ order, onClose, isCopy = false }) => {
   const { user } = useAuth();
@@ -38,8 +38,7 @@ const ReceiptModal = ({ order, onClose, isCopy = false }) => {
             orderId: order.receiptOrderId || order._id || order.id
           });
           if (response.data?.token) {
-            const receiptOrigin = isNativeAndroidApp() ? PUBLIC_SITE_ORIGIN : window.location.origin;
-            qrUrl = `${receiptOrigin}/customer-receipt-access#token=${encodeURIComponent(response.data.token)}`;
+            qrUrl = createCustomerReceiptAccessUrl(response.data.token, isNativeAndroidApp());
             caption = 'Scan to check your bill';
           }
         } catch (error) {

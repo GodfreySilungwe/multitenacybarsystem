@@ -14,6 +14,7 @@ import {
 import { getActiveBusinessSettings, getActiveCurrency } from '../utils/businessSettings';
 import { getDefaultPaymentMethod, getPaymentMethodLabel, getPaymentMethods } from '../utils/paymentMethods';
 import { isNativeAndroidApp, printHtmlWithNativeRaster } from '../utils/nativePrinter';
+import { createCustomerReceiptAccessUrl } from '../utils/customerReceiptAccessUrl';
 import { Directory, Filesystem } from '@capacitor/filesystem';
 import { Share } from '@capacitor/share';
 
@@ -200,7 +201,7 @@ const Customers = () => {
         if (!accessResponse.data?.token) {
           throw new Error('Could not create a customer bills QR code.');
         }
-        customerAccessUrl = `${window.location.origin}/customer-receipt-access#token=${encodeURIComponent(accessResponse.data.token)}`;
+        customerAccessUrl = createCustomerReceiptAccessUrl(accessResponse.data.token, isNativeAndroidApp());
       }
 
       const pdfBlob = await createCustomerStatementPdf(customer, getBusinessName(), customerAccessUrl);

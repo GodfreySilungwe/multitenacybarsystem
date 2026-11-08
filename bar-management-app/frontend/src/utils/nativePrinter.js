@@ -31,40 +31,56 @@ export const printReceiptImageWithNativePrinter = (imageBase64) => (
 );
 
 export const printHtmlWithNativeRaster = async (html) => {
-	const iframe = document.createElement('iframe');
-	iframe.setAttribute('aria-hidden', 'true');
-	iframe.style.position = 'fixed';
-	iframe.style.top = '0';
-	iframe.style.left = '-10000px';
-	iframe.style.width = '302px';
-	iframe.style.height = '1px';
-	iframe.style.border = '0';
+	const parsedHtml = new DOMParser().parseFromString(html, 'text/html');
+	const scopeClass = `customer-statement-print-${Date.now()}`;
+	const container = document.createElement('div');
+	container.className = scopeClass;
+	container.setAttribute('aria-hidden', 'true');
+	container.style.position = 'fixed';
+	container.style.top = '0';
+	container.style.left = '-10000px';
+	container.style.width = '302px';
+	container.style.overflow = 'visible';
+	container.style.backgroundColor = '#ffffff';
+	container.innerHTML = parsedHtml.body.innerHTML;
 
-	const loaded = new Promise((resolve, reject) => {
-		iframe.onload = resolve;
-		iframe.onerror = () => reject(new Error('Could not render the statement for printing.'));
-	});
-	document.body.appendChild(iframe);
+	const scopedStyles = Array.from(parsedHtml.querySelectorAll('style'))
+		.map((style) => style.textContent || '')
+		.join('\n')
+		.replace(/@page[^{}]*\{[^}]*\}/gi, '')
+		.replace(/([^{}]+)\{([^{}]*)\}/g, (_rule, selectors, declarations) => {
+			const scopedSelectors = selectors.split(',').map((selector) => {
+				const value = selector.trim();
+				if (value === 'html' || value === 'body') return `.${scopeClass}`;
+				if (value.startsWith('body ')) return `.${scopeClass} ${value.slice(5)}`;
+				return `.${scopeClass} ${value}`;
+			});
+			return `${scopedSelectors.join(', ')} {${declarations}}`;
+		});
+	const styleElement = document.createElement('style');
+	styleElement.textContent = scopedStyles;
+	document.head.appendChild(styleElement);
+	document.body.appendChild(container);
 
 	try {
-		iframe.srcdoc = html;
-		await loaded;
-		const receiptDocument = iframe.contentDocument;
-		if (!receiptDocument?.body) throw new Error('Could not render the statement for printing.');
-		await new Promise((resolve) => iframe.contentWindow.requestAnimationFrame(() => resolve()));
-
+		await new Promise((resolve) => window.requestAnimationFrame(() => resolve()));
 		const { default: html2canvas } = await import('html2canvas');
-		const canvas = await html2canvas(receiptDocument.body, {
+		const canvas = await html2canvas(container, {
 			backgroundColor: '#ffffff',
 			scale: 2,
 			useCORS: true,
-			logging: false
+			logging: false,
+			scrollX: 0,
+			scrollY: 0,
+			windowWidth: container.scrollWidth,
+			windowHeight: container.scrollHeight
 		});
 		const imageBase64 = canvas.toDataURL('image/png').split(',')[1];
 		if (!imageBase64) throw new Error('Could not prepare the statement image.');
 		return await printReceiptImageWithNativePrinter(imageBase64);
 	} finally {
-		iframe.remove();
+		container.remove();
+		styleElement.remove();
 	}
 };
 
