@@ -21,6 +21,7 @@ import PageContainer from './PageContainer';
 import { formatPriceMK } from '../utils/formatPrice';
 import { getActiveBusinessSettings } from '../utils/businessSettings';
 import { getPaymentMethodLabel, getPaymentMethods } from '../utils/paymentMethods';
+import { getDailyReportPeriod } from '../utils/dailyReportPeriod';
 
 const Dashboard = () => {
   const { isGlobalOwner, isSales, isBarOwner, isOwner, user } = useAuth();
@@ -72,11 +73,12 @@ const Dashboard = () => {
   const [totalCreditSales, setTotalCreditSales] = useState(0);
   const [totalImmediateReceipts, setTotalImmediateReceipts] = useState(0);
   const [totalCreditCollected, setTotalCreditCollected] = useState(0);
-  const [dateRange, setDateRange] = useState('today');
-  const [customStartDate, setCustomStartDate] = useState('');
-  const [customEndDate, setCustomEndDate] = useState('');
-  const [customStartTime, setCustomStartTime] = useState('');
-  const [customEndTime, setCustomEndTime] = useState('');
+  const dailyReportPeriod = getDailyReportPeriod();
+  const [dateRange, setDateRange] = useState('dailyReport');
+  const [customStartDate, setCustomStartDate] = useState(dailyReportPeriod.startDate.slice(0, 10));
+  const [customEndDate, setCustomEndDate] = useState(dailyReportPeriod.endDate.slice(0, 10));
+  const [customStartTime, setCustomStartTime] = useState(dailyReportPeriod.startDate.slice(11, 16));
+  const [customEndTime, setCustomEndTime] = useState(dailyReportPeriod.endDate.slice(11, 16));
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [lastUpdated, setLastUpdated] = useState(null);
@@ -153,12 +155,16 @@ const Dashboard = () => {
         setLowStockProducts([]);
         setLastUpdated(new Date().toLocaleTimeString());
       } else {
-        const params = { range: dateRange, dashboard: 'true' };
+        const params = { range: dateRange === 'dailyReport' ? 'custom' : dateRange, dashboard: 'true' };
         if (appendProductSales) {
           params.productSalesOffset = productSales.length;
           params.productSalesLimit = PRODUCT_SALES_PAGE_SIZE;
         }
-        if (dateRange === 'custom') {
+        if (dateRange === 'dailyReport') {
+          const currentPeriod = getDailyReportPeriod();
+          params.startDate = currentPeriod.startDate;
+          params.endDate = currentPeriod.endDate;
+        } else if (dateRange === 'custom') {
           if (customStartDate) params.startDate = customStartTime ? `${customStartDate}T${customStartTime}` : customStartDate;
           if (customEndDate) params.endDate = customEndTime ? `${customEndDate}T${customEndTime}` : customEndDate;
         }
@@ -632,16 +638,29 @@ const Dashboard = () => {
         <>
           <div style={styles.dateFilterRow}>
             <div style={styles.filters}>
-              {['today', 'custom'].map((option) => (
+              {[
+                { key: 'dailyReport', label: 'Daily Report (6am-now)' },
+                { key: 'today', label: 'Today' },
+                { key: 'custom', label: 'Custom' }
+              ].map((option) => (
                 <button
-                  key={option}
+                  key={option.key}
                   style={{
                     ...styles.filterBtn,
-                    ...(dateRange === option ? styles.filterBtnActive : {})
+                    ...(dateRange === option.key ? styles.filterBtnActive : {})
                   }}
-                  onClick={() => setDateRange(option)}
+                  onClick={() => {
+                    setDateRange(option.key);
+                    if (option.key === 'dailyReport') {
+                      const p = getDailyReportPeriod();
+                      setCustomStartDate(p.startDate.slice(0, 10));
+                      setCustomEndDate(p.endDate.slice(0, 10));
+                      setCustomStartTime(p.startDate.slice(11, 16));
+                      setCustomEndTime(p.endDate.slice(11, 16));
+                    }
+                  }}
                 >
-                  {option === 'today' ? 'Today' : 'Custom'}
+                  {option.label}
                 </button>
               ))}
             </div>

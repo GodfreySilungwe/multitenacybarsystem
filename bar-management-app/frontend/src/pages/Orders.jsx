@@ -7,6 +7,7 @@ import ReceiptModal from '../components/common/ReceiptModal';
 import { formatPriceMK } from '../utils/formatPrice';
 import { getActiveBusinessSettings } from '../utils/businessSettings';
 import { getPaymentMethodLabel } from '../utils/paymentMethods';
+import { getDailyReportPeriod } from '../utils/dailyReportPeriod';
 
 const Orders = () => {
   const [orders, setOrders] = useState([]);
@@ -14,7 +15,7 @@ const Orders = () => {
   const [loadingMore, setLoadingMore] = useState(false);
   const [hasMore, setHasMore] = useState(false);
   const [nextKey, setNextKey] = useState(null);
-  const [filter, setFilter] = useState('today');
+  const [filter, setFilter] = useState('dailyReport');
   const [customStartDate, setCustomStartDate] = useState('');
   const [customEndDate, setCustomEndDate] = useState('');
   const [customStartTime, setCustomStartTime] = useState('');
@@ -37,7 +38,9 @@ const Orders = () => {
   const canManageOrders = isBarOwner || isOwner;
   const canReverseOrders = canManageOrders;
   const showProfitColumn = canManageOrders;
-  const orderFilterOptions = isSales ? ['today', 'custom'] : ['all', 'today', 'custom'];
+  const orderFilterOptions = isSales
+    ? ['dailyReport', 'today', 'custom']
+    : ['all', 'dailyReport', 'today', 'custom'];
   const customRangeReady = filter !== 'custom'
     || (Boolean(customStartDate && customEndDate)
       && ((!customStartTime && !customEndTime) || Boolean(customStartTime && customEndTime)));
@@ -77,6 +80,12 @@ const Orders = () => {
       params.endDate = getLocalDateString(); // Same day for end date
     }
 
+    if (filter === 'dailyReport') {
+      const period = getDailyReportPeriod();
+      params.startDate = period.startDate;
+      params.endDate = period.endDate;
+    }
+
     if (filter === 'custom' && customStartDate) {
       params.startDate = customStartTime ? `${customStartDate}T${customStartTime}` : customStartDate;
     }
@@ -102,8 +111,12 @@ const Orders = () => {
 
       const params = buildOrderParams({ lastKey: reset ? null : lastKey });
       const summaryParams = {
-        range: filter === 'all' ? 'all' : filter,
+        range: filter === 'all' ? 'all' : filter === 'dailyReport' ? 'custom' : filter,
         light: 'true',
+        ...(filter === 'dailyReport' ? {
+          startDate: params.startDate,
+          endDate: params.endDate
+        } : {}),
         ...(filter === 'custom' && customStartDate ? { startDate: customStartDate } : {}),
         ...(filter === 'custom' && customEndDate ? { endDate: customEndDate } : {}),
         ...(filter === 'custom' && customStartDate && customStartTime ? { startDate: `${customStartDate}T${customStartTime}` } : {}),
@@ -246,7 +259,11 @@ const Orders = () => {
                 }
               }}
             >
-              {filterOption === 'custom' ? 'Custom' : filterOption.charAt(0).toUpperCase() + filterOption.slice(1)}
+              {filterOption === 'dailyReport'
+                ? 'Daily Report (6am-now)'
+                : filterOption === 'custom'
+                  ? 'Custom'
+                  : filterOption.charAt(0).toUpperCase() + filterOption.slice(1)}
             </button>
           ))}
         </div>
